@@ -171,7 +171,7 @@ impl StoredErrors {
                 .map(|error| {
                     let path = error.native_path();
                     StoredError {
-                        kind: kind_of(error),
+                        kind: error.label(),
                         path: path.map(|path| path.to_string_lossy().into_owned()),
                         file: path.and_then(|path| in_tree(path, root)),
                         message: error.to_string(),
@@ -215,19 +215,6 @@ impl Serialize for StoredErrors {
             listed: self.0.get(..ERRORS_LISTED).unwrap_or(&self.0),
         }
         .serialize(serializer)
-    }
-}
-
-pub(crate) const fn kind_of(error: &BuildError) -> &'static str {
-    match error {
-        BuildError::Walk(_) => "walk",
-        BuildError::Ignore { .. } => "ignore",
-        BuildError::Name { .. } => "name",
-        BuildError::Read { .. } => "read",
-        BuildError::ContentIndex { .. } => "content_index",
-        BuildError::Stopped(_) | BuildError::Cancelled => "cancelled",
-        BuildError::Cache { .. } => "cache",
-        _ => "other",
     }
 }
 

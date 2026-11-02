@@ -4,8 +4,9 @@
 //! The reference's `###` sections are its objects and value sets, and a section's names are the bullets that open with
 //! a backticked name. The code's side is read from `src/` with `syn`: every struct and enum that derives `Serialize` or
 //! `Deserialize`, by the serde attributes that decide what the wire spells; every `match` that answers string literals,
-//! which is how the wire spells an engine enum; every numeric constant. The methods come from `version` and the params
-//! each takes from serde's own refusal of an unknown field, so neither rests on reading the source.
+//! none with a wildcard arm, so no map answers an existing word for a variant it cannot name; every numeric constant.
+//! The methods come from `version` and the params each takes from serde's own refusal of an unknown field, so neither
+//! rests on reading the source.
 #![expect(
     clippy::expect_used,
     clippy::panic,
@@ -374,6 +375,14 @@ impl<'ast> Visit<'ast> for Surface {
             .filter_map(|arm| string_of(&arm.body))
             .collect();
         if !values.is_empty() {
+            let wildcard = matched
+                .arms
+                .iter()
+                .any(|arm| matches!(arm.pat, syn::Pat::Wild(_) | syn::Pat::Ident(_)));
+            assert!(
+                !wildcard,
+                "a wildcard arm answers an existing word for a variant it cannot name: {values:?}"
+            );
             self.value_sets.push(values);
         }
         visit::visit_expr_match(self, matched);
@@ -409,9 +418,14 @@ fn engine_value_sets() -> Vec<BTreeSet<String>> {
 
     let mut labels = Labels(Surface::default());
     for file in [
+        "../kartta-fs/src/build.rs",
+        "../kartta-fs/src/list.rs",
         "../kartta-graph/src/analyze.rs",
+        "../kartta-graph/src/graph.rs",
+        "../kartta-graph/src/resolution.rs",
         "../kartta-lang/src/extraction.rs",
         "../kartta-lang/src/symbol.rs",
+        "../kartta/src/reading.rs",
     ] {
         labels.visit_file(&parsed(&here(file)));
     }
@@ -702,7 +716,8 @@ fn quoted_in<'t>(lines: impl Iterator<Item = &'t str>, quote: char) -> BTreeSet<
 #[test]
 fn the_bindings_spell_every_error_code_and_no_other() {
     let sections = reference();
-    let codes = names(&sections["ErrorCode"]);
+    let mut codes = names(&sections["ErrorCode"]);
+    codes.append(&mut names(&sections["ListErrorCode"]));
     let go = read(&here("../../bindings/go/wire/errors.go"));
     let ts = read(&here("../../bindings/node/src/wire.ts"));
     let (_, ts) = ts.split_once("export type Code =").expect("the type");

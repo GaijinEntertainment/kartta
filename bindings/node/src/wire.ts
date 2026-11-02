@@ -314,7 +314,10 @@ export type BuildErrors = {
 
 /** One failure a build collected. */
 export type BuildFailure = {
-	/** `walk`, `ignore`, `name`, `read`, `content_index`, `cache` or `other`. */
+	/**
+	 * `walk`, `ignore`, `name`, `read`, `content_index` or `cache`; a failure of any other kind stops the call and
+	 * answers its code.
+	 */
 	kind: string;
 	/** The path that failed, as the system spells it. One in the tree starts with the root as `open` was given it. */
 	path?: string;

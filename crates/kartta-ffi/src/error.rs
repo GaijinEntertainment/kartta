@@ -37,10 +37,8 @@ pub(crate) enum ErrorCode {
     InvalidGlob,
     /// A grep pattern does not compile.
     InvalidPattern,
-    /// `list` names a path the index does not hold.
-    NotFound,
-    /// `list` names a path that is not a directory.
-    NotADirectory,
+    /// `list` cannot list the path, by the [`label`](kartta::ListError::label) of why.
+    Listing(&'static str),
     /// The engine panicked, `kartta_call` could not start its thread, or an answer could not be encoded. After a call
     /// the handle stays usable, though a refresh that panicked partway leaves every call that reads the engine
     /// answering this code, naming `build`, until a build replaces the engine; an `open` that answers it made no
@@ -64,8 +62,7 @@ impl ErrorCode {
             Self::RefreshCancelled => "refresh_cancelled",
             Self::InvalidGlob => "invalid_glob",
             Self::InvalidPattern => "invalid_pattern",
-            Self::NotFound => "not_found",
-            Self::NotADirectory => "not_a_directory",
+            Self::Listing(label) => label,
             Self::Internal => "internal",
         }
     }
