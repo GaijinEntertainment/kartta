@@ -589,35 +589,30 @@ impl<'s> Emitter<'s> {
     // constraint: a pattern binds its identifiers and its shorthand properties; a property key, a default value and a
     // type annotation bind nothing, though a parameter's name keeps the one type its annotation spells
     fn declare_pattern(&mut self, pattern: Node<'_>, until: usize, value: ValueBinding) {
-        let inner = |field| pattern.child_by_field_name(field);
-        match pattern.kind() {
-            "identifier" | "shorthand_property_identifier_pattern" => {
-                self.declare(pattern.byte_range(), until, value(None));
-            }
-            "required_parameter" | "optional_parameter" => match inner("pattern") {
-                Some(bound) if bound.kind() == "identifier" => {
-                    let typed = inner("type").and_then(|written| self.named_type(written));
-                    self.declare(bound.byte_range(), until, value(typed.map(Held::Type)));
+        let mut waiting = Vec::new();
+        let mut next = Some(pattern);
+        while let Some(pattern) = next.take().or_else(|| waiting.pop()) {
+            let inner = |field| pattern.child_by_field_name(field);
+            match pattern.kind() {
+                "identifier" | "shorthand_property_identifier_pattern" => {
+                    self.declare(pattern.byte_range(), until, value(None));
                 }
-                Some(bound) => self.declare_pattern(bound, until, value),
-                None => {}
-            },
-            "assignment_pattern" | "object_assignment_pattern" => {
-                if let Some(bound) = inner("left") {
-                    self.declare_pattern(bound, until, value);
+                "required_parameter" | "optional_parameter" => match inner("pattern") {
+                    Some(bound) if bound.kind() == "identifier" => {
+                        let typed = inner("type").and_then(|written| self.named_type(written));
+                        self.declare(bound.byte_range(), until, value(typed.map(Held::Type)));
+                    }
+                    bound => waiting.extend(bound),
+                },
+                "assignment_pattern" | "object_assignment_pattern" => {
+                    waiting.extend(inner("left"));
                 }
-            }
-            "pair_pattern" => {
-                if let Some(bound) = inner("value") {
-                    self.declare_pattern(bound, until, value);
+                "pair_pattern" => waiting.extend(inner("value")),
+                "formal_parameters" | "object_pattern" | "array_pattern" | "rest_pattern" => {
+                    waiting.extend(named_child_nodes(pattern).rev());
                 }
+                _ => {}
             }
-            "formal_parameters" | "object_pattern" | "array_pattern" | "rest_pattern" => {
-                for bound in named_child_nodes(pattern) {
-                    self.declare_pattern(bound, until, value);
-                }
-            }
-            _ => {}
         }
     }
 

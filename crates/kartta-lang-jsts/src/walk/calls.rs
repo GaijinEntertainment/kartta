@@ -152,31 +152,42 @@ impl Emitter<'_> {
     /// The path of calls a call spells from the owner it is written on: `opened()`, `Kartta::open()`,
     /// `Kartta::open()::child()`, with `?` after a call an `await` takes. A call on a value of no known type spells none.
     pub(super) fn returned_path(&self, value: Node<'_>) -> Option<String> {
-        let (call, awaited) = match value.kind() {
+        let (mut call, mut awaited) = match value.kind() {
             "await_expression" => (value.named_child(0)?, "?"),
             _ => (value, ""),
         };
-        if call.kind() != "call_expression" {
-            return None;
-        }
-        let (callee, written) = call_target(call, self.source);
-        if callee.is_empty() {
-            return None;
-        }
-        let chained = (call.child_by_field_name("function"))
-            .and_then(|function| function.child_by_field_name("object"))
-            .filter(|object| object.kind() == "call_expression");
-        if let Some(object) = chained {
-            let path = self.returned_path(object)?;
-            return Some(format!("{path}::{callee}(){awaited}"));
-        }
-        let owner = self
-            .this_owner(call)
-            .or_else(|| self.value_receiver(written));
-        match owner.as_deref() {
-            None => Some(format!("{callee}(){awaited}")),
-            Some("") => None,
-            Some(owner) => Some(format!("{owner}::{callee}(){awaited}")),
+        let mut outer_calls = Vec::new();
+        loop {
+            if call.kind() != "call_expression" {
+                return None;
+            }
+            let (callee, written) = call_target(call, self.source);
+            if callee.is_empty() {
+                return None;
+            }
+            let chained = (call.child_by_field_name("function"))
+                .and_then(|function| function.child_by_field_name("object"))
+                .filter(|object| object.kind() == "call_expression");
+            if let Some(object) = chained {
+                outer_calls.push((callee, awaited));
+                (call, awaited) = (object, "");
+                continue;
+            }
+            let owner = self
+                .this_owner(call)
+                .or_else(|| self.value_receiver(written));
+            let mut path = match owner.as_deref() {
+                None => format!("{callee}(){awaited}"),
+                Some("") => return None,
+                Some(owner) => format!("{owner}::{callee}(){awaited}"),
+            };
+            for (callee, awaited) in outer_calls.iter().rev() {
+                path.push_str("::");
+                path.push_str(callee);
+                path.push_str("()");
+                path.push_str(awaited);
+            }
+            return Some(path);
         }
     }
 
