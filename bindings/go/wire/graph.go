@@ -59,12 +59,13 @@ type WalkParams struct {
 	Line int `json:"line,omitempty"`
 	// Lang names the graph to ask, by a language or its family; empty asks every graph.
 	Lang string `json:"lang,omitempty"`
-	// Depth is how many calls away the walk goes; 0 takes the method's default, 3 for callers and 1 for callees.
-	Depth int `json:"depth,omitempty"`
+	// Depth is how many calls away the walk goes; nil takes the method's default, 3 for callers and 1 for callees, and
+	// 0 follows no call.
+	Depth *int `json:"depth,omitempty"`
 	// MinConfidence is the least confidence, 0 to 100, a call needs to be taken.
 	MinConfidence int `json:"min_confidence,omitempty"`
-	// MaxSymbols caps the symbols the walk reaches, its root included; 0 takes the default, 500.
-	MaxSymbols int `json:"max_symbols,omitempty"`
+	// MaxSymbols caps the symbols the walk reaches, its root included; nil takes the default, 500, and 0 sets no cap.
+	MaxSymbols *int `json:"max_symbols,omitempty"`
 }
 
 // Walk is what a walk over calls reached in one graph, and what it left out.
@@ -170,11 +171,11 @@ type CallPathParams struct {
 	// ToLine keeps the symbols To may select to those that start on it, one-based. 0 keeps every line.
 	ToLine int    `json:"to_line,omitempty"`
 	Lang   string `json:"lang,omitempty"`
-	// Depth is how many calls long a path may be; 0 takes the default, 8.
-	Depth         int `json:"depth,omitempty"`
-	MinConfidence int `json:"min_confidence,omitempty"`
-	// MaxSymbols caps the symbols the search reaches; 0 takes the default, 20,000.
-	MaxSymbols int `json:"max_symbols,omitempty"`
+	// Depth is how many calls long a path may be; nil takes the default, 8, and 0 follows no call.
+	Depth         *int `json:"depth,omitempty"`
+	MinConfidence int  `json:"min_confidence,omitempty"`
+	// MaxSymbols caps the symbols the search reaches; nil takes the default, 20,000, and 0 sets no cap.
+	MaxSymbols *int `json:"max_symbols,omitempty"`
 }
 
 // CallPath is what a search for a chain of calls between two symbols found in one graph, and what it left out.
@@ -224,8 +225,8 @@ type ReferencesParams struct {
 	// Access keeps the uses that read ("read"), that set ("write") or that update ("update") the symbol, an update
 	// counting as a read and a write, and drops the calls; empty keeps every site.
 	Access string `json:"access,omitempty"`
-	// Limit caps the sites answered; 0 takes the default, 500.
-	Limit int `json:"limit,omitempty"`
+	// Limit caps the sites answered; nil takes the default, 500, and 0 answers the counts alone.
+	Limit *int `json:"limit,omitempty"`
 }
 
 // References are the sites that call or use a symbol in one graph.
@@ -281,8 +282,8 @@ type DefinitionsParams struct {
 	Lang string `json:"lang,omitempty"`
 	// From is the file the lookup asks from: definitions in its directory rank first.
 	From string `json:"from,omitempty"`
-	// Limit caps the definitions answered; 0 takes the default, 10.
-	Limit int `json:"limit,omitempty"`
+	// Limit caps the definitions answered; nil takes the default, 10, and 0 answers the total alone.
+	Limit *int `json:"limit,omitempty"`
 }
 
 // SourcesParams are the params of the sources method: those of definitions, and the caps on each definition's text.
@@ -290,7 +291,7 @@ type SourcesParams struct {
 	Name  string `json:"name"`
 	Lang  string `json:"lang,omitempty"`
 	From  string `json:"from,omitempty"`
-	Limit int    `json:"limit,omitempty"`
+	Limit *int   `json:"limit,omitempty"`
 	// MaxLines caps the lines of each definition, its doc comment included; 0 answers every line.
 	MaxLines int `json:"max_lines,omitempty"`
 	// MaxLineBytes caps the bytes of each line; 0 answers lines whole.
@@ -338,8 +339,8 @@ type CutLine struct {
 type SearchParams struct {
 	Query string `json:"query"`
 	Lang  string `json:"lang,omitempty"`
-	// Limit caps the hits answered; 0 takes the default, 20.
-	Limit int `json:"limit,omitempty"`
+	// Limit caps the hits answered; nil takes the default, 20, and 0 answers the counts alone.
+	Limit *int `json:"limit,omitempty"`
 }
 
 // Search is the answer of search in one graph.
@@ -378,10 +379,10 @@ type ImplementationsParams struct {
 	// of the name in one file. 0 looks at every line.
 	Line int    `json:"line,omitempty"`
 	Lang string `json:"lang,omitempty"`
-	// Depth is how many levels below the root the search goes; 0 takes the default, 3.
-	Depth int `json:"depth,omitempty"`
-	// Limit caps the implementors answered; 0 takes the default, 100.
-	Limit int `json:"limit,omitempty"`
+	// Depth is how many levels below the root the search goes; nil takes the default, 3, and 0 finds none.
+	Depth *int `json:"depth,omitempty"`
+	// Limit caps the implementors answered; nil takes the default, 100, and 0 answers the total alone.
+	Limit *int `json:"limit,omitempty"`
 }
 
 // Implementations are the types that implement or extend a type in one graph.
@@ -421,8 +422,8 @@ type Outline struct {
 // DependentsParams are the params of the dependents method.
 type DependentsParams struct {
 	File string `json:"file"`
-	// Depth is how many includes away the search goes; 0 takes the default, 3.
-	Depth int `json:"depth,omitempty"`
+	// Depth is how many includes away the search goes; nil takes the default, 3, and 0 finds none.
+	Depth *int `json:"depth,omitempty"`
 	// MaxFiles caps the files answered; nil takes the default, 100, and 0 sets no cap.
 	MaxFiles *int `json:"max_files,omitempty"`
 }
@@ -452,11 +453,11 @@ type SegmentParams struct {
 	StartLine int `json:"start_line,omitempty"`
 	// EndLine is the last line of the segment; 0 takes the end of the file.
 	EndLine int `json:"end_line,omitempty"`
-	// Depth is how many calls away each symbol's blast goes; 0 takes the default, 3.
-	Depth         int `json:"depth,omitempty"`
-	MinConfidence int `json:"min_confidence,omitempty"`
-	// MaxSymbols caps the symbols each blast reaches; 0 takes the default, 500.
-	MaxSymbols int `json:"max_symbols,omitempty"`
+	// Depth is how many calls away each symbol's blast goes; nil takes the default, 3, and 0 follows no call.
+	Depth         *int `json:"depth,omitempty"`
+	MinConfidence int  `json:"min_confidence,omitempty"`
+	// MaxSymbols caps the symbols each blast reaches; nil takes the default, 500, and 0 sets no cap.
+	MaxSymbols *int `json:"max_symbols,omitempty"`
 }
 
 // Segment is the answer of analyze_segment: what a change to a range of a file's lines reaches. Graph and Held are as
@@ -515,11 +516,11 @@ type Blast struct {
 // ChangeParams are the params of the analyze_change method.
 type ChangeParams struct {
 	Regions []Region `json:"regions"`
-	// Depth is how many calls away each changed symbol's walk goes; 0 takes the default, 3.
-	Depth         int `json:"depth,omitempty"`
-	MinConfidence int `json:"min_confidence,omitempty"`
-	// MaxSymbols caps the symbols each walk reaches; 0 takes the default, 500.
-	MaxSymbols int `json:"max_symbols,omitempty"`
+	// Depth is how many calls away each changed symbol's walk goes; nil takes the default, 3, and 0 follows no call.
+	Depth         *int `json:"depth,omitempty"`
+	MinConfidence int  `json:"min_confidence,omitempty"`
+	// MaxSymbols caps the symbols each walk reaches; nil takes the default, 500, and 0 sets no cap.
+	MaxSymbols *int `json:"max_symbols,omitempty"`
 }
 
 // Region is a changed range of a file's lines.
