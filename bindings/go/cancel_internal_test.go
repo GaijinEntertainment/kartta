@@ -1,6 +1,7 @@
 package kartta
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,6 +63,22 @@ func tracking(k *Kartta, id uint64, run func() error) <-chan error {
 	go func() { done <- run() }()
 	until(func(k *Kartta) bool { _, tracked := k.stopping[id]; return tracked }, k)
 	return done
+}
+
+func closeHolding(t *testing.T, k *Kartta) {
+	t.Helper()
+	// constraint: a tracked call has yet to reach k.mu, and one that reaches it after Close answers ErrClosed alone.
+	stacks := make([]byte, 1<<20)
+	for !bytes.Contains(stacks[:runtime.Stack(stacks, true)], []byte("[sync.RWMutex.RLock")) {
+		runtime.Gosched()
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- k.Close() }()
+	until(func(k *Kartta) bool { return k.closing }, k)
+	k.mu.Unlock()
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func buildTracked(ctx context.Context, k *Kartta, id uint64) <-chan error {
@@ -166,14 +183,8 @@ func Test_Close_stops_a_build_in_flight(t *testing.T) {
 	id := cancelAhead(t, k, aBuild)
 	k.mu.Lock()
 	built := buildTracked(t.Context(), k, id)
-	closed := make(chan error, 1)
-	go func() { closed <- k.Close() }()
-	until(func(k *Kartta) bool { return k.closing }, k)
-	k.mu.Unlock()
+	closeHolding(t, k)
 
-	if err := <-closed; err != nil {
-		t.Fatal(err)
-	}
 	if err := <-built; !errors.Is(err, ErrClosed) {
 		t.Fatalf("Build beside Close = %v, want %v", err, ErrClosed)
 	}
@@ -218,14 +229,8 @@ func Test_Close_stops_a_grep_yet_to_enter(t *testing.T) {
 	}
 	k.mu.Lock()
 	grepped, answer := grepTracked(t.Context(), k, k.ids.Load()+1)
-	closed := make(chan error, 1)
-	go func() { closed <- k.Close() }()
-	until(func(k *Kartta) bool { return k.closing }, k)
-	k.mu.Unlock()
+	closeHolding(t, k)
 
-	if err := <-closed; err != nil {
-		t.Fatal(err)
-	}
 	if err := <-grepped; err != nil {
 		t.Fatal(err)
 	}
@@ -267,14 +272,8 @@ func Test_Close_stops_a_refresh_in_flight(t *testing.T) {
 	id := cancelAhead(t, k, aRefresh)
 	k.mu.Lock()
 	refreshed := refreshTracked(t.Context(), k, id)
-	closed := make(chan error, 1)
-	go func() { closed <- k.Close() }()
-	until(func(k *Kartta) bool { return k.closing }, k)
-	k.mu.Unlock()
+	closeHolding(t, k)
 
-	if err := <-closed; err != nil {
-		t.Fatal(err)
-	}
 	if err := <-refreshed; !errors.Is(err, wire.RefreshCancelled) || !errors.Is(err, ErrClosed) {
 		t.Fatalf("Refresh beside Close = %v, want both %s and %v", err, wire.RefreshCancelled, ErrClosed)
 	}
@@ -398,13 +397,7 @@ func closeBeside(t *testing.T, k *Kartta, run func() error) error {
 	t.Helper()
 	k.mu.Lock()
 	ran := tracking(k, k.ids.Load()+1, run)
-	closed := make(chan error, 1)
-	go func() { closed <- k.Close() }()
-	until(func(k *Kartta) bool { return k.closing }, k)
-	k.mu.Unlock()
-	if err := <-closed; err != nil {
-		t.Fatal(err)
-	}
+	closeHolding(t, k)
 	return <-ran
 }
 
