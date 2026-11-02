@@ -181,6 +181,7 @@ lost, and what would reopen it.
 - [3.123 Hand a resolver the repository each file resolves against](/design-docs/adr/3.123-resolver-repository-handoff.md)
 - [3.134 Find a doc comment by the comment forms of its language](/design-docs/adr/3.134-doc-comment-forms.md)
 - [3.174 Mark a use as a type apart from a read](/design-docs/adr/3.174-type-use-access.md)
+- [4.53 Leave each public type open to growth unless its set is closed](/design-docs/adr/4.53-public-type-growth.md)
 
 ## crates/kartta-lang-*
 
