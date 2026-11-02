@@ -63,22 +63,28 @@ pub(crate) struct Graphs {
     pub(crate) resolvers: Resolvers,
 }
 
+#[derive(Default)]
 pub(crate) struct Inserted {
     pub(crate) held: Vec<usize>,
     pub(crate) followed: Vec<(ContentId, Followed)>,
     pub(crate) errors: Vec<BuildError>,
+    /// Whether the cancel stopped the resolution before its last batch, which leaves the graphs partial.
+    pub(crate) cancelled: bool,
 }
 
 impl Resolving<'_> {
     /// Each family's graph built from `extracted`, what went into it, and the resolvers that resolved it, with what
     /// each asked as it was built when this resolution records.
-    pub(crate) fn graphs(
-        &self,
-        mut families: Vec<Family>,
-        extracted: Vec<Extracted>,
-    ) -> Result<Graphs, BuildError> {
+    pub(crate) fn graphs(&self, mut families: Vec<Family>, extracted: Vec<Extracted>) -> Graphs {
         if self.cancel.is_some_and(CancelToken::is_cancelled) {
-            return Err(BuildError::Cancelled);
+            return Graphs {
+                families,
+                inserted: Inserted {
+                    cancelled: true,
+                    ..Inserted::default()
+                },
+                resolvers: Resolvers::default(),
+            };
         }
         let work = self.placed(extracted);
         let mut wanted = vec![false; families.len()];
@@ -91,12 +97,12 @@ impl Resolving<'_> {
             IndexRepository::new(self.index)
         };
         let resolvers = self.resolvers(&repository, &wanted);
-        let inserted = self.insert_all(work, (&resolvers, &repository), &mut families)?;
-        Ok(Graphs {
+        let inserted = self.insert_all(work, (&resolvers, &repository), &mut families);
+        Graphs {
             families,
             inserted,
             resolvers,
-        })
+        }
     }
 
     /// How many families the languages come to.
@@ -154,12 +160,11 @@ impl Resolving<'_> {
         mut work: Vec<ToResolve>,
         resolvers: (&Resolvers, &dyn Repository),
         families: &mut [Family],
-    ) -> Result<Inserted, BuildError> {
+    ) -> Inserted {
         work.sort_unstable_by_key(|file| file.position);
         let mut inserted = Inserted {
             held: vec![0; self.languages.len()],
-            followed: Vec::new(),
-            errors: Vec::new(),
+            ..Inserted::default()
         };
         let mut paths = self.index.paths();
         let mut work = work.into_iter();
@@ -173,10 +178,11 @@ impl Resolving<'_> {
                 })
                 .collect();
             if batch.is_empty() {
-                return Ok(inserted);
+                return inserted;
             }
             if self.cancel.is_some_and(CancelToken::is_cancelled) {
-                return Err(BuildError::Cancelled);
+                inserted.cancelled = true;
+                return inserted;
             }
 
             for resolved in self.resolve_batch(batch, resolvers) {

@@ -135,7 +135,7 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// As [`Index::build`], and [`BuildError::Cancelled`] when `cancel` stopped the build before it saw every entry or
+    /// As [`Index::build`], and [`BuildError::Stopped`] when `cancel` stopped the build before it saw every entry or
     /// finished the content index. A wanted file that cannot be read is collected into [`BuildOutcome::errors`] as
     /// [`BuildError::Read`].
     pub fn build_with(
@@ -177,10 +177,12 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// As [`Index::build_with`], and [`BuildError::ContentIdsExhausted`] when the index has no id left for a file the
+    /// As [`Index::build`], [`BuildError::Cancelled`] when `cancel` stopped the refresh before it saw every entry or
+    /// finished the content index, [`BuildError::ContentIdsExhausted`] when the index has no id left for a file the
     /// refresh reads, and [`BuildError::ContentIndex`] when the content index cannot be kept: unlike a build, a refresh
     /// has an index to go on answering from. One the build gave up stays absent, whatever a refresh finds, because the
-    /// files a refresh carries over are not read for it; a new build asks for it again.
+    /// files a refresh carries over are not read for it; a new build asks for it again. A wanted file that cannot be
+    /// read is collected into [`RefreshOutcome::errors`].
     pub fn refresh(
         &mut self,
         visitor: Option<&dyn ContentVisitor>,
@@ -287,10 +289,10 @@ impl Index {
             pool: options.threads.map(thread_pool).transpose()?,
             previous: None,
         };
-        let outcome = Self::walk_and_build(root, options, walking)?;
+        let outcome = Self::walk_and_build(root, options, walking);
         release_freed_memory();
 
-        Ok(outcome)
+        outcome
     }
 
     fn walk_and_build(
@@ -325,11 +327,13 @@ impl Index {
             tree,
             errors: walk_errors,
             cancelled,
+            unvisited,
             ..
         } = on_pool(pool.as_deref(), || {
             walk(root, &policy, &DirState::default(), &walk_options)
         })?;
-        if cancelled {
+        let refreshing = handed.is_some();
+        if cancelled && refreshing {
             return Err(BuildError::Cancelled);
         }
 
@@ -346,16 +350,7 @@ impl Index {
         }
         errors.extend(walk_errors.into_iter().map(BuildError::Walk));
 
-        let base = Base {
-            root: root.to_path_buf(),
-            ignore_sources: options.ignore_sources,
-            pruned_names: options.pruned_names.clone(),
-            binary_extensions: options.binary_extensions.clone(),
-            content_storage: options.content_index.clone(),
-            content_cache: options.content_cache.clone(),
-            content_cache_ttl: options.content_cache_ttl,
-            pool,
-        };
+        let base = Base::of(root, options, pool);
         let placing = Placing {
             first_read: first_content_id,
             learned: &learned,
@@ -365,7 +360,7 @@ impl Index {
             previous,
         };
         let (mut index, carried_text) = Self::from_tree(base, tree, targets, placing);
-        let stored = content.map(|content| {
+        let stored = content.filter(|_| !cancelled).map(|content| {
             let reads = ReadIds {
                 first: first_content_id,
                 count: node_sized(learned.len()),
@@ -375,8 +370,13 @@ impl Index {
             drop(learned);
             index.finish_content_index(content, reads, cancel)
         });
-        index.settle_content_index(stored, handed.is_none(), &mut errors)?;
+        let stopped =
+            cancelled || (!refreshing && matches!(stored, Some(Err(BuildError::Cancelled))));
+        index.settle_content_index(stored.filter(|_| !stopped), handed.is_none(), &mut errors)?;
         order_errors(&mut errors);
+        if stopped {
+            return Err(index.stopped(errors, unvisited));
+        }
 
         Ok(BuildOutcome { index, errors })
     }
@@ -400,6 +400,17 @@ impl Index {
         }
 
         Ok(())
+    }
+
+    fn stopped(mut self, errors: Vec<BuildError>, unvisited: usize) -> BuildError {
+        // constraint: a search narrows through the content index of any index that names a storage, and this one holds
+        // no content index, which would read as no file holding the pattern
+        self.content_storage = None;
+        BuildError::Stopped(Box::new(Stopped {
+            index: self,
+            errors,
+            unvisited,
+        }))
     }
 
     fn finish_content_index(
@@ -1131,6 +1142,21 @@ struct Base {
     pool: Option<Arc<ThreadPool>>,
 }
 
+impl Base {
+    fn of(root: &Path, options: &BuildOptions, pool: Option<Arc<ThreadPool>>) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            ignore_sources: options.ignore_sources,
+            pruned_names: options.pruned_names.clone(),
+            binary_extensions: options.binary_extensions.clone(),
+            content_storage: options.content_index.clone(),
+            content_cache: options.content_cache.clone(),
+            content_cache_ttl: options.content_cache_ttl,
+            pool,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Asked<'a> {
     pub(crate) visitor: Option<&'a dyn ContentVisitor>,
@@ -1539,6 +1565,24 @@ pub struct BuildOutcome {
     /// - [`BuildError::ContentIndex`] — every entry is there, and the index holds no content index, so a search opens
     ///   every candidate. [`Index::content_index_failure`] keeps this reason.
     pub errors: Vec<BuildError>,
+}
+
+/// What a build holds when a cancel stops it, handed back in [`BuildError::Stopped`].
+///
+/// A cancel that lands in the walk leaves whichever entries the threads had reached, which depends on scheduling, so
+/// two stopped builds of one tree hold different entries. The index answers every query over those entries and holds no
+/// content index, so a [`Index::grep`] reads every file it selects. An [`Index::refresh`] of it walks the whole tree,
+/// and keeps no content index.
+#[derive(Debug)]
+pub struct Stopped {
+    /// The index of what the build reached. Check [`Stopped::unvisited`] before reading an absence from it.
+    pub index: Index,
+    /// What the build could not read before it stopped, as [`BuildOutcome::errors`] lists it.
+    pub errors: Vec<BuildError>,
+    /// The entries the walk listed and the cancel turned away, as [`kartta_walk::WalkOutcome::unvisited`] counts them:
+    /// a floor on what the index lacks. Zero when the walk saw every entry and the cancel landed after it, which leaves
+    /// an index of the whole tree.
+    pub unvisited: usize,
 }
 
 /// What one [`Index::refresh`] or [`Index::refresh_paths`] reports: what it walked, what its walks could not read,

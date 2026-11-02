@@ -8,6 +8,7 @@ use kartta_walk::WalkError;
 
 use crate::binary::BinaryExtensions;
 use crate::content_index::ContentIndexStorage;
+use crate::index::Stopped;
 use crate::pruned::PrunedNames;
 
 /// Which of git's ignore sources a build honours.
@@ -159,10 +160,11 @@ pub struct BuildOptions {
 /// A failure that stopped a build, or cost it one entry, one subtree, one directory's rules or one file's content.
 ///
 /// [`BuildError::Walk`] is returned for a root that cannot be listed, [`BuildError::ThreadPool`] for a thread pool that
-/// cannot be started, [`BuildError::Cancelled`] by [`Index::build_with`](crate::Index::build_with),
-/// [`Index::refresh`](crate::Index::refresh) and [`Index::refresh_paths`](crate::Index::refresh_paths) when their cancel
-/// token stopped them, [`BuildError::ContentIndex`] by both refreshes when the content index cannot be kept where it
-/// was asked to be, [`BuildError::ContentIdsExhausted`] by both refreshes when the index has no ids left, and
+/// cannot be started, [`BuildError::Stopped`] by [`Index::build_with`](crate::Index::build_with) when its cancel token
+/// stopped it, [`BuildError::Cancelled`] by [`Index::refresh`](crate::Index::refresh) and
+/// [`Index::refresh_paths`](crate::Index::refresh_paths) when theirs stopped them, [`BuildError::ContentIndex`] by both
+/// refreshes when the content index cannot be kept where it was asked to be, [`BuildError::ContentIdsExhausted`] by both
+/// refreshes when the index has no ids left, and
 /// [`BuildError::OutsideTree`] by [`Index::refresh_paths`](crate::Index::refresh_paths) for a path that may lead out of
 /// the tree; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
 /// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names,
@@ -231,12 +233,14 @@ pub enum BuildError {
         /// The underlying failure.
         source: io::Error,
     },
-    /// The cancel token stopped the build before the walk saw every entry.
+    /// The cancel token stopped a build, which hands back what it had made.
     ///
-    /// Returned rather than collected: a cancelled walk holds whichever entries its threads had reached, which depends
-    /// on scheduling, so there is no partial index worth handing back. A visitor may have been handed some files'
-    /// content by then.
+    /// Returned rather than collected, because the index it holds is not the one the caller asked for: [`Stopped`]
+    /// says how much it lacks. A visitor may have been handed some files' content by then.
     #[error("the build was cancelled")]
+    Stopped(Box<Stopped>),
+    /// The cancel token stopped a refresh, which leaves the index answering as it did.
+    #[error("the refresh was cancelled")]
     Cancelled,
     /// A refresh needed a [`ContentId`](crate::ContentId) past the last one the index can hand out.
     ///
@@ -277,8 +281,8 @@ impl BuildError {
     /// at, and the entry it concerns may have no indexed path at all: [`BuildError::Name`] exists precisely because one
     /// could not be formed.
     ///
-    /// Every collected error names a path. Only the returned [`BuildError::ThreadPool`], [`BuildError::Cancelled`],
-    /// [`BuildError::ContentIdsExhausted`] and [`BuildError::OutsideTree`] do not.
+    /// Every collected error names a path. Only the returned [`BuildError::ThreadPool`], [`BuildError::Stopped`],
+    /// [`BuildError::Cancelled`], [`BuildError::ContentIdsExhausted`] and [`BuildError::OutsideTree`] do not.
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
         match self {
@@ -289,6 +293,7 @@ impl BuildError {
             | Self::ContentIndex { native_path, .. }
             | Self::Cache { native_path, .. } => Some(native_path),
             Self::ThreadPool { .. }
+            | Self::Stopped(_)
             | Self::Cancelled
             | Self::ContentIdsExhausted
             | Self::OutsideTree { .. } => None,
@@ -307,6 +312,7 @@ impl BuildError {
             Self::OutsideTree { .. } => 7,
             Self::Cache { .. } => 8,
             Self::ThreadPool { .. } => 9,
+            Self::Stopped(_) => 10,
         }
     }
 }

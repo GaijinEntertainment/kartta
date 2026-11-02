@@ -100,7 +100,7 @@ pub use kartta_fs::{
     ContentIndexStats, ContentIndexStorage, Cut, Entry, EntryKind, Failure, Filter, FilterError,
     FuzzyMatch, FuzzyMatches, FuzzyOptions, GlobOptions, GrepOptions, IgnoreSources, Index, Line,
     LineKind, ListError, ListOptions, Listed, Listing, MatchedFile, Matches, Paths, PatternError,
-    Patterns, PrunedNames, PrunedNamesError, RefreshOutcome,
+    Patterns, PrunedNames, PrunedNamesError, RefreshOutcome, Stopped,
 };
 #[cfg(feature = "watch")]
 pub use kartta_fs::{WatchError, Watcher};
