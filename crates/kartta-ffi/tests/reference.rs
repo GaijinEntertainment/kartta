@@ -558,6 +558,13 @@ fn listed(version: &Value, key: &str) -> BTreeSet<String> {
     serde_json::from_value(version[key].clone()).expect("names")
 }
 
+/// The section a row of `Methods` links for the method's params.
+fn params_section(row: &Row) -> &str {
+    let (_, params) = row.note.split_once("params [`").expect("the params' link");
+    let (params, _) = params.split_once('`').expect("the params' name");
+    params
+}
+
 /// The fields `method` takes, read from serde's refusal of one it does not.
 fn params_of(kartta: &Kartta, method: &str) -> BTreeSet<String> {
     let answer = kartta.call(method, br#"{"reference_probe": 1}"#);
@@ -590,8 +597,7 @@ fn every_method_has_a_row_whose_params_section_names_what_it_takes() {
     );
 
     for row in rows {
-        let (_, params) = row.note.split_once("params [`").expect("the params' link");
-        let (params, _) = params.split_once('`').expect("the params' name");
+        let params = params_section(row);
         let took = params_of(&kartta, &row.name);
         assert_eq!(
             names(&sections[params]),
@@ -793,4 +799,164 @@ fn every_key_of_a_golden_is_a_name_of_the_reference() {
         unnamed.is_empty(),
         "keys WIRE.md does not name: {unnamed:?}"
     );
+}
+
+/// The keys no golden holds, because what answers them is no file of a fixture: an unreadable or removed file, a
+/// symlink a Windows checkout does not make, a machine's own path, a watcher that failed. Each comes with the file
+/// whose test pins it.
+const PINNED_ELSEWHERE: [(&str, &str, &str); 13] = [
+    ("BuildParams", "content_cache", "tests/dispatch.rs"),
+    ("ContentIndexView", "unindexed", "tests/dispatch.rs"),
+    ("FoundView", "error", "tests/dispatch.rs"),
+    ("GrepFailureView", "message", "tests/dispatch.rs"),
+    ("GrepFailureView", "path", "tests/dispatch.rs"),
+    ("ListedView", "target", "tests/dispatch.rs"),
+    ("StatsAnswer", "content_index_failure", "tests/dispatch.rs"),
+    ("StoredError", "file", "tests/dispatch.rs"),
+    ("StoredError", "kind", "tests/dispatch.rs"),
+    ("StoredError", "message", "tests/dispatch.rs"),
+    ("StoredError", "path", "tests/dispatch.rs"),
+    ("WatchView", "reason", "src/wire/build.rs"),
+    ("WatchView", "restarts", "src/wire/build.rs"),
+];
+
+fn object_keys(value: &Value, objects: &mut Vec<BTreeSet<String>>) {
+    match value {
+        Value::Object(object) => {
+            objects.push(object.keys().cloned().collect());
+            object
+                .values()
+                .for_each(|value| object_keys(value, objects));
+        }
+        Value::Array(items) => items.iter().for_each(|item| object_keys(item, objects)),
+        _ => {}
+    }
+}
+
+/// What the golden files spell: every object's keys, and the keys each section of params was asked with.
+struct Spelled<'s> {
+    objects: Vec<BTreeSet<String>>,
+    params: BTreeMap<&'s str, BTreeSet<String>>,
+}
+
+impl<'s> Spelled<'s> {
+    fn by_the_goldens(sections: &'s BTreeMap<String, Vec<Row>>) -> Self {
+        let mut spelled = Self {
+            objects: Vec::new(),
+            params: BTreeMap::new(),
+        };
+        for entry in fs::read_dir(here("tests/golden")).expect("the golden directory") {
+            let golden: Value =
+                serde_json::from_str(&read(&entry.expect("an entry").path())).expect("JSON");
+            object_keys(&golden["params"], &mut spelled.objects);
+            object_keys(&golden["answer"], &mut spelled.objects);
+            let row = sections["Methods"]
+                .iter()
+                .find(|row| Some(row.name.as_str()) == golden["method"].as_str())
+                .expect("a row");
+            let asked = spelled.params.entry(params_section(row)).or_default();
+            collect_keys(&golden["params"], asked);
+        }
+        spelled
+    }
+
+    /// Whether a golden spells `key` of the struct `name`, whose `always` keys tell its objects from another's.
+    fn hold(&self, name: &str, key: &String, always: &BTreeSet<&String>) -> bool {
+        if let Some(asked) = self.params.get(name) {
+            return asked.contains(key);
+        }
+        let of_the_struct = |keys: &BTreeSet<String>| always.iter().all(|&key| keys.contains(key));
+        self.objects
+            .iter()
+            .any(|keys| keys.contains(key) && of_the_struct(keys))
+    }
+}
+
+/// A rename that reaches `WIRE.md` too fails no name check, so a key stays pinned only where an answer or a request
+/// spells it. A key counts for a struct in an object that holds every key the struct always holds, so a name two
+/// structs share does not pin the one no golden reaches; a struct of params has its method's requests alone to read.
+#[test]
+fn every_key_of_the_wire_is_in_a_golden_or_listed_with_the_test_that_pins_it() {
+    let sections = reference();
+    let spelled = Spelled::by_the_goldens(&sections);
+    let mut unpinned = BTreeSet::new();
+    for (name, object) in Surface::of_the_crate().objects {
+        let always: BTreeSet<&String> = object
+            .iter()
+            .filter(|(_, always)| **always == Some(true))
+            .map(|(key, _)| key)
+            .collect();
+        for key in object
+            .iter()
+            .filter_map(|(key, always)| always.map(|_| key))
+        {
+            if !spelled.hold(&name, key, &always) {
+                unpinned.insert((name.clone(), key.clone()));
+            }
+        }
+    }
+    let listed: BTreeSet<(String, String)> = PINNED_ELSEWHERE
+        .iter()
+        .map(|&(object, key, _)| (object.to_owned(), key.to_owned()))
+        .collect();
+
+    assert_eq!(unpinned, listed);
+}
+
+/// The Go and the Node type of each object [`PINNED_ELSEWHERE`] names.
+const BINDING_TYPES: [(&str, &str, &str); 8] = [
+    ("BuildParams", "BuildOptions", "BuildParams"),
+    ("ContentIndexView", "ContentIndexStats", "ContentIndexStats"),
+    ("FoundView", "Found", "Found"),
+    ("GrepFailureView", "GrepFailure", "Grep"),
+    ("ListedView", "Listed", "Listed"),
+    ("StatsAnswer", "Stats", "Stats"),
+    ("StoredError", "BuildFailure", "BuildFailure"),
+    ("WatchView", "Watch", "Watch"),
+];
+
+/// The text of `source` from `opening` to the first closing brace at the start of a line.
+fn type_body<'s>(source: &'s str, opening: &str) -> &'s str {
+    let start = source
+        .find(opening)
+        .unwrap_or_else(|| panic!("no {opening}"));
+    let body = &source[start..];
+    &body[..body.find("\n}").expect("a closing brace")]
+}
+
+/// A listed key meets no binding's type through a golden, so its spelling is compared with theirs here.
+#[test]
+fn every_key_pinned_elsewhere_is_in_the_file_that_pins_it_and_in_the_bindings() {
+    let mut go = String::new();
+    for entry in fs::read_dir(here("../../bindings/go/wire")).expect("the Go wire package") {
+        go.push_str(&read(&entry.expect("an entry").path()));
+    }
+    let ts = read(&here("../../bindings/node/src/wire.ts"));
+
+    for (object, key, file) in PINNED_ELSEWHERE {
+        let quoted = format!("\"{key}\"");
+        assert!(
+            read(&here(file)).contains(&quoted),
+            "{file} pins {object}.{key}"
+        );
+        let &(_, go_type, ts_type) = BINDING_TYPES
+            .iter()
+            .find(|(named, ..)| *named == object)
+            .unwrap_or_else(|| panic!("{object} names its binding types"));
+        let go_body = type_body(&go, &format!("type {go_type} struct {{"));
+        assert!(
+            ["\"", ","]
+                .iter()
+                .any(|after| go_body.contains(&format!("json:\"{key}{after}"))),
+            "Go's {go_type} spells {object}.{key}"
+        );
+        let ts_body = type_body(&ts, &format!("export type {ts_type} = {{"));
+        assert!(
+            ["\t", " ", "{"]
+                .iter()
+                .any(|before| ts_body.contains(&format!("{before}{key}:"))
+                    || ts_body.contains(&format!("{before}{key}?:"))),
+            "Node's {ts_type} spells {object}.{key}"
+        );
+    }
 }

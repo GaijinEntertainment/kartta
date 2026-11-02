@@ -1,0 +1,24 @@
+{
+  "answer": {
+    "ok": {
+      "file": "cpp/shape.h",
+      "found": [
+        {
+          "depth": 1,
+          "file": "cpp/circle.h"
+        }
+      ],
+      "graph": "cpp",
+      "held": true,
+      "truncated": false,
+      "turned_away": 0,
+      "unexpanded": 1
+    }
+  },
+  "method": "dependents",
+  "params": {
+    "depth": 1,
+    "file": "cpp/shape.h",
+    "max_files": 1
+  }
+}

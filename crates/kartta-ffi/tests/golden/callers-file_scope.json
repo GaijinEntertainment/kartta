@@ -1,0 +1,41 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "band": "low",
+          "below_confidence": 0,
+          "file_scope": [
+            {
+              "confidence": 80,
+              "file": "cpp/start.cpp"
+            }
+          ],
+          "graph": "cpp",
+          "passed_over": 0,
+          "reached": [],
+          "root": {
+            "end_line": 7,
+            "exported": true,
+            "file": "cpp/start.cpp",
+            "kind": "func",
+            "line": 5,
+            "name": "begin_area",
+            "qualified_name": "begin_area",
+            "signature": "double begin_area()"
+          },
+          "truncated": false,
+          "turned_away": 0,
+          "unexpanded": 0,
+          "unresolved": 0
+        }
+      ]
+    }
+  },
+  "method": "callers",
+  "params": {
+    "max_symbols": 100,
+    "min_confidence": 1,
+    "name": "begin_area"
+  }
+}

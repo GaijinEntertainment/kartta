@@ -1,0 +1,55 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "found": [
+            {
+              "definition": {
+                "end_line": 14,
+                "exported": false,
+                "file": "go/close.go",
+                "kind": "func",
+                "line": 11,
+                "name": "shut",
+                "qualified_name": "main.shut",
+                "signature": "func shut(f file, open func() conn)"
+              },
+              "nearness": "same_directory",
+              "source": {
+                "cut_lines": [
+                  {
+                    "bytes": 29,
+                    "line": 11
+                  },
+                  {
+                    "bytes": 2,
+                    "line": 12
+                  },
+                  {
+                    "bytes": 7,
+                    "line": 13
+                  }
+                ],
+                "doc_line": 11,
+                "first_line": 11,
+                "lines": 4,
+                "resized": false,
+                "text": "func shu\n\tf.close\n\topen().\n}"
+              }
+            }
+          ],
+          "graph": "go",
+          "total": 1
+        }
+      ]
+    }
+  },
+  "method": "sources",
+  "params": {
+    "from": "go/close.go",
+    "limit": 1,
+    "max_line_bytes": 8,
+    "name": "shut"
+  }
+}

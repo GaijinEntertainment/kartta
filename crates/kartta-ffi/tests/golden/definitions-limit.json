@@ -1,0 +1,34 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "found": [
+            {
+              "definition": {
+                "end_line": 5,
+                "exported": false,
+                "file": "go/close.go",
+                "kind": "method",
+                "line": 5,
+                "name": "close",
+                "owner": "file",
+                "qualified_name": "main.file.close",
+                "signature": "func (file) close()"
+              },
+              "nearness": "elsewhere"
+            }
+          ],
+          "graph": "go",
+          "total": 4
+        }
+      ]
+    }
+  },
+  "method": "definitions",
+  "params": {
+    "lang": "go",
+    "limit": 1,
+    "name": "close"
+  }
+}

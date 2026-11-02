@@ -2,46 +2,48 @@
   "answer": {
     "ok": {
       "content_index": {
-        "bytes": 787864,
-        "files": 9,
-        "trigrams": 456
+        "bytes": 788432,
+        "files": 12,
+        "trigrams": 601
       },
-      "entries": 12,
+      "entries": 16,
       "errors": {
         "listed": [],
         "total": 0
       },
       "graphs": [
         {
-          "calls": 5,
-          "files": 4,
+          "calls": 37,
+          "files": 6,
           "files_without_symbols": 0,
           "includes": 0,
           "kinds": {
             "const": 1,
-            "func": 5,
-            "method": 2,
+            "func": 38,
+            "iface": 2,
+            "method": 4,
             "struct": 2,
-            "var": 1
+            "var": 3
           },
           "local_calls": 0,
           "name": "go",
-          "symbols": 11,
-          "uses": 5
+          "symbols": 50,
+          "uses": 8
         },
         {
           "calls": 2,
-          "files": 3,
+          "files": 4,
           "files_without_symbols": 0,
           "includes": 2,
           "kinds": {
             "class": 2,
-            "func": 2,
-            "method": 4
+            "func": 3,
+            "method": 4,
+            "var": 1
           },
           "local_calls": 0,
           "name": "cpp",
-          "symbols": 8,
+          "symbols": 10,
           "uses": 0
         },
         {
@@ -63,19 +65,19 @@
       "languages": [
         {
           "cached": 0,
-          "claimed": 4,
+          "claimed": 6,
           "family": "go",
-          "held": 4,
+          "held": 6,
           "name": "go",
-          "read": 4
+          "read": 6
         },
         {
           "cached": 0,
-          "claimed": 3,
+          "claimed": 4,
           "family": "cpp",
-          "held": 3,
+          "held": 4,
           "name": "cpp",
-          "read": 3
+          "read": 4
         },
         {
           "cached": 0,

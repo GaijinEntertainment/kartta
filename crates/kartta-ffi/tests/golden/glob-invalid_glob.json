@@ -1,0 +1,14 @@
+{
+  "answer": {
+    "err": {
+      "code": "invalid_glob",
+      "message": "invalid glob \"a{\": unclosed alternate group; missing '}' (maybe escape '{' with '[{]'?)"
+    }
+  },
+  "method": "glob",
+  "params": {
+    "globs": [
+      "a{"
+    ]
+  }
+}

@@ -1894,6 +1894,13 @@ fn a_refresh_that_reads_a_failed_file_takes_it_out_of_stats_errors() {
     assert_eq!(failed["listed"][0]["kind"], "read", "{failed}");
     assert_eq!(failed["listed"][0]["file"], "run.go", "{failed}");
     assert_eq!(refused, "invalid_params");
+    assert!(
+        failed["listed"][0]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("run.go")),
+        "{failed}"
+    );
+    assert!(failed["listed"][0]["message"].is_string(), "{failed}");
     assert_eq!(refreshed["errors"], json!({ "total": 0, "listed": [] }));
     assert_eq!(
         ok(&kartta, "stats", &Value::Null)["errors"],
@@ -1969,6 +1976,66 @@ fn a_content_index_that_cannot_be_kept_leaves_the_graphs_and_says_why_through_a_
     assert_eq!(stats["errors"]["total"], 0, "{stats}");
     assert_eq!(stats["content_index_failure"], failure);
     assert_eq!(stats.get("content_index"), None, "{stats}");
+}
+
+#[test]
+fn a_source_whose_file_left_the_tree_answers_why_in_its_place() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    fs::remove_file(tree.path().join("run.go")).expect("run.go is removed");
+
+    let answer = ok(&kartta, "sources", &json!({ "name": "helper" }));
+
+    let found = &answer["matches"][0]["found"][0];
+    assert!(found["error"].is_string(), "{found}");
+    assert!(found.get("source").is_none(), "{found}");
+}
+
+#[test]
+fn a_grep_names_a_file_it_could_not_read() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    fs::remove_file(tree.path().join("run.go")).expect("run.go is removed");
+
+    let answer = ok(&kartta, "grep", &json!({ "patterns": ["helper"] }));
+
+    let failure = &answer["failures"][0];
+    assert_eq!(failure["path"], "run.go", "{answer}");
+    assert!(failure["message"].is_string(), "{answer}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_listing_names_where_a_symlink_points() {
+    let tree = tree();
+    std::os::unix::fs::symlink("run.go", tree.path().join("link.go")).expect("link.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let listing = ok(&kartta, "list", &json!({ "path": "" }));
+
+    let entries = listing["entries"].as_array().expect("the entries");
+    let link = entries
+        .iter()
+        .find(|entry| entry["path"] == "link.go")
+        .expect("the symlink");
+    assert_eq!(link["kind"], "symlink", "{link}");
+    assert_eq!(link["target"], "run.go", "{link}");
+}
+
+#[test]
+fn a_second_build_reads_what_the_content_cache_kept() {
+    let tree = tree();
+    let cache = tempfile::tempdir().expect("a temporary directory");
+    let kartta = open(tree.path());
+    let params = json!({ "languages": ["go"], "content_cache": cache.path() });
+    ok(&kartta, "build", &params);
+
+    let built = ok(&kartta, "build", &params);
+
+    assert_eq!(built["languages"][0]["cached"], 2, "{built}");
 }
 
 #[test]

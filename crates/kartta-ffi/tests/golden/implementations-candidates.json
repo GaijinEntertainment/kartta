@@ -1,0 +1,45 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "candidates": [
+            {
+              "count": 0,
+              "symbol": {
+                "end_line": 5,
+                "exported": false,
+                "file": "go/reach.go",
+                "kind": "iface",
+                "line": 3,
+                "name": "closer",
+                "qualified_name": "main.closer"
+              }
+            }
+          ],
+          "found": [],
+          "graph": "go",
+          "passed_over": 1,
+          "root": {
+            "end_line": 5,
+            "exported": false,
+            "file": "go/lib/closer.go",
+            "kind": "iface",
+            "line": 3,
+            "name": "closer",
+            "qualified_name": "lib.closer"
+          },
+          "total": 0,
+          "unexpanded": 0
+        }
+      ]
+    }
+  },
+  "method": "implementations",
+  "params": {
+    "depth": 1,
+    "lang": "go",
+    "limit": 1,
+    "name": "closer"
+  }
+}

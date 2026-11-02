@@ -1,0 +1,73 @@
+{
+  "answer": {
+    "ok": {
+      "entries": [
+        {
+          "kind": "dir",
+          "path": "cpp",
+          "unlisted": 4
+        },
+        {
+          "kind": "dir",
+          "path": "go"
+        },
+        {
+          "binary": false,
+          "kind": "file",
+          "path": "go/close.go",
+          "size": 169
+        },
+        {
+          "kind": "dir",
+          "path": "go/lib",
+          "unlisted": 1
+        },
+        {
+          "binary": false,
+          "kind": "file",
+          "path": "go/limit.go",
+          "size": 54
+        },
+        {
+          "binary": false,
+          "kind": "file",
+          "path": "go/main.go",
+          "size": 37
+        },
+        {
+          "binary": false,
+          "kind": "file",
+          "path": "go/reach.go",
+          "size": 1037
+        },
+        {
+          "binary": false,
+          "kind": "file",
+          "path": "go/run.go",
+          "size": 126
+        },
+        {
+          "binary": false,
+          "kind": "file",
+          "path": "notes.txt",
+          "size": 82
+        }
+      ],
+      "excluded": 2,
+      "path": "",
+      "total": 16,
+      "truncated": false
+    }
+  },
+  "method": "list",
+  "params": {
+    "collapse": [
+      "cpp"
+    ],
+    "depth": 2,
+    "exclude": [
+      "rust"
+    ],
+    "path": ""
+  }
+}

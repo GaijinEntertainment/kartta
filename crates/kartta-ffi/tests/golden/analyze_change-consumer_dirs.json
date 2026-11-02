@@ -1,0 +1,54 @@
+{
+  "answer": {
+    "ok": {
+      "changed_files": 1,
+      "changed_symbols": 1,
+      "footprint": 31,
+      "footprint_files": 1,
+      "hotspots": [],
+      "regions_outside_symbols": 0,
+      "seeds": [
+        {
+          "band": "medium",
+          "below_confidence": 0,
+          "caller_count": 31,
+          "consumer_dirs": [
+            {
+              "count": 31,
+              "dir": "go"
+            }
+          ],
+          "consumers": [],
+          "reach": 31,
+          "symbol": {
+            "end_line": 14,
+            "exported": false,
+            "file": "go/reach.go",
+            "kind": "func",
+            "line": 14,
+            "name": "shared",
+            "qualified_name": "main.shared",
+            "signature": "func shared()"
+          },
+          "truncated": false,
+          "turned_away": 0,
+          "unexpanded": 0
+        }
+      ],
+      "total_hotspots": 0,
+      "transitive_sum": 31,
+      "truncated_seeds": 0,
+      "unheld_regions": 0
+    }
+  },
+  "method": "analyze_change",
+  "params": {
+    "regions": [
+      {
+        "end_line": 14,
+        "file": "go/reach.go",
+        "start_line": 14
+      }
+    ]
+  }
+}
