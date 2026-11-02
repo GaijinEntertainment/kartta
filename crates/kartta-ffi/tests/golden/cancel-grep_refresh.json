@@ -1,0 +1,12 @@
+{
+  "answer": {
+    "ok": {
+      "stopped": false
+    }
+  },
+  "method": "cancel",
+  "params": {
+    "grep": 901,
+    "refresh": 901
+  }
+}

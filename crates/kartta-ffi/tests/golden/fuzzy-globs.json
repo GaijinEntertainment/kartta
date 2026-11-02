@@ -1,0 +1,25 @@
+{
+  "answer": {
+    "ok": {
+      "matched": 2,
+      "matches": [
+        {
+          "path": "cpp/circle.h",
+          "score": 6770
+        },
+        {
+          "path": "cpp/circle.cpp",
+          "score": 6760
+        }
+      ],
+      "truncated": false
+    }
+  },
+  "method": "fuzzy",
+  "params": {
+    "globs": [
+      "cpp/**"
+    ],
+    "query": "circle"
+  }
+}

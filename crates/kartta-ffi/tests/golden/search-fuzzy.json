@@ -1,0 +1,40 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "dropped_words": 0,
+          "fuzzy_total": 1,
+          "graph": "go",
+          "hits": [
+            {
+              "definition": {
+                "end_line": 8,
+                "exported": false,
+                "file": "go/run.go",
+                "kind": "func",
+                "line": 8,
+                "name": "helper",
+                "qualified_name": "main.helper",
+                "signature": "func helper()"
+              },
+              "exact": false,
+              "fuzzy": true,
+              "score": 0.6666666666666666
+            }
+          ],
+          "named": 0,
+          "total": 0,
+          "unmatched_words": [
+            "hlpr"
+          ]
+        }
+      ]
+    }
+  },
+  "method": "search",
+  "params": {
+    "lang": "go",
+    "query": "hlpr"
+  }
+}

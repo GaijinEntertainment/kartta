@@ -1,0 +1,27 @@
+{
+  "answer": {
+    "ok": {
+      "added": 0,
+      "dropped": 0,
+      "errors": {
+        "listed": [],
+        "total": 0
+      },
+      "extracted": 0,
+      "rebuilt": false,
+      "reconfigured": [],
+      "removed": 0,
+      "resolved_again": 0,
+      "tree": true,
+      "walked": 1,
+      "watch": {
+        "following": false
+      }
+    }
+  },
+  "method": "refresh",
+  "params": {
+    "binding_id": 900,
+    "id": 900
+  }
+}

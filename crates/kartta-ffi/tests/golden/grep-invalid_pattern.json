@@ -1,0 +1,14 @@
+{
+  "answer": {
+    "err": {
+      "code": "invalid_pattern",
+      "message": "invalid pattern \"(\": regex parse error:\n    (?:()\n    ^\nerror: unclosed group"
+    }
+  },
+  "method": "grep",
+  "params": {
+    "patterns": [
+      "("
+    ]
+  }
+}

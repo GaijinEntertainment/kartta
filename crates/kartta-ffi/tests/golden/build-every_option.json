@@ -1,0 +1,125 @@
+{
+  "answer": {
+    "ok": {
+      "content_index": {
+        "bytes": 788432,
+        "files": 12,
+        "trigrams": 601
+      },
+      "entries": 16,
+      "errors": {
+        "listed": [],
+        "total": 0
+      },
+      "graphs": [
+        {
+          "calls": 37,
+          "files": 6,
+          "files_without_symbols": 0,
+          "includes": 0,
+          "kinds": {
+            "const": 1,
+            "func": 38,
+            "iface": 2,
+            "method": 4,
+            "struct": 2,
+            "var": 3
+          },
+          "local_calls": 0,
+          "name": "go",
+          "symbols": 50,
+          "uses": 8
+        },
+        {
+          "calls": 2,
+          "files": 4,
+          "files_without_symbols": 0,
+          "includes": 2,
+          "kinds": {
+            "class": 2,
+            "func": 3,
+            "method": 4,
+            "var": 1
+          },
+          "local_calls": 0,
+          "name": "cpp",
+          "symbols": 10,
+          "uses": 0
+        },
+        {
+          "calls": 0,
+          "files": 1,
+          "files_without_symbols": 0,
+          "includes": 0,
+          "kinds": {
+            "field": 1,
+            "func": 1,
+            "struct": 1
+          },
+          "local_calls": 0,
+          "name": "rust",
+          "symbols": 3,
+          "uses": 0
+        }
+      ],
+      "languages": [
+        {
+          "cached": 0,
+          "claimed": 6,
+          "family": "go",
+          "held": 6,
+          "name": "go",
+          "read": 6
+        },
+        {
+          "cached": 0,
+          "claimed": 4,
+          "family": "cpp",
+          "held": 4,
+          "name": "cpp",
+          "read": 4
+        },
+        {
+          "cached": 0,
+          "claimed": 1,
+          "family": "rust",
+          "held": 1,
+          "name": "rust",
+          "read": 1
+        }
+      ],
+      "threads": 2,
+      "watch": {
+        "following": false
+      }
+    }
+  },
+  "method": "build",
+  "params": {
+    "binary_extensions": {
+      "replace": [
+        "png"
+      ]
+    },
+    "binding_id": 900,
+    "content_cache_ttl_secs": 0,
+    "content_index": {
+      "storage": "memory"
+    },
+    "id": 900,
+    "ignore": "in_tree",
+    "languages": [
+      "go",
+      "cpp",
+      "rust"
+    ],
+    "pruned_names": {
+      "extend": [
+        "scratch"
+      ]
+    },
+    "stamps": true,
+    "threads": 2,
+    "watch": false
+  }
+}

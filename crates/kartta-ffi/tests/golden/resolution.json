@@ -10,24 +10,25 @@
             },
             {
               "confidence": 80,
-              "sites": 2
+              "sites": 33
             },
             {
               "confidence": 75,
               "sites": 1
             }
           ],
-          "edges": 4,
+          "edges": 35,
           "graph": "go",
           "misses": {
             "ambiguous": 1,
             "external_import": 0,
             "not_admitted": 0,
             "not_exported": 0,
+            "past_bound": 1,
             "through_a_receiver": 0,
             "undefined": 0
           },
-          "sites": 5,
+          "sites": 37,
           "unbound": [
             {
               "callee": "close",
@@ -44,6 +45,22 @@
               "line": 13,
               "miss": "ambiguous",
               "receiver": ""
+            },
+            {
+              "callee": "Set",
+              "caller": {
+                "end_line": 12,
+                "exported": false,
+                "file": "go/reach.go",
+                "kind": "func",
+                "line": 10,
+                "name": "cycle",
+                "qualified_name": "main.cycle",
+                "signature": "func cycle()"
+              },
+              "line": 11,
+              "miss": "past_bound",
+              "receiver": "first"
             }
           ],
           "unlisted": 0

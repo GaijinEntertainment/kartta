@@ -1,7 +1,8 @@
 //! The wire, pinned: every file under `tests/golden` is one method's request on the fixture tree under
 //! `tests/fixture` and the answer it must get, which the Go and Node bindings' tests read too. Each method has a file
 //! named after it, and a method whose params or answer hold keys only a second request reaches has a file for that
-//! request too, named after the method and what it pins, as `references-unmatched.json`. The requests run on one handle, the build
+//! request too, named after the method and what it pins, as `references-unmatched.json`, or `list-not_found.json` for
+//! a request the method refuses. The requests run on one handle, the build
 //! first and the rest in the order of their file names, so the goldens after the refreshes pin that a refresh of the
 //! unchanged fixture changes no answer. Every value must match exactly, except a `score`, which must agree with the
 //! pinned one within a relative 1e-12. `KARTTA_FFI_BLESS=1` writes the answers the dispatch gives now in place of the

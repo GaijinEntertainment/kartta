@@ -20,7 +20,7 @@
               },
               "exact": false,
               "fuzzy": false,
-              "score": 3.386357358067945
+              "score": 3.811538205787539
             },
             {
               "definition": {
@@ -36,7 +36,7 @@
               },
               "exact": false,
               "fuzzy": false,
-              "score": 3.386357358067945
+              "score": 3.811538205787539
             },
             {
               "definition": {
@@ -52,11 +52,11 @@
               },
               "exact": false,
               "fuzzy": false,
-              "score": 0.6296410725605676
+              "score": 0.59983003351085
             }
           ],
-          "named": 5,
-          "total": 7,
+          "named": 6,
+          "total": 8,
           "unmatched_words": []
         }
       ]

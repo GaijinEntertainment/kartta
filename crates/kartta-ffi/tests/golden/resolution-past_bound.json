@@ -1,0 +1,60 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "bound": [
+            {
+              "confidence": 85,
+              "sites": 1
+            },
+            {
+              "confidence": 80,
+              "sites": 33
+            },
+            {
+              "confidence": 75,
+              "sites": 1
+            }
+          ],
+          "edges": 35,
+          "graph": "go",
+          "misses": {
+            "ambiguous": 1,
+            "external_import": 0,
+            "not_admitted": 0,
+            "not_exported": 0,
+            "past_bound": 1,
+            "through_a_receiver": 0,
+            "undefined": 0
+          },
+          "sites": 37,
+          "unbound": [
+            {
+              "callee": "close",
+              "caller": {
+                "end_line": 14,
+                "exported": false,
+                "file": "go/close.go",
+                "kind": "func",
+                "line": 11,
+                "name": "shut",
+                "qualified_name": "main.shut",
+                "signature": "func shut(f file, open func() conn)"
+              },
+              "line": 13,
+              "miss": "ambiguous",
+              "receiver": ""
+            }
+          ],
+          "unlisted": 1
+        }
+      ]
+    }
+  },
+  "method": "resolution",
+  "params": {
+    "lang": "go",
+    "limit": 1
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "answer": {
+    "ok": {
+      "binary": 0,
+      "cancelled": false,
+      "candidates": 5,
+      "excluded": 1,
+      "failures": [],
+      "files": [
+        {
+          "lines": [
+            {
+              "cut": {
+                "after": 1,
+                "before": 0
+              },
+              "kind": "match",
+              "number": 5,
+              "text": "\thelper("
+            }
+          ],
+          "path": "go/run.go"
+        }
+      ],
+      "lines": 1,
+      "oversized": 0,
+      "ruled_out": 4,
+      "searched": 1,
+      "symlinks": 0,
+      "truncated": true,
+      "unsearched": 0
+    }
+  },
+  "method": "grep",
+  "params": {
+    "binding_id": 900,
+    "case_insensitive": true,
+    "exclude": [
+      "go/main.go"
+    ],
+    "globs": [
+      "go/**"
+    ],
+    "id": 900,
+    "limit": 1,
+    "max_file_bytes": 4096,
+    "max_line_bytes": 8,
+    "patterns": [
+      "HELPER"
+    ]
+  }
+}
