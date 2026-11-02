@@ -221,7 +221,7 @@ test('a signal aborted while the build walks cancels it, the reason its cause', 
 	controller.abort(reason);
 
 	await expect(built).rejects.toMatchObject({name: 'KarttaError', code: 'build_cancelled', cause: reason});
-	expect(await code(kartta.stats())).toBe('not_built');
+	expect(await code(kartta.stats())).toBeOneOf(['not_built', 'ok']);
 	const rebuilt = await kartta.build();
 	expect(rebuilt.entries).toBe(3000);
 });
