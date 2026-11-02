@@ -75,7 +75,7 @@ lost, and what would reopen it.
 
 - [1.3 Make the ignore source set explicit](/design-docs/adr/1.3-ignore-sources.md)
 - [1.4 Take the query glob dialect from globset](/design-docs/adr/1.4-query-glob-dialect.md)
-- [1.5 Announce a cap unless the order already explains it](/design-docs/adr/1.5-query-caps.md)
+- [1.5 Announce every cap](/design-docs/adr/1.5-query-caps.md)
 - [1.6 Read a file's own facts on demand, not during the walk](/design-docs/adr/1.6-file-facts-timing.md)
 - [1.7 Let a caller compose the binary extension set](/design-docs/adr/1.7-binary-extension-set.md)
 - [1.8 Count what a listing leaves out](/design-docs/adr/1.8-listing-counts.md)
