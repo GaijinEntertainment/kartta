@@ -256,6 +256,7 @@ pub struct UseRef {
 /// What a use's name is written on, which decides where the graph looks the name up: a guess would be worse than no
 /// reference.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Receiver {
     /// Nothing: a bare name. Under [`OwnMembers::First`](crate::OwnMembers::First) it first binds the field of the
     /// enclosing member's class or of a base. Otherwise it binds as [`ValueUses`](crate::ValueUses) says: under
@@ -282,6 +283,9 @@ pub enum Receiver {
 }
 
 /// How a use touches what its name binds.
+///
+/// Exhaustive on purpose: a use reads, assigns, does both or does neither, so the set is closed, and a `match` on it
+/// in another crate stays checked by the compiler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Access {
     /// Reads it: takes its value, or a member through it, as `EventType.Created` reads the type `EventType`.
@@ -431,6 +435,8 @@ pub struct Callable {
 }
 
 /// Which occurrence of a callable a symbol is.
+///
+/// Exhaustive on purpose: an occurrence has a body or has none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CallableRole {
     /// A declaration, without a body.
