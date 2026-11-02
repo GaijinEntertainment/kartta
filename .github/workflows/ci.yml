@@ -106,6 +106,21 @@ jobs:
       - run: cargo build --locked --workspace --all-targets --all-features
       - run: cargo test --locked --workspace --all-features
 
+  # The workspace's tests on each musl target of the support matrix, in the image `go-musl` enters.
+  # constraint: a musl target refuses `kartta-node`'s cdylib while `crt-static` is on, so `node-musl` builds that crate
+  test-musl:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: >-
+          docker run --rm -v "$PWD:/src" -w /src -e CARGO_PROFILE_DEV_DEBUG=line-tables-only
+          rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+          cargo test --locked --workspace --exclude kartta-node --all-features
+
   # What a `cargo install` without `--locked` builds: the newest version each requirement allows, a dependency's newest
   # release candidate included, which every job under `--locked` does not see. So this job alone moves with crates.io,
   # and a release that breaks kartta fails it for every change until the requirement or the code answers it.
@@ -318,6 +333,7 @@ jobs:
       - package
       - unsupported-watch
       - test
+      - test-musl
       - fresh-resolve
       - msrv
       - semver
