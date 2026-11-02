@@ -13,15 +13,16 @@ lost, and what would reopen it.
 - [4.48 Check on every pull request what a published crate carries](/design-docs/adr/4.48-crate-packaging.md)
 - [4.51 Compare every crate's public API with the newest release tag](/design-docs/adr/4.51-semver-gate.md)
 
+## Cargo.toml
+
+- [4.49 Build the distributed artifacts with fat LTO and stripped symbols](/design-docs/adr/4.49-distribution-profile.md)
+- [4.50 Hold every published crate to one Rust floor that trails stable](/design-docs/adr/4.50-rust-floor.md)
+
 ## bindings/node
 
 - [4.40 Ship the Node addon as one npm package per target](/design-docs/adr/4.40-node-addon-packaging.md)
 - [4.41 Check the Node package with the Vite+ that its lockfile pins](/design-docs/adr/4.41-node-toolchain.md)
 - [4.42 Stop a Node call by a binding id its handle gives it](/design-docs/adr/4.42-node-cancellation.md)
-
-## Cargo.toml
-
-- [4.49 Build the distributed artifacts with fat LTO and stripped symbols](/design-docs/adr/4.49-distribution-profile.md)
 
 ## crates/kartta
 
