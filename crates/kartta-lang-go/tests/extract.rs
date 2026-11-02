@@ -5,6 +5,8 @@
               helpers of an integration test crate are neither; a failed lookup is the assertion"
 )]
 
+use std::time::{Duration, Instant};
+
 use kartta_lang::{
     Access, DataUses, Language, MemberCalls, OwnMembers, RawExtraction, Receiver, Symbol, SymbolId,
     SymbolKind, TypeUses, UseRef,
@@ -3475,4 +3477,22 @@ fn the_library_interface_methods_ascend_without_a_repeat_and_name_the_library_s(
     ] {
         assert!(methods.binary_search(&method).is_ok(), "{method}");
     }
+}
+
+fn fastest_of_three_extractions(comment_lines: usize) -> Duration {
+    let source = format!("package p\n{}", "//\n".repeat(comment_lines));
+    let run = || {
+        let started = Instant::now();
+        extract(source.as_bytes());
+        started.elapsed()
+    };
+    run().min(run()).min(run())
+}
+
+#[test]
+fn eight_times_the_top_level_comments_cost_about_eight_times_the_walk() {
+    let short = fastest_of_three_extractions(2_500);
+    let long = fastest_of_three_extractions(20_000);
+
+    assert!(long < short * 24, "{short:?} became {long:?}");
 }

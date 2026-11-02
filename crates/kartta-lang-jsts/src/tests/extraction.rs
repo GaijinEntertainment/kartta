@@ -1,4 +1,8 @@
+use std::time::{Duration, Instant};
+
+use kartta_lang::tree::{child_nodes, named_child_nodes, parse, preorder};
 use kartta_lang::{Extraction, Language, OwnMembers, Receiver, SymbolKind};
+use tree_sitter::Node;
 
 use super::{
     LANGUAGES, SAMPLE_TS, attributed, caller_of, extracted, imports, language_of, names, symbol,
@@ -1739,5 +1743,50 @@ fn an_anonymous_generator_expression_emits_no_symbol() {
             [("host", "register"), ("host", "step")],
             "{path}"
         );
+    }
+}
+
+fn fastest_of_three_extractions(comment_lines: usize) -> Duration {
+    let source = format!("{}f();\n", "////\n".repeat(comment_lines));
+    let run = || {
+        let started = Instant::now();
+        let raw = TypeScript::new().extract(source.as_bytes());
+        let elapsed = started.elapsed();
+        assert_eq!(raw.calls.len(), 1);
+        elapsed
+    };
+    run().min(run()).min(run())
+}
+
+#[test]
+fn eight_times_the_top_level_comments_cost_about_eight_times_the_walk() {
+    let short = fastest_of_three_extractions(2_500);
+    let long = fastest_of_three_extractions(20_000);
+
+    assert!(long < short * 24, "{short:?} became {long:?}");
+}
+
+#[test]
+fn the_child_helpers_list_what_indexing_lists_at_every_width() {
+    let grammar = tree_sitter_javascript::LANGUAGE.into();
+    for width in 0..40 {
+        let source = format!("f({});", vec!["a"; width].join(", /* c */"));
+        let tree = parse(&grammar, source.as_bytes()).unwrap();
+        preorder(tree.root_node(), |node| {
+            let children: Vec<_> = (0..node.child_count())
+                .filter_map(|index| node.child(index))
+                .collect();
+            let named: Vec<_> = children.iter().copied().filter(Node::is_named).collect();
+
+            assert_eq!(child_nodes(node).collect::<Vec<_>>(), children);
+            assert!(child_nodes(node).rev().eq(children.iter().rev().copied()));
+            assert_eq!(named_child_nodes(node).collect::<Vec<_>>(), named);
+            assert!(
+                named_child_nodes(node)
+                    .rev()
+                    .eq(named.iter().rev().copied())
+            );
+            true
+        });
     }
 }

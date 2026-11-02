@@ -154,7 +154,15 @@ pub fn signature_from(start: usize, node: Node<'_>, source: &[u8]) -> Option<Str
 
 /// `node`'s children, in order.
 pub fn child_nodes(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
-    (0..node.child_count()).filter_map(move |index| node.child(index))
+    let count = node.child_count();
+    let (indexed, listed) = if count > INDEXED_WIDTH {
+        (0..0, node.children(&mut node.walk()).collect())
+    } else {
+        (0..count, Vec::new())
+    };
+    indexed
+        .filter_map(move |index| node.child(index))
+        .chain(listed)
 }
 
 /// `node`'s named children, in order.
@@ -163,5 +171,16 @@ pub fn child_nodes(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> 
     reason = "tree-sitter counts a node's children in a uint32_t, which the binding only widens to usize"
 )]
 pub fn named_child_nodes(node: Node<'_>) -> impl DoubleEndedIterator<Item = Node<'_>> {
-    (0..node.named_child_count() as u32).filter_map(move |index| node.named_child(index))
+    let count = node.named_child_count() as u32;
+    let (indexed, listed) = if count > INDEXED_WIDTH {
+        (0..0, node.named_children(&mut node.walk()).collect())
+    } else {
+        (0..count, Vec::new())
+    };
+    indexed
+        .filter_map(move |index| node.named_child(index))
+        .chain(listed)
 }
+
+// constraint: `ts_node_child` restarts from the first child on each index, and a cursor allocates a stack per call
+const INDEXED_WIDTH: u32 = 16;
