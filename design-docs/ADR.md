@@ -216,7 +216,7 @@ lost, and what would reopen it.
 - [3.66 Record a name a script or Rust reads without a call as a use](/design-docs/adr/3.66-uncalled-name-reads.md)
 - [3.67 Record a function a string or a symbol names as a use](/design-docs/adr/3.67-callables-named-by-data.md)
 - [3.70 Read a declarator a macro misjoins in the walk](/design-docs/adr/3.70-cpp-macro-declarators.md)
-- [3.71 Read a conditional that splits a brace, a return type or a statement with its first branch taken](/design-docs/adr/3.71-cpp-brace-splitting-conditionals.md)
+- [3.71 Read a conditional that splits a brace, a return type, a statement or a linkage as the preprocessor would](/design-docs/adr/3.71-cpp-brace-splitting-conditionals.md)
 - [3.72 Qualify C++ names the way the graph matches them](/design-docs/adr/3.72-cpp-name-qualification.md)
 - [3.73 Resolve a C++ include to the copy nearest the including file](/design-docs/adr/3.73-cpp-include-resolution.md)
 - [3.74 Fold a C++ declaration into the one definition its file reaches](/design-docs/adr/3.74-cpp-declaration-links.md)
