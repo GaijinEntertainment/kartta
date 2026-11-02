@@ -415,6 +415,64 @@ fn callers_answers_each_graph_s_walk_with_what_it_left_out() {
     );
 }
 
+fn callers_of(target: &str, call: &str, count: usize) -> String {
+    (0..count)
+        .map(|at| format!("func {target}Caller{at}() {{\n\t{call}\n}}\n\n"))
+        .collect::<Vec<_>>()
+        .concat()
+}
+
+#[test]
+fn callers_grades_the_reach_as_a_change_to_the_symbol_does_and_callees_does_not() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("lib.go"),
+        format!(
+            "package lib\n\ntype Port interface{{}}\n\nfunc Shared() {{}}\n\nfunc local() {{}}\n\n{}{}{}",
+            callers_of("Shared", "Shared()", 20),
+            callers_of("local", "local()", 20),
+            callers_of("Port", "_ = Port(nil)", 50),
+        ),
+    )
+    .expect("lib.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let band =
+        |name: &str| ok(&kartta, "callers", &json!({ "name": name }))["matches"][0]["band"].clone();
+    let segment = ok(
+        &kartta,
+        "analyze_segment",
+        &json!({ "file": "lib.go", "start_line": 5, "end_line": 5 }),
+    );
+    let capped = ok(
+        &kartta,
+        "callers",
+        &json!({ "name": "Port", "max_symbols": 11 }),
+    );
+
+    assert_eq!(band("Port"), "critical");
+    assert_eq!(capped["matches"][0]["truncated"], true);
+    assert_eq!(
+        capped["matches"][0]["band"], "medium",
+        "a walk the cap cut grades the callers it reached"
+    );
+    assert_eq!(band("Shared"), "high");
+    assert_eq!(band("local"), "medium");
+    assert_eq!(band("SharedCaller0"), "low");
+    assert_eq!(
+        segment["symbols"][0]["blast"]["band"],
+        band("Shared"),
+        "a segment grades the same symbol alike"
+    );
+    assert!(
+        ok(&kartta, "callees", &json!({ "name": "Shared" }))["matches"][0]
+            .get("band")
+            .is_none(),
+        "a band grades the callers a change reaches, so a walk over callees carries none"
+    );
+}
+
 #[test]
 fn callers_answers_the_files_whose_top_level_calls_the_root() {
     let tree = tempfile::tempdir().expect("a temporary directory");

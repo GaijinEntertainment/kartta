@@ -46,8 +46,8 @@ appears on the wire; the names on the wire are the bulleted ones. A field reads 
   chain of calls between two symbols.
 - `callees`: params [`WalkParams`](#walkparams), answer [`Matches`](#matches) of [`Walk`](#walk). What a symbol calls,
   `CALLEES_DEPTH` calls deep by default.
-- `callers`: params [`WalkParams`](#walkparams), answer [`Matches`](#matches) of [`Walk`](#walk). What calls a symbol,
-  `CALLERS_DEPTH` calls deep by default.
+- `callers`: params [`WalkParams`](#walkparams), answer [`Matches`](#matches) of [`CallersView`](#callersview). What
+  calls a symbol, `CALLERS_DEPTH` calls deep by default.
 - `cancel`: params [`CancelParams`](#cancelparams), answer [`CancelAnswer`](#cancelanswer). Stops a build, a grep or a
   refresh, and never a watch or any other query.
 - `dead_code`: params [`DeadCodeParams`](#deadcodeparams), answer [`Matches`](#matches) of [`DeadCode`](#deadcode). The
@@ -588,6 +588,13 @@ A symbol a name also selects that the answer passed over.
 - `depth` (integer, always): How many calls away it is.
 - `confidence` (integer, always): How sure the resolution of the call is, 0 to 100.
 - `line` (integer, always): The line of the call.
+
+### CallersView
+
+The fields of [`Walk`](#walk), and:
+
+- `band` ([`ReachBand`](#reachband), always): How wide the reach is, graded on the callers in `reached`, so a walk its
+  bounds cut reads lower.
 
 ### Walk
 

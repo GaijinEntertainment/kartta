@@ -237,6 +237,23 @@ struct WalkDef<'g> {
 }
 
 #[derive(Serialize)]
+pub(crate) struct CallersView<'g> {
+    #[serde(flatten)]
+    walk: Wired<Walk<'g>>,
+    #[serde(serialize_with = "label::band")]
+    band: ReachBand,
+}
+
+impl<'g> CallersView<'g> {
+    pub(crate) fn new(walk: Walk<'g>) -> Self {
+        Self {
+            band: ReachBand::of(walk.reached.len(), walk.root.kind, walk.root.exported),
+            walk: Wired(walk),
+        }
+    }
+}
+
+#[derive(Serialize)]
 #[serde(remote = "SelfCall")]
 struct SelfCallDef {
     confidence: u8,

@@ -94,6 +94,10 @@ type Walk struct {
 	// FileScope lists, for a walk over callers, the files whose top level calls or uses the root's name and sees the
 	// root, in path order. BelowConfidence also counts the files the floor left out.
 	FileScope []FileScope `json:"file_scope,omitempty"`
+	// Band ranks, for a walk over callers, how widely a change to the root reaches, from the callers in Reached: low,
+	// medium, high or critical. A walk its Truncated or Unexpanded cut grades what it reached. Absent for a walk over
+	// callees.
+	Band string `json:"band,omitempty"`
 	// SelfCall is the root's call of itself, which Reached does not list, since the walk starts at the root and reaches
 	// each symbol once; absent when the root calls itself nowhere, or below the confidence floor, which BelowConfidence
 	// then counts it under.

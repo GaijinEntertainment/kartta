@@ -4,6 +4,7 @@
       "matches": [
         {
           "ambiguous": 1,
+          "band": "low",
           "below_confidence": 0,
           "graph": "go",
           "passed_over": 0,
