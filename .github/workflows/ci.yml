@@ -181,7 +181,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26, windows-2025-vs2026]
     runs-on: ${{ matrix.os }}
     # A test that blocks the JS thread for good would hold the runner for GitHub's 6-hour default (#364).
     timeout-minutes: 20
@@ -197,7 +197,8 @@ jobs:
           node-version-file: bindings/node/.nvmrc
       - run: npm ci --ignore-scripts
       # The vp that package-lock.json pins, so the toolchain moves with the lockfile rather than with an action.
-      - run: echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+      # constraint: a Windows step runs in PowerShell, where `$GITHUB_PATH` is an empty variable and not the file
+      - run: node -e "fs.appendFileSync(process.env.GITHUB_PATH, path.resolve('node_modules/.bin') + '\n')"
       - run: vp fmt --check
       - run: vp lint
       - run: vp run typecheck
