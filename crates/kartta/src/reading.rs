@@ -33,6 +33,19 @@ pub enum UnmatchedKind {
     OneEdit,
 }
 
+impl UnmatchedKind {
+    /// The word for the kind in an answer: `several`, `outside_prefix`, `off_line` or `one_edit`.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Several => "several",
+            Self::OutsidePrefix => "outside_prefix",
+            Self::OffLine => "off_line",
+            Self::OneEdit => "one_edit",
+        }
+    }
+}
+
 /// What `named` names instead, for a name by which a query selected no symbol in the `searched` graphs.
 ///
 /// Among the definitions of the kinds `selects` takes, it answers several under the name's path prefix and on its line,
