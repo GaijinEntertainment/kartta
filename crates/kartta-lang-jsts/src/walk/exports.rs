@@ -139,26 +139,36 @@ pub(super) fn binds_a_require(declarator: Node<'_>, source: &[u8]) -> bool {
 // its name; a declarator that takes a `require` binds each name of its pattern, a property key and a default value
 // none
 fn imported_names(node: Node<'_>, bound: &mut impl FnMut(Node<'_>)) {
-    let field = |name| node.child_by_field_name(name);
-    let inner = match node.kind() {
-        "identifier" | "shorthand_property_identifier_pattern" => return bound(node),
-        "import_specifier" => field("alias").or_else(|| field("name")),
-        "variable_declarator" => field("name"),
-        "pair_pattern" => field("value"),
-        "assignment_pattern" | "object_assignment_pattern" => field("left"),
-        _ => None,
-    };
-    if let Some(inner) = inner {
-        return imported_names(inner, bound);
-    }
-    match node.kind() {
-        "import_statement" | "import_clause" | "namespace_import" | "named_imports"
-        | "object_pattern" | "array_pattern" | "rest_pattern" => {
-            for child in child_nodes(node) {
-                imported_names(child, bound);
+    let mut waiting = vec![node];
+    while let Some(node) = waiting.pop() {
+        let field = |name| node.child_by_field_name(name);
+        let inner = match node.kind() {
+            "identifier" | "shorthand_property_identifier_pattern" => {
+                bound(node);
+                continue;
             }
+            "import_specifier" => field("alias").or_else(|| field("name")),
+            "variable_declarator" => field("name"),
+            "pair_pattern" => field("value"),
+            "assignment_pattern" | "object_assignment_pattern" => field("left"),
+            _ => None,
+        };
+        if let Some(inner) = inner {
+            waiting.push(inner);
+            continue;
         }
-        _ => {}
+        if matches!(
+            node.kind(),
+            "import_statement"
+                | "import_clause"
+                | "namespace_import"
+                | "named_imports"
+                | "object_pattern"
+                | "array_pattern"
+                | "rest_pattern"
+        ) {
+            waiting.extend(child_nodes(node).rev());
+        }
     }
 }
 
