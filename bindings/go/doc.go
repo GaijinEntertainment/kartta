@@ -6,8 +6,11 @@
 // answers wire types. A Kartta is safe for use by several goroutines at once: queries run concurrently, builds one at
 // a time, a query waits for a refresh under way, and Close waits for the calls in flight.
 //
-// The package links libkartta_ffi.a, built from the same kartta commit by cargo build -p kartta-ffi, and compiles
-// against crates/kartta-ffi/include/kartta.h of that checkout. Name the archive's directory in CGO_LDFLAGS:
+// The module lives in bindings/go of the kartta repository, so its version vX.Y.Z is the tag bindings/go/vX.Y.Z, on the
+// commit of the release vX.Y.Z. The package compiles against the kartta.h the module holds, and links libkartta_ffi.a
+// of the same version: the GitHub release vX.Y.Z carries one archive per target, and in a checkout cargo build -p
+// kartta-ffi builds it. Name the archive's directory in CGO_LDFLAGS:
 //
-//	CGO_LDFLAGS=-L<checkout>/target/release go build
+//	go get dev.gaijin.team/go/kartta@vX.Y.Z
+//	CGO_LDFLAGS=-L<directory of libkartta_ffi.a> go build
 package kartta
