@@ -125,7 +125,7 @@ impl Emitter<'_> {
             callee: text(name, self.source),
             receiver: None,
             line: start_line(node),
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: false,
             arguments: 0,
         });

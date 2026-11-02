@@ -140,7 +140,7 @@ mod tsconfig;
 mod walk;
 
 use kartta_lang::{
-    Conventions, DocComments, IncludedRuntimeMembers, Language, MacroInvocations, MemberCalls,
+    CallsApart, Conventions, DocComments, IncludedRuntimeMembers, Language, MemberCalls,
     OwnMembers, RawExtraction, Receivers, Repository, Resolver, TypeUses, UntypedMembers,
     ValueUses,
 };
@@ -157,7 +157,7 @@ const CONVENTIONS: Conventions = {
     conventions.bare_call_reaches_enclosing_owners = true;
     conventions.member_calls = MemberCalls::NearbyFreeFunctionsUnlessTyped;
     conventions.receivers = Receivers::ReturnPaths;
-    conventions.macro_invocations = MacroInvocations::Apart;
+    conventions.calls_apart = CallsApart::Marked;
     conventions.runtime_methods = runtime::METHODS;
     conventions.included_runtime_members = IncludedRuntimeMembers::SpelledOrOwn;
     conventions.value_uses = ValueUses::Imported;

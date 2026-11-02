@@ -207,7 +207,7 @@ impl Emitter<'_> {
                     callee: text(node, source),
                     receiver: self.implicit_receiver(site_of),
                     line: line(node.start_position().row),
-                    invokes_a_macro: false,
+                    binds_apart: false,
                     calls_a_method: false,
                     arguments: 0,
                 });
@@ -421,7 +421,7 @@ impl Emitter<'_> {
             callee,
             receiver,
             line: line(node.start_position().row),
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: false,
             arguments: 0,
         };

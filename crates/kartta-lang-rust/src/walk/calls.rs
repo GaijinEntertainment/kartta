@@ -89,7 +89,7 @@ impl Emitter<'_> {
             callee: target.callee,
             receiver: target.receiver,
             line: line(node.start_position().row),
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: target.calls_a_method,
             arguments: 0,
         };
@@ -258,7 +258,7 @@ impl Emitter<'_> {
             callee,
             receiver: None,
             line: line(node.start_position().row),
-            invokes_a_macro: true,
+            binds_apart: true,
             calls_a_method: false,
             arguments: 0,
         };

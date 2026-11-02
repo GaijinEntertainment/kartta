@@ -238,7 +238,7 @@ impl Emitter<'_> {
         if callee.is_empty() {
             return;
         }
-        let (mut arguments, mut invokes_a_macro) = (0, false);
+        let (mut arguments, mut binds_apart) = (0, false);
         if receiver.is_none() && !self.function_spans.is_empty() {
             match self.bindings.get(callee.as_bytes()) {
                 Some(&Binding::Local(local, _)) => {
@@ -249,7 +249,7 @@ impl Emitter<'_> {
                     });
                     return;
                 }
-                Some(Binding::Parameter(_)) if self.file_is_generated => invokes_a_macro = true,
+                Some(Binding::Parameter(_)) if self.file_is_generated => binds_apart = true,
                 Some(Binding::Parameter(_)) => {
                     self.parameter_calls = true;
                     arguments = THROUGH_A_PARAMETER;
@@ -263,15 +263,15 @@ impl Emitter<'_> {
             callee,
             receiver,
             line: start_line(node),
-            invokes_a_macro,
+            binds_apart,
             calls_a_method: false,
             arguments,
         });
     }
 }
 
-// constraint: the language has no macro and sets `MacroInvocations::Apart`, so a call marked as a macro invocation binds
-// nothing and stays a site, whose name `find_unused` reads as called
+// constraint: the language has no macro and sets `CallsApart::Marked`, so a call marked `binds_apart` binds nothing and
+// stays a site, whose name `find_unused` reads as called
 /// Settles the bare calls of a parameter: one binds nothing unless the file defines a function or a class of the name
 /// that no type or namespace owns, other than the definition that makes the call.
 pub(super) fn settle_parameter_calls(raw: &mut RawExtraction) {
@@ -295,7 +295,7 @@ pub(super) fn settle_parameter_calls(raw: &mut RawExtraction) {
     let through_a_parameter = |call: &&mut CallRef| call.arguments == THROUGH_A_PARAMETER;
     for call in calls.iter_mut().filter(through_a_parameter) {
         call.arguments = 0;
-        call.invokes_a_macro = !defined
+        call.binds_apart = !defined
             .get(call.callee.as_str())
             .is_some_and(|&(id, several)| several || id != call.site_of.0 as usize);
     }

@@ -6,9 +6,9 @@ use std::rc::Rc;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 use kartta_lang::{
-    BareReceivers, BuiltApart, CallableRole, Conventions, FILE_SCOPE, IncludeReach,
-    IncludedRuntimeMembers, InheritedMembers, MacroInvocations, MemberCalls, NamespaceCalls,
-    OwnMembers, Receivers, SymbolFlags, SymbolKind, Twins, UntypedMembers, ValueUses, path,
+    BareReceivers, BuiltApart, CallableRole, CallsApart, Conventions, FILE_SCOPE, IncludeReach,
+    IncludedRuntimeMembers, InheritedMembers, MemberCalls, NamespaceCalls, OwnMembers, Receivers,
+    SymbolFlags, SymbolKind, Twins, UntypedMembers, ValueUses, path,
 };
 
 use crate::candidates::{CandidateSet, Candidates, Gate, INDEXED_FROM};
@@ -50,7 +50,7 @@ pub(crate) struct Call {
     pub(crate) written_from_root: bool,
     pub(crate) names_a_runtime_method: bool,
     pub(crate) on_a_class: bool,
-    pub(crate) invokes_a_macro: bool,
+    pub(crate) binds_apart: bool,
     pub(crate) calls_a_method: bool,
     pub(crate) arguments: u8,
     pub(crate) local: Option<SymbolAt>,
@@ -68,7 +68,7 @@ impl Call {
             written_from_root: false,
             names_a_runtime_method: false,
             on_a_class: false,
-            invokes_a_macro: false,
+            binds_apart: false,
             calls_a_method: false,
             arguments: 0,
             local: None,
@@ -82,7 +82,7 @@ impl Call {
 
     const fn form(&self) -> (bool, bool, u8, bool) {
         (
-            self.invokes_a_macro,
+            self.binds_apart,
             self.calls_a_method,
             self.arguments,
             self.arguments != 0 && self.receiver.is_some(),
@@ -116,7 +116,7 @@ struct Bindings {
 
 type Derived<K, V> = RefCell<HashMap<K, V, FixedState>>;
 
-// constraint: the call targets of one name, of the call's form, a macro invocation, a method call or neither, with the
+// constraint: the call targets of one name, of the call's form, a call apart, a method call or neither, with the
 // arguments it passes, and among those the ones the caller's package binds by name where it is gated, else every one
 type CandidatesKey = (Str, (bool, bool, u8, bool), Option<Str>);
 
@@ -205,7 +205,7 @@ impl<'g> Cascade<'g> {
                     names_a_runtime_method: call.receiver.is_some()
                         && self.is_runtime_method(call.callee),
                     on_a_class: call.is_on_a_class(),
-                    invokes_a_macro: call.invokes_a_macro(),
+                    binds_apart: call.binds_apart(),
                     calls_a_method: call.calls_a_method(),
                     arguments: call.arguments(),
                     local: None,
@@ -222,7 +222,7 @@ impl<'g> Cascade<'g> {
                     written_from_root: false,
                     names_a_runtime_method: false,
                     on_a_class: false,
-                    invokes_a_macro: false,
+                    binds_apart: false,
                     calls_a_method: false,
                     arguments: 0,
                     local: Some(SymbolAt::new(site.file, call.local)),
@@ -327,10 +327,8 @@ impl<'g> Cascade<'g> {
 
     // constraint: a method call calls a method, never the value of a variable or a constant
     const fn is_of_the_call_s_form(&self, call: &Call, kind: SymbolKind) -> bool {
-        (matches!(
-            self.conventions.macro_invocations,
-            MacroInvocations::AsCalls
-        ) || call.invokes_a_macro == matches!(kind, SymbolKind::Macro))
+        (matches!(self.conventions.calls_apart, CallsApart::None)
+            || call.binds_apart == matches!(kind, SymbolKind::Macro))
             && !(call.calls_a_method && is_value(kind))
     }
 
@@ -1558,7 +1556,7 @@ impl<'g> Cascade<'g> {
         reach: Option<&Reach>,
     ) -> Result<Bound, Miss> {
         let in_the_package;
-        let candidates = if call.invokes_a_macro {
+        let candidates = if call.binds_apart {
             in_the_package = self.in_the_caller_s_package(call, candidates);
             &in_the_package
         } else {
@@ -1609,24 +1607,23 @@ impl<'g> Cascade<'g> {
 
     // constraint: a variable or a constant a body declares is no candidate of a call outside that body, yet where
     // values are call targets it shows that a call of its name may call a value the graph does not follow, so it keeps
-    // a callable from being the one of its name wherever it would count as a candidate; a macro invocation or a method
-    // call calls no value
+    // a callable from being the one of its name wherever it would count as a candidate; a call apart or a method call
+    // calls no value
     pub(crate) fn bodies_values<'c>(
         &'c self,
         call: &Call,
         candidates: &'c Candidates<'_>,
     ) -> impl Iterator<Item = SymbolAt> + 'c {
         let indexed = candidates.holds_locals_apart();
-        let held_apart = if !self.conventions.values_are_call_targets
-            || call.invokes_a_macro
-            || call.calls_a_method
-        {
-            &[][..]
-        } else if indexed {
-            &candidates.locals[..]
-        } else {
-            candidates.named
-        };
+        let held_apart =
+            if !self.conventions.values_are_call_targets || call.binds_apart || call.calls_a_method
+            {
+                &[][..]
+            } else if indexed {
+                &candidates.locals[..]
+            } else {
+                candidates.named
+            };
         held_apart.iter().copied().filter(move |&at| {
             let symbol = self.graph.sym(at);
             symbol.owner.is_none()
