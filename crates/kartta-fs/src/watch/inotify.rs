@@ -724,7 +724,7 @@ mod tests {
                 std::hint::spin_loop();
             }
             // SAFETY: the thread is this process's own, and waits in its poll until this one makes the file.
-            unsafe { libc::tgkill(process, draining, libc::SIGUSR1) };
+            unsafe { libc::syscall(libc::SYS_tgkill, process, draining, libc::SIGUSR1) };
             while !INTERRUPTED.load(Ordering::SeqCst) {
                 std::hint::spin_loop();
             }
