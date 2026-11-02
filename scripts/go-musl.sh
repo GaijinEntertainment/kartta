@@ -6,7 +6,7 @@ set -eu
 target=$1
 
 # constraint: a debug archive overflows musl's default thread stack on a cgo thread
-cargo rustc --locked --profile dist -p kartta-ffi --target "$target" --crate-type staticlib
+scripts/ffi-archive.sh "$target"
 
 built=${CARGO_TARGET_DIR:-$PWD/target}/$target/dist
 cp crates/kartta-ffi/include/kartta.h crates/kartta-ffi/WIRE.md "$built"
