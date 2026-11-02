@@ -259,9 +259,7 @@ impl FoldedPaths {
     }
 
     fn bucketed(by_hash: Vec<HashedAt>) -> Self {
-        let bits = by_hash
-            .len()
-            .bit_width()
+        let bits = (usize::BITS - by_hash.len().leading_zeros())
             .saturating_sub(ENTRIES_PER_BUCKET_BITS)
             .min(MAX_BUCKET_BITS);
         let bucket_shift = u32::BITS - bits;
