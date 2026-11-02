@@ -29,6 +29,22 @@ pub enum Miss {
     PastBound,
 }
 
+impl Miss {
+    /// The word for the miss in an answer: `external_import`, `not_exported`, `undefined`, `not_admitted`, `ambiguous`
+    /// or `past_bound`.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::ExternalImport => "external_import",
+            Self::NotExported => "not_exported",
+            Self::Undefined => "undefined",
+            Self::NotAdmitted => "not_admitted",
+            Self::Ambiguous => "ambiguous",
+            Self::PastBound => "past_bound",
+        }
+    }
+}
+
 /// The call sites that bound no definition, by reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
