@@ -275,3 +275,7 @@ lost, and what would reopen it.
 
 - [1.1 Own the filesystem walk](/design-docs/adr/1.1-filesystem-walk.md)
 - [1.61 Classify a large directory's entries in parallel](/design-docs/adr/1.61-directory-classification.md)
+
+## notices
+
+- [4.47 Generate one notices file for the binary artifacts, from what they link](/design-docs/adr/4.47-binary-notices.md)
