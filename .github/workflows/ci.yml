@@ -101,6 +101,27 @@ jobs:
       - run: cargo build --locked --workspace --all-targets --all-features
       - run: cargo test --locked --workspace --all-features
 
+  # What a `cargo install` without `--locked` builds: the newest version each requirement allows, a dependency's newest
+  # release candidate included, which every job under `--locked` does not see. So this job alone moves with crates.io,
+  # and a release that breaks kartta fails it for every change until the requirement or the code answers it.
+  fresh-resolve:
+    env:
+      # constraint: the Ubuntu runner starts with 12 GB free, and full debug info fills it with `target` alone
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    strategy:
+      fail-fast: false
+      matrix:
+        # The watcher's backend differs per platform, and a build alone did not fail on a candidate its tests fail on.
+        os: [ubuntu-24.04, macos-26, windows-2025-vs2026]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - run: cargo update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo build --workspace --all-targets --all-features
+      - run: cargo test --workspace --all-features
+
   # The floor, the workspace's `rust-version`, over what a consumer builds: tests and dev-dependencies may be newer.
   # Cargo refuses a toolchain below the field, so raising it fails here until this pin moves too, and a symbol or a
   # dependency newer than the pin fails the check.
@@ -292,6 +313,7 @@ jobs:
       - package
       - unsupported-watch
       - test
+      - fresh-resolve
       - msrv
       - semver
       - go
