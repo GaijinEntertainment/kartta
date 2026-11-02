@@ -15,6 +15,7 @@ on:
       - rust-toolchain.toml
       - scripts/dist.sh
       - scripts/glibc-floor.sh
+      - scripts/link-check.sh
 
 permissions:
   contents: read
@@ -68,10 +69,23 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: build on the runner
-        if: matrix.image == ''
+        if: matrix.image == '' && runner.os != 'Windows'
         run: |
           rustup toolchain install
           scripts/dist.sh ${{ matrix.target }}
+      # scripts/link-check.sh runs cl, which only the Developer environment puts on PATH.
+      # constraint: cmd goes on past a failed line, `bash` alone can name WSL's, and Git's bash puts its own `link` ahead
+      # of the one cl and rustc call
+      - name: build in the MSVC environment
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          rustup toolchain install || exit /b 1
+          set "vswhere=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          for /f "usebackq delims=" %%i in (`"%vswhere%" -latest -property installationPath`) do set "vs=%%i"
+          call "%vs%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          "%ProgramFiles%\Git\bin\bash.exe" -c ^
+            "PATH=\"$(cygpath \"$VCToolsInstallDir\")bin/Hostx64/x64:$PATH\" exec scripts/dist.sh ${{ matrix.target }}"
       # The image brings the toolchain, and its C library and compiler build the grammars.
       - name: build in the musl image
         if: endsWith(matrix.target, '-musl')
@@ -87,8 +101,8 @@ jobs:
       - name: prove the glibc floor
         if: endsWith(matrix.target, '-gnu')
         run: |
-          docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} scripts/glibc-floor.sh "$GLIBC_FLOOR" \
-            target/artifacts/kartta-mcp-*.tar.gz target/artifacts/kartta-ffi-*.tar.gz target/floor
+          docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} scripts/glibc-floor.sh ${{ matrix.target }} \
+            "$GLIBC_FLOOR" target/artifacts/kartta-mcp-*.tar.gz target/artifacts/kartta-ffi-*.tar.gz target/floor
           docker run --rm -v "$PWD/target/floor:/floor" "$GLIBC_FLOOR_HOST" \
             sh -c '/floor/kartta-mcp --version && /floor/kartta-abi'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

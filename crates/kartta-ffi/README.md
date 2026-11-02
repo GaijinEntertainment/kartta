@@ -7,7 +7,8 @@ a JSON object of params, and every answer is `{"ok": <answer>}` or `{"err": {"co
 so a binding translates JSON and decides nothing. The Go binding in `bindings/go` links the static library; a Rust shell
 builds on the `Kartta` type of the rlib.
 
-[`WIRE.md`](WIRE.md) is the reference for a C consumer: every method, field, default, error code and enumerated value.
+[`WIRE.md`](WIRE.md) is the reference for a C consumer: the link command of each target, then every method, field,
+default, error code and enumerated value.
 A file in [`tests/golden`](tests/golden) pins each method: a request on the fixture tree beside it, and the answer it
 gets.
 

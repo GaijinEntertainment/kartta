@@ -1,13 +1,30 @@
 # The kartta wire
 
-The reference of what `kartta_call` takes and answers: every method, its params, its answer, every default, error code
-and enumerated value. [`include/kartta.h`](include/kartta.h) states the C functions, who owns what, and the rules on
-threads and panics; this file assumes them. `tests/reference.rs` holds this file to the code, so a name the code adds
-fails the crate's tests until a section here names it.
+The reference of how to link the library and of what `kartta_call` takes and answers: every method, its params, its
+answer, every default, error code and enumerated value. [`include/kartta.h`](include/kartta.h) states the C functions,
+who owns what, and the rules on threads and panics; this file assumes them. `tests/reference.rs` holds this file to the
+code, so a name the code adds fails the crate's tests until a section here names it.
 
 Each `###` section below is one JSON object or one set of values. Its heading is this reference's label, which never
 appears on the wire; the names on the wire are the bulleted ones. A field reads `name (type, presence)`: a param is
 `required` or `optional`, and an answer's field is `always` there or `optional`, absent where it would say nothing.
+
+## Linking
+
+Run from the directory of a release's `kartta-ffi` tarball, on the target it names, these commands link `main.c`.
+Every release build runs each row on a small C program (`scripts/link-check.sh`). `rustc --print native-static-libs`
+is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
+
+| Target | Command |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| `aarch64-apple-darwin` | `cc main.c -L. -lkartta_ffi -framework CoreServices -framework CoreFoundation -liconv` |
+| `aarch64-unknown-linux-gnu` | `cc main.c -L. -lkartta_ffi -lpthread -lm -ldl` |
+| `x86_64-unknown-linux-gnu` | `cc main.c -L. -lkartta_ffi -lpthread -lm -ldl` |
+| `aarch64-unknown-linux-musl` | `cc main.c -L. -lkartta_ffi` |
+| `aarch64-unknown-linux-musl` | `cc -static main.c -L. -lkartta_ffi` |
+| `x86_64-unknown-linux-musl` | `cc main.c -L. -lkartta_ffi` |
+| `x86_64-unknown-linux-musl` | `cc -static main.c -L. -lkartta_ffi` |
+| `x86_64-pc-windows-msvc` | `cl -MD main.c kartta_ffi.lib kernel32.lib ntdll.lib userenv.lib ws2_32.lib dbghelp.lib` |
 
 ## Calling
 
