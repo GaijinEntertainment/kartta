@@ -95,6 +95,7 @@ pub struct Index {
     content_positions: Box<[u32]>,
     content_stamps: Option<Box<[Stamp]>>,
     content_storage: Option<ContentIndexStorage>,
+    content_failure: Option<Box<str>>,
     content_cache: Option<PathBuf>,
     content_cache_ttl: Duration,
     content: ContentIndexes,
@@ -110,11 +111,11 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// Returns [`BuildError::Walk`] if `root` itself cannot be listed, [`BuildError::ThreadPool`] if the thread count
-    /// [`BuildOptions::threads`] asks for cannot be started, and [`BuildError::ContentIndex`] if the content index
-    /// cannot be kept where [`BuildOptions::content_index`] asks. Every deeper failure is collected into
+    /// Returns [`BuildError::Walk`] if `root` itself cannot be listed, and [`BuildError::ThreadPool`] if the thread
+    /// count [`BuildOptions::threads`] asks for cannot be started. Every deeper failure is collected into
     /// [`BuildOutcome::errors`] instead, leaving a partial index — check it before trusting the answer, because a
-    /// partial index looks exactly like a complete one.
+    /// partial index looks exactly like a complete one. A content index that cannot be kept where
+    /// [`BuildOptions::content_index`] asks is such a failure: the index then answers as one built without it.
     pub fn build(
         root: impl AsRef<Path>,
         options: &BuildOptions,
@@ -177,7 +178,9 @@ impl Index {
     /// # Errors
     ///
     /// As [`Index::build_with`], and [`BuildError::ContentIdsExhausted`] when the index has no id left for a file the
-    /// refresh reads.
+    /// refresh reads, and [`BuildError::ContentIndex`] when the content index cannot be kept: unlike a build, a refresh
+    /// has an index to go on answering from. One the build gave up stays absent, whatever a refresh finds, because the
+    /// files a refresh carries over are not read for it; a new build asks for it again.
     pub fn refresh(
         &mut self,
         visitor: Option<&dyn ContentVisitor>,
@@ -190,10 +193,11 @@ impl Index {
         &mut self,
         asked: Asked<'_>,
     ) -> Result<RefreshOutcome, BuildError> {
-        let (BuildOutcome { index, errors }, retired) =
+        let (BuildOutcome { mut index, errors }, retired) =
             self.counting_handed(|index, handed| index.walk_again(asked, handed))?;
         let mut changed = ChangedFiles::since(self);
         changed.add_between(Held::all(self), Held::all(&index));
+        index.content_failure = self.content_failure.take();
         *self = index;
         release_freed_memory();
 
@@ -341,7 +345,6 @@ impl Index {
             return Err(BuildError::ContentIdsExhausted);
         }
         errors.extend(walk_errors.into_iter().map(BuildError::Walk));
-        order_errors(&mut errors);
 
         let base = Base {
             root: root.to_path_buf(),
@@ -362,7 +365,7 @@ impl Index {
             previous,
         };
         let (mut index, carried_text) = Self::from_tree(base, tree, targets, placing);
-        if let Some(content) = content {
+        let stored = content.map(|content| {
             let reads = ReadIds {
                 first: first_content_id,
                 count: node_sized(learned.len()),
@@ -370,10 +373,33 @@ impl Index {
                 previous,
             };
             drop(learned);
-            index.content = index.finish_content_index(content, reads, cancel)?;
-        }
+            index.finish_content_index(content, reads, cancel)
+        });
+        index.settle_content_index(stored, handed.is_none(), &mut errors)?;
+        order_errors(&mut errors);
 
         Ok(BuildOutcome { index, errors })
+    }
+
+    fn settle_content_index(
+        &mut self,
+        stored: Option<Result<ContentIndexes, BuildError>>,
+        building: bool,
+        errors: &mut Vec<BuildError>,
+    ) -> Result<(), BuildError> {
+        match stored {
+            Some(Ok(content)) => self.content = content,
+            Some(Err(error @ BuildError::ContentIndex { .. })) if building => errors.push(error),
+            Some(Err(error)) => return Err(error),
+            None => {}
+        }
+        let unkept = |error: &&BuildError| matches!(error, BuildError::ContentIndex { .. });
+        if let Some(failure) = errors.iter().find(unkept) {
+            self.content_storage = None;
+            self.content_failure = Some(failure.to_string().into());
+        }
+
+        Ok(())
     }
 
     fn finish_content_index(
@@ -514,6 +540,7 @@ impl Index {
             content_positions: placed.positions,
             content_stamps: placed.stamps,
             content_storage,
+            content_failure: None,
             content_cache,
             content_cache_ttl,
             content: ContentIndexes::default(),
@@ -522,13 +549,23 @@ impl Index {
         (index, placed.carried_text)
     }
 
-    /// What the content index holds, or `None` when the build was not asked for one.
+    /// What the content index holds, or `None` when the build was not asked for one or could not keep it, which
+    /// [`Index::content_index_failure`] then says.
     ///
     /// See [`BuildOptions::content_index`] for what a build with one reads.
     #[must_use]
     pub fn content_index_stats(&self) -> Option<ContentIndexStats> {
         self.content_storage.as_ref()?;
         Some(self.content.stats())
+    }
+
+    /// Why this index holds no content index though its build was asked for one: the text of the
+    /// [`BuildError::ContentIndex`] the build collected, which outlives that error, since a refresh leaves the index
+    /// without one and the build's failures do not stay with it. `None` when the build kept what it was asked for, or
+    /// was asked for nothing.
+    #[must_use]
+    pub fn content_index_failure(&self) -> Option<&str> {
+        self.content_failure.as_deref()
     }
 
     pub(crate) fn narrowed(&self, requirement: &Requirement) -> Option<Narrowed> {
@@ -1340,11 +1377,16 @@ fn indexing<'a>(
     visitor: Option<&'a dyn ContentVisitor>,
     numbering: Numbering<'a>,
 ) -> Result<Indexing<'a>, BuildError> {
-    let collector = options
+    let created = options
         .content_index
         .as_ref()
         .map(|storage| Collector::new(storage).map_err(|source| storage_error(storage, source)))
-        .transpose()?;
+        .transpose();
+    let (collector, uncreated) = match created {
+        Ok(collector) => (collector, None),
+        Err(error) if numbering.handed.is_none() => (None, Some(error)),
+        Err(error) => return Err(error),
+    };
     let reads = visitor.is_some() || collector.is_some();
     let opened = options
         .content_cache
@@ -1361,7 +1403,7 @@ fn indexing<'a>(
     });
 
     let indexing = Indexing::new(options.ignore_sources, &options.pruned_names, root, reading);
-    if let Some(error) = unopened {
+    for error in uncreated.into_iter().chain(unopened) {
         indexing.record(error);
     }
     Ok(indexing)
@@ -1494,6 +1536,8 @@ pub struct BuildOutcome {
     /// - [`BuildError::Name`] — the entry is missing, and a directory takes its subtree with it.
     /// - [`BuildError::Read`] — the entry is indexed, and neither the [`ContentVisitor`] nor the content index holds
     ///   its content.
+    /// - [`BuildError::ContentIndex`] — every entry is there, and the index holds no content index, so a search opens
+    ///   every candidate. [`Index::content_index_failure`] keeps this reason.
     pub errors: Vec<BuildError>,
 }
 
@@ -1752,6 +1796,7 @@ mod tests {
             content_positions: Box::default(),
             content_stamps: None,
             content_storage: None,
+            content_failure: None,
             content_cache: None,
             content_cache_ttl: Duration::ZERO,
             content: ContentIndexes::default(),

@@ -100,6 +100,10 @@ pub struct BuildOptions {
     /// file, so a consumer that reads content anyway pays for one read either way. A build without a visitor pays for
     /// all of them: on a tree of sources, reading every text file costs many times what the walk alone does.
     /// [`Index::content_index_stats`](crate::Index::content_index_stats) reports what the index holds.
+    ///
+    /// A failure to create, write or map a scratch file costs only this index: the build collects it as
+    /// [`BuildError::ContentIndex`] and answers as one that was asked for none, with
+    /// [`Index::content_index_failure`](crate::Index::content_index_failure) saying why.
     pub content_index: Option<ContentIndexStorage>,
     /// A [`kartta_cache`] store that per-file data is shared through, with every build that uses the same directory —
     /// in this process or any other, of this tree or another. The content index takes each text file's trigrams from
@@ -155,12 +159,12 @@ pub struct BuildOptions {
 /// A failure that stopped a build, or cost it one entry, one subtree, one directory's rules or one file's content.
 ///
 /// [`BuildError::Walk`] is returned for a root that cannot be listed, [`BuildError::ThreadPool`] for a thread pool that
-/// cannot be started, [`BuildError::ContentIndex`] when the content index cannot be kept where it was asked to be,
-/// [`BuildError::Cancelled`] by [`Index::build_with`](crate::Index::build_with),
+/// cannot be started, [`BuildError::Cancelled`] by [`Index::build_with`](crate::Index::build_with),
 /// [`Index::refresh`](crate::Index::refresh) and [`Index::refresh_paths`](crate::Index::refresh_paths) when their cancel
-/// token stopped them, [`BuildError::ContentIdsExhausted`] by both refreshes when the index has no ids left, and
+/// token stopped them, [`BuildError::ContentIndex`] by both refreshes when the content index cannot be kept where it
+/// was asked to be, [`BuildError::ContentIdsExhausted`] by both refreshes when the index has no ids left, and
 /// [`BuildError::OutsideTree`] by [`Index::refresh_paths`](crate::Index::refresh_paths) for a path that may lead out of
-/// the tree; [`Index::build`](crate::Index::build) takes no token and returns only the first three.
+/// the tree; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
 /// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names,
 /// so one unreadable directory yields a partial index rather than none.
 #[derive(Debug, thiserror::Error)]
@@ -217,7 +221,8 @@ pub enum BuildError {
     /// The content index could not be kept where [`BuildOptions::content_index`] asked: a scratch file in that
     /// directory could not be created, written or mapped.
     ///
-    /// Returned rather than collected, because the build was asked for an index it cannot hand back. The directory has
+    /// Collected by a build, which goes on to hand back every other thing it made, so a caller can use what it has and
+    /// build again for the index. Returned by a refresh, which leaves the index answering as it did. The directory has
     /// to exist and have room for the index and what the build spills while it makes it.
     #[error("cannot keep the content index in {}: {source}", native_path.display())]
     ContentIndex {
