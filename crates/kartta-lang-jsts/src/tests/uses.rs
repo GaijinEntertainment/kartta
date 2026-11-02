@@ -1,4 +1,4 @@
-use kartta_lang::{Access, Extraction, Language, Receiver, SymbolId, TypeUses};
+use kartta_lang::{Access, Extraction, FILE_SCOPE, Language, Receiver, SymbolId, TypeUses};
 
 use super::{extracted, names};
 use crate::TypeScript;
@@ -30,7 +30,11 @@ fn uses(extraction: &Extraction) -> Vec<(&str, &str, Receiver, Access, u32)> {
         .iter()
         .map(|site| {
             (
-                extraction.symbols[site.site_of.0 as usize].name.as_str(),
+                if site.site_of == FILE_SCOPE {
+                    ""
+                } else {
+                    extraction.symbols[site.site_of.0 as usize].name.as_str()
+                },
                 site.name.as_str(),
                 site.receiver.clone(),
                 site.access,
@@ -128,7 +132,7 @@ fn a_default_parameter_value_of_a_script_reads_a_module_value() {
 }
 
 #[test]
-fn a_called_member_a_local_and_a_use_outside_every_definition_record_no_use() {
+fn a_called_member_a_local_and_a_member_outside_every_definition_record_no_use() {
     let extraction = extracted(
         "src/app.js",
         "import api from './api';\nconst state = { ready: false };\nstate.ready = true;\n\
@@ -138,10 +142,107 @@ fn a_called_member_a_local_and_a_use_outside_every_definition_record_no_use() {
     assert_eq!(
         uses(&extraction),
         [
+            ("", "state", Receiver::Bare, Access::Read, 3),
             ("boot", "api", Receiver::Bare, Access::Read, 5),
             ("boot", "port", path(""), Access::Read, 5),
             ("boot", "ready", path("api"), Access::Read, 7),
             ("boot", "api", Receiver::Bare, Access::Read, 7),
+        ]
+    );
+}
+
+#[test]
+fn a_read_at_file_scope_is_a_use_of_the_name_an_object_a_callback_and_an_export_default_spell() {
+    let extraction = extracted(
+        "src/server.ts",
+        r#"import express from "express";
+
+const LIMIT = 5;
+export const opts = { points: LIMIT };
+const router = express.Router();
+const TIMEOUT = 3000;
+router.post("/x", async (req, res) => {
+  res.send(TIMEOUT);
+});
+export default router;
+
+const IN_FN = 7;
+export function reader() {
+  return IN_FN;
+}
+if (LIMIT > 1) {
+  const TIMEOUT = 1;
+  setTimeout(reader, TIMEOUT);
+}
+"#,
+    );
+
+    assert_eq!(
+        uses(&extraction),
+        [
+            ("", "LIMIT", Receiver::Bare, Access::Read, 4),
+            ("", "express", Receiver::Bare, Access::Read, 5),
+            ("", "router", Receiver::Bare, Access::Read, 7),
+            ("", "TIMEOUT", Receiver::Bare, Access::Read, 8),
+            ("", "router", Receiver::Bare, Access::Read, 10),
+            ("reader", "IN_FN", Receiver::Bare, Access::Read, 14),
+            ("", "LIMIT", Receiver::Bare, Access::Read, 16),
+            ("", "reader", Receiver::Bare, Access::Read, 18),
+        ],
+        "a parameter, and a `const` a top-level block declares, hide the module's name"
+    );
+}
+
+#[test]
+fn a_declaration_at_file_scope_is_no_use_of_its_name() {
+    let extraction = extracted(
+        "src/decls.ts",
+        r#"import fallback, { named, other as alias } from "./m";
+import * as space from "./n";
+const required = require("./o");
+const { a, b: c, d = 1, ...rest } = load();
+const [e, [f], g = 2] = load();
+const { h, i: [j] } = require("./p");
+for (var k in load()) {}
+for (var { l } of load()) {}
+function over(first: string): void;
+function over(first: number): void;
+function over(first: unknown) {}
+namespace over {}
+module over {}
+interface Indexed { [a: string]: number }
+declare function typed({ c }: Options): void;
+export { a, c as renamed };
+"#,
+    );
+
+    assert_eq!(uses(&extraction), []);
+}
+
+#[test]
+fn a_destructuring_assignment_at_file_scope_writes_what_it_names_and_reads_its_defaults() {
+    let extraction = extracted(
+        "src/assign.js",
+        "let a, b, c, e, FALLBACK = 1, KEY = 'k';\n\
+         [a = FALLBACK] = load();\n({ b, c: e = FALLBACK, d: [c], [KEY]: a } = load());\n\
+         for (b in load()) {}\nfor ([c] of load()) {}\n\
+         function body() {\n    for (a in load()) {}\n}\n",
+    );
+
+    assert_eq!(
+        uses(&extraction),
+        [
+            ("", "a", Receiver::Bare, Access::Write, 2),
+            ("", "FALLBACK", Receiver::Bare, Access::Read, 2),
+            ("", "b", Receiver::Bare, Access::Write, 3),
+            ("", "e", Receiver::Bare, Access::Write, 3),
+            ("", "FALLBACK", Receiver::Bare, Access::Read, 3),
+            ("", "c", Receiver::Bare, Access::Write, 3),
+            ("", "KEY", Receiver::Bare, Access::Read, 3),
+            ("", "a", Receiver::Bare, Access::Write, 3),
+            ("", "b", Receiver::Bare, Access::Write, 4),
+            ("", "c", Receiver::Bare, Access::Write, 5),
+            ("body", "a", Receiver::Bare, Access::Write, 7),
         ]
     );
 }
