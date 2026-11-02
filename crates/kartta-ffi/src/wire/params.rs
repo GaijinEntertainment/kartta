@@ -142,6 +142,7 @@ impl ReferencesParams {
             Some(AccessParam::Read) => query.with_access(Access::Read),
             Some(AccessParam::Write) => query.with_access(Access::Write),
             Some(AccessParam::Update) => query.with_access(Access::Update),
+            Some(AccessParam::Type) => query.with_access(Access::Type),
             None => query,
         }
     }
@@ -153,6 +154,7 @@ enum AccessParam {
     Read,
     Write,
     Update,
+    Type,
 }
 
 #[derive(Debug, Deserialize)]

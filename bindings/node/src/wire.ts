@@ -574,14 +574,17 @@ export type ReferencesParams = {
 	line?: number;
 	lang?: string;
 	min_confidence?: number;
-	/** Keeps the uses that read, set or update the symbol, an update counting as both, and drops the calls. */
+	/**
+	 * Keeps the uses of one access and drops the calls: `read` also keeps the updates and the uses as a type, and `write`
+	 * the updates.
+	 */
 	access?: Access;
 	/** Caps the sites answered; 500 by default, and 0 answers the counts alone. */
 	limit?: number;
 };
 
-/** How a site touches a symbol; a call, and a use as a type, read it. */
-export type Access = 'read' | 'write' | 'update';
+/** How a site touches a symbol; a call reads it. */
+export type Access = 'read' | 'write' | 'update' | 'type';
 
 /** The sites that call or use a symbol in one graph. */
 export type References = {
@@ -622,6 +625,7 @@ export type SiteCounts = {
 	reads: number;
 	writes: number;
 	updates: number;
+	types: number;
 };
 
 /** A call or a use of a symbol, and the definition it sits in. */

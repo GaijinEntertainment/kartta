@@ -224,8 +224,9 @@ type ReferencesParams struct {
 	Line          *int   `json:"line,omitempty"`
 	Lang          string `json:"lang,omitempty"`
 	MinConfidence int    `json:"min_confidence,omitempty"`
-	// Access keeps the uses that read ("read"), that set ("write") or that update ("update") the symbol, an update
-	// counting as a read and a write, and drops the calls; empty keeps every site.
+	// Access keeps the uses that read ("read"), that set ("write"), that update ("update") or that name the symbol as a
+	// type ("type"), and drops the calls; an update counts as a read and a write, and a use as a type as a read. Empty
+	// keeps every site.
 	Access string `json:"access,omitempty"`
 	// Limit caps the sites answered; nil takes the default, 500, and 0 answers the counts alone.
 	Limit *int `json:"limit,omitempty"`
@@ -265,6 +266,7 @@ type SiteCounts struct {
 	Reads   int `json:"reads"`
 	Writes  int `json:"writes"`
 	Updates int `json:"updates"`
+	Types   int `json:"types"`
 }
 
 // Site is a call or a use of a symbol, and the definition it sits in.
@@ -274,7 +276,7 @@ type Site struct {
 	Confidence int        `json:"confidence"`
 	// Call reports a call rather than a use.
 	Call bool `json:"call"`
-	// Access is how the site touches the symbol: "read", "write" or "update"; a call, and a use as a type, read it.
+	// Access is how the site touches the symbol: "read", "write", "update" or "type"; a call reads it.
 	Access string `json:"access"`
 }
 

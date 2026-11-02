@@ -1,0 +1,72 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "ambiguous": 0,
+          "below_confidence": 0,
+          "counts": {
+            "calls": 0,
+            "reads": 0,
+            "types": 2,
+            "updates": 0,
+            "writes": 0
+          },
+          "graph": "go",
+          "passed_over": 0,
+          "sites": [
+            {
+              "access": "type",
+              "call": false,
+              "confidence": 80,
+              "line": 5,
+              "site_of": {
+                "end_line": 5,
+                "exported": false,
+                "file": "go/close.go",
+                "kind": "method",
+                "line": 5,
+                "name": "close",
+                "owner": "file",
+                "qualified_name": "main.file.close",
+                "signature": "func (file) close()"
+              }
+            },
+            {
+              "access": "type",
+              "call": false,
+              "confidence": 80,
+              "line": 11,
+              "site_of": {
+                "end_line": 14,
+                "exported": false,
+                "file": "go/close.go",
+                "kind": "func",
+                "line": 11,
+                "name": "shut",
+                "qualified_name": "main.shut",
+                "signature": "func shut(f file, open func() conn)"
+              }
+            }
+          ],
+          "symbol": {
+            "end_line": 3,
+            "exported": false,
+            "file": "go/close.go",
+            "kind": "struct",
+            "line": 3,
+            "name": "file",
+            "qualified_name": "main.file"
+          },
+          "total": 2
+        }
+      ]
+    }
+  },
+  "method": "references",
+  "params": {
+    "access": "type",
+    "lang": "go",
+    "name": "file"
+  }
+}

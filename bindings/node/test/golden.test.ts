@@ -49,6 +49,7 @@ import listNotFound from '../../../crates/kartta-ffi/tests/golden/list-not_found
 import list from '../../../crates/kartta-ffi/tests/golden/list.json' with {type: 'json'};
 import outline from '../../../crates/kartta-ffi/tests/golden/outline.json' with {type: 'json'};
 import referencesAccess from '../../../crates/kartta-ffi/tests/golden/references-access.json' with {type: 'json'};
+import referencesType from '../../../crates/kartta-ffi/tests/golden/references-type.json' with {type: 'json'};
 import referencesUnmatched from '../../../crates/kartta-ffi/tests/golden/references-unmatched.json' with {type: 'json'};
 import referencesUnrecordedData from '../../../crates/kartta-ffi/tests/golden/references-unrecorded_data.json' with {type: 'json'};
 import references from '../../../crates/kartta-ffi/tests/golden/references.json' with {type: 'json'};
@@ -119,6 +120,7 @@ const laterGoldens = {
 	'implementations-candidates': implementationsCandidates,
 	'list-collapse': listCollapse,
 	'references-access': referencesAccess,
+	'references-type': referencesType,
 	'references-unmatched': referencesUnmatched,
 	'references-unrecorded_data': referencesUnrecordedData,
 	'refresh-ids': refreshIds,
