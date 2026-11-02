@@ -250,6 +250,37 @@ func Test_Kartta(t *testing.T) {
 		}
 	})
 
+	t.Run("a pattern nested to the parser's limit survives a thread's default stack", func(t *testing.T) {
+		k := open(t, tree(t))
+		if _, err := k.Build(t.Context(), wire.BuildOptions{Languages: []string{}}); err != nil {
+			t.Fatal(err)
+		}
+		pattern := strings.Repeat("(a|", 124) + "func" + strings.Repeat(")", 124)
+
+		// Locked at once, the goroutines hold as many threads, and only one can be the main thread, whose stack is
+		// the process's and not the default a cgo thread takes.
+		const threads = 4
+		var locked, calls sync.WaitGroup
+		locked.Add(threads)
+		for range threads {
+			calls.Go(func() {
+				runtime.LockOSThread()
+				defer runtime.UnlockOSThread()
+				locked.Done()
+				locked.Wait()
+				answer, err := k.Grep(t.Context(), wire.GrepParams{Patterns: []string{pattern}})
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if answer.Lines == 0 {
+					t.Error("Grep found no line holding func")
+				}
+			})
+		}
+		calls.Wait()
+	})
+
 	t.Run("queries from many goroutines share one handle", func(t *testing.T) {
 		k := open(t, tree(t))
 		if _, err := k.Build(t.Context(), wire.BuildOptions{}); err != nil {
