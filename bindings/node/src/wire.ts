@@ -274,7 +274,10 @@ export type GraphStats = {
 /** What a content index holds. */
 export type ContentIndexStats = {
 	files: number;
-	/** The text files the index holds nothing of, because their read failed; every grep reads them. Absent at 0. */
+	/**
+	 * The text files the index holds nothing of, because their read failed; a grep that selects one reads it. Absent
+	 * at 0.
+	 */
 	unindexed?: number;
 	trigrams: number;
 	bytes: number;

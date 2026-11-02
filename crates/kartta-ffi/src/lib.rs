@@ -16,7 +16,8 @@
 //! id by one name never stops a call by the other, and none stops a watch.
 //!
 //! Answers are kartta's own: each carries the counts the engine holds of what a cap, a depth bound or a confidence
-//! floor left out.
+//! floor left out. `WIRE.md`, beside this crate's manifest, is the reference of every method, field, default, error code
+//! and enumerated value.
 
 mod abi;
 mod built;

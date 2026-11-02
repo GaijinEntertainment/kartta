@@ -112,8 +112,8 @@ impl Kartta {
     }
 
     /// Answers `method` with `params`, a JSON object or nothing, as the JSON `{"ok": <answer>}` or
-    /// `{"err": {"code": <code>, "message": <message>}}`. The methods and their params are the wire the crate
-    /// documents; an unknown method answers the code `unknown_method`, listing the known ones.
+    /// `{"err": {"code": <code>, "message": <message>}}`. `WIRE.md` beside the crate's manifest states the methods and
+    /// their params; an unknown method answers the code `unknown_method`, listing the known ones.
     ///
     /// A panic answers the code `internal` and never unwinds out of the call, so a caller on a thread of its own or
     /// behind a C boundary needs no guard, and the handle stays usable.

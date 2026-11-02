@@ -169,7 +169,8 @@ type GraphStats struct {
 // ContentIndexStats counts what a content index holds.
 type ContentIndexStats struct {
 	Files int `json:"files"`
-	// Unindexed counts the text files the index holds nothing of, because their read failed; every grep reads them.
+	// Unindexed counts the text files the index holds nothing of, because their read failed; a grep that selects one
+	// reads it.
 	Unindexed int    `json:"unindexed,omitempty"`
 	Trigrams  int    `json:"trigrams"`
 	Bytes     uint64 `json:"bytes"`
