@@ -11,11 +11,12 @@
  *
  * Threads: calls on one handle may run at once from any threads. kartta_call blocks its thread until the method
  * answers, which for the build method is the whole walk of the tree, so a consumer that must stay responsive calls it
- * on a thread of its own. Builds run one at a time, and a query during a build answers the code "building". A refresh
- * holds the engine alone, so a query during a refresh waits for it to finish. A build that asks to watch starts a
- * thread of the library's own, which refreshes the engine from each change the operating system reports until the next
- * build or kartta_free, and ends within about a second of either. kartta_free must not run while a call on the same
- * handle runs, and nothing may use the handle after it.
+ * on a thread of its own. The method runs on a thread the call starts, with 8 MiB of stack, so the calling thread's
+ * stack needs about 2 KiB, musl's 128 KiB default included. Builds run one at a time, and a query during a build
+ * answers the code "building". A refresh holds the engine alone, so a query during a refresh waits for it to finish.
+ * A build that asks to watch starts a thread of the library's own, which refreshes the engine from each change the
+ * operating system reports until the next build or kartta_free, and ends within about a second of either. kartta_free
+ * must not run while a call on the same handle runs, and nothing may use the handle after it.
  *
  * Stopping: before kartta_free, call the cancel method with {}, which cancels every build, grep and refresh in flight,
  * then join every thread that is inside a call on the handle. A grep past its last file and a refresh past its walk

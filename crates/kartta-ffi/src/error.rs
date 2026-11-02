@@ -41,9 +41,10 @@ pub(crate) enum ErrorCode {
     NotFound,
     /// `list` names a path that is not a directory.
     NotADirectory,
-    /// The engine panicked, or an answer could not be encoded. After a call the handle stays usable, though a refresh
-    /// that panicked partway leaves every call that reads the engine answering this code, naming `build`, until a build
-    /// replaces the engine; an `open` that answers it made no handle.
+    /// The engine panicked, `kartta_call` could not start its thread, or an answer could not be encoded. After a call
+    /// the handle stays usable, though a refresh that panicked partway leaves every call that reads the engine
+    /// answering this code, naming `build`, until a build replaces the engine; an `open` that answers it made no
+    /// handle.
     Internal,
 }
 

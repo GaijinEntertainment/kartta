@@ -5,7 +5,6 @@ set -eu
 # the image of the `go-musl` job of .github/workflows/ci.yml, with a Go toolchain mounted at /usr/local/go.
 target=$1
 
-# constraint: a debug archive overflows musl's default thread stack on a cgo thread
 scripts/ffi-archive.sh "$target"
 
 built=${CARGO_TARGET_DIR:-$PWD/target}/$target/dist

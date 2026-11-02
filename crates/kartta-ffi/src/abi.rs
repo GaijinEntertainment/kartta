@@ -1,11 +1,15 @@
 use std::any::Any;
 use std::ffi::{CStr, c_char};
 use std::panic::{self, AssertUnwindSafe};
-use std::{ptr, slice};
+use std::{ptr, slice, thread};
 
 use crate::error::{Error, ErrorCode};
 use crate::wire::err as answer_error;
 use crate::{ABI_VERSION, Kartta};
+
+// constraint: a caller's thread can be as small as musl's 131,072 bytes, and an overflow kills the process past any
+// `catch_unwind`, where the deepest call a pattern can ask for takes 2.2 MiB in a debug build
+const CALL_STACK: usize = 8 * 1024 * 1024;
 
 #[repr(C)]
 struct KarttaString {
@@ -81,7 +85,7 @@ unsafe extern "C" fn kartta_call(
             };
             // SAFETY: the header asks for `params_len` readable bytes at `params`, or a null `params`.
             match unsafe { bytes(params, params_len) } {
-                Ok(params) => kartta.call(method, params),
+                Ok(params) => on_call_stack(|| kartta.call(method, params)),
                 Err(error) => answer_error(&error),
             }
         },
@@ -119,6 +123,24 @@ unsafe extern "C" fn kartta_free(handle: *mut Kartta) {
     );
 }
 
+/// Runs `call` on a thread of [`CALL_STACK`] bytes and waits for it, whatever stack the caller's thread has.
+fn on_call_stack(call: impl FnOnce() -> Vec<u8> + Send) -> Vec<u8> {
+    thread::scope(|scope| {
+        match thread::Builder::new()
+            .stack_size(CALL_STACK)
+            .spawn_scoped(scope, call)
+        {
+            Ok(running) => running
+                .join()
+                .unwrap_or_else(|panic| answer_error(&Error::panicked(panic.as_ref()))),
+            Err(error) => answer_error(&Error::new(
+                ErrorCode::Internal,
+                format!("no thread for the call: {error}"),
+            )),
+        }
+    })
+}
+
 fn guard<T>(body: impl FnOnce() -> T, recover: impl FnOnce(&(dyn Any + Send)) -> T) -> T {
     // An entry point's state is the caller's pointers and a handle whose builds keep their own state consistent across
     // a panic, so nothing a panic interrupts is observed half-changed afterwards.
@@ -144,4 +166,60 @@ unsafe fn bytes<'a>(ptr: *const u8, len: usize) -> Result<&'a [u8], Error> {
 
 fn invalid_request(reason: &str) -> Error {
     Error::new(ErrorCode::InvalidRequest, reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CString;
+    use std::fs;
+
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    const MUSL_THREAD_STACK: usize = 131_072;
+
+    fn call_on_small_stack(kartta: &Kartta, method: &str, params: &Value) -> Value {
+        let method = CString::new(method).expect("a method name without NUL");
+        let params = params.to_string();
+        thread::scope(|scope| {
+            thread::Builder::new()
+                .stack_size(MUSL_THREAD_STACK)
+                .spawn_scoped(scope, || {
+                    // SAFETY: the handle, the name and the params all outlive the call.
+                    let answer = unsafe {
+                        kartta_call(
+                            ptr::from_ref(kartta),
+                            method.as_ptr(),
+                            params.as_ptr(),
+                            params.len(),
+                        )
+                    };
+                    // SAFETY: `kartta_call` answers `len` readable bytes at a non-null `ptr`.
+                    let text = unsafe { slice::from_raw_parts(answer.ptr, answer.len) };
+                    let value = serde_json::from_slice(text).expect("the answer is JSON");
+                    // SAFETY: the string came from `kartta_call`, is freed once, and `text` ends here.
+                    unsafe { kartta_string_free(answer) };
+                    value
+                })
+                .expect("a thread for the call")
+                .join()
+                .expect("the call returns")
+        })
+    }
+
+    #[test]
+    fn a_pattern_nested_to_the_parser_limit_survives_a_small_stack_of_the_caller() {
+        let tree = tempfile::tempdir().expect("a temporary directory");
+        fs::write(tree.path().join("hit.txt"), "b\n").expect("hit.txt");
+        let opened = json!({ "root": tree.path() }).to_string();
+        let kartta = Kartta::open(opened.as_bytes()).expect("the tree opens");
+        let built = kartta.call("build", br#"{"languages":[]}"#);
+        assert!(built.starts_with(br#"{"ok""#), "the build fails");
+
+        let pattern = format!("{}b{}", "(".repeat(124), ")*".repeat(124));
+        let answer = call_on_small_stack(&kartta, "grep", &json!({ "patterns": [pattern] }));
+
+        assert_eq!(answer["ok"]["lines"], 1, "{answer}");
+    }
 }
