@@ -14,6 +14,7 @@ lost, and what would reopen it.
 - [4.51 Compare every crate's public API with the newest release tag](/design-docs/adr/4.51-semver-gate.md)
 - [4.55 Cut a release from a version tag](/design-docs/adr/4.55-release-workflow.md)
 - [4.56 Test the Go binding on musl against the archive a release ships](/design-docs/adr/4.56-go-musl-job.md)
+- [4.59 Run each channel's tests natively on every target of the support matrix](/design-docs/adr/4.59-ci-platform-coverage.md)
 
 ## Cargo.toml
 
