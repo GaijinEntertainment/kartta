@@ -4,6 +4,7 @@ package kartta
 #cgo LDFLAGS: -lkartta_ffi -lm
 #cgo darwin LDFLAGS: -liconv -framework CoreServices -framework CoreFoundation
 #cgo linux LDFLAGS: -ldl -lpthread
+#cgo windows LDFLAGS: -lntdll -luserenv -lws2_32 -ldbghelp
 #include <stdlib.h>
 #include "kartta.h"
 */
