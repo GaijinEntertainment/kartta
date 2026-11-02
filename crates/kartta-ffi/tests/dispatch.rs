@@ -654,7 +654,7 @@ fn a_line_picks_one_of_two_overloads_in_one_file() {
     assert_eq!(line(&types, "root"), 11);
     assert_eq!(types["matches"][0]["passed_over"], 0);
     assert_eq!(off["matches"], json!([]), "no ns::f starts on line 3");
-    assert_eq!(off["unmatched"]["kind"], "outside_prefix");
+    assert_eq!(off["unmatched"]["kind"], "off_line");
 }
 
 /// A built handle over a Rust crate: `Index::rebuild` calls `Index::refresh`, and `Index` implements

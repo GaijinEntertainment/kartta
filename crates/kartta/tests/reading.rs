@@ -173,7 +173,7 @@ fn overloads(qualified_name: &str) -> Graph {
 }
 
 #[test]
-fn a_line_no_definition_starts_on_names_the_definitions_of_its_file_as_outside() {
+fn a_line_no_definition_starts_on_names_the_definitions_of_its_file_as_off_the_line() {
     let cpp = overloads("app::parse");
     let ask = |line| {
         unmatched(
@@ -187,8 +187,64 @@ fn a_line_no_definition_starts_on_names_the_definitions_of_its_file_as_outside()
     let off = ask(Some(9)).expect("two definitions lie off line 9");
     let beside = ask(Some(5)).expect("one definition lies off line 5");
 
-    assert_eq!((off.kind, off.total), (UnmatchedKind::OutsidePrefix, 2));
+    assert_eq!((off.kind, off.total), (UnmatchedKind::OffLine, 2));
+    assert_eq!(beside.kind, UnmatchedKind::OffLine);
     assert_eq!((beside.total, beside.listed[0].1.line), (1, 1));
+}
+
+#[test]
+fn a_line_with_no_path_prefix_misses_off_the_line() {
+    let cpp = overloads("app::parse");
+
+    let named = unmatched(
+        [("cpp", &cpp)].into_iter(),
+        Selector::new("parse", None).with_line(Some(9)),
+        |_| true,
+        5,
+    )
+    .expect("two definitions lie off line 9");
+
+    assert_eq!(named.kind, UnmatchedKind::OffLine);
+}
+
+#[test]
+fn a_line_with_every_definition_outside_the_prefix_misses_outside_it() {
+    let cpp = overloads("app::parse");
+
+    let named = unmatched(
+        [("cpp", &cpp)].into_iter(),
+        Selector::new("parse", Some("lib/")).with_line(Some(1)),
+        |_| true,
+        5,
+    )
+    .expect("two definitions lie outside lib/");
+
+    assert_eq!((named.kind, named.total), (UnmatchedKind::OutsidePrefix, 2));
+}
+
+#[test]
+fn a_definition_the_line_keeps_out_makes_the_miss_off_the_line_whatever_lies_outside_the_prefix() {
+    let parse = qualified("parse", "parse", SymbolKind::Function);
+    for files in [
+        ["app/parse.cpp", "lib/parse.cpp"],
+        ["lib/parse.cpp", "app/parse.cpp"],
+    ] {
+        let cpp = graph(&[
+            (files[0], vec![parse.clone()]),
+            (files[1], vec![parse.clone()]),
+        ]);
+
+        let named = unmatched(
+            [("cpp", &cpp)].into_iter(),
+            Selector::new("parse", Some("app/")).with_line(Some(9)),
+            |_| true,
+            5,
+        )
+        .expect("both definitions lie off line 9, one of them under app/");
+
+        assert_eq!(named.kind, UnmatchedKind::OffLine, "{files:?}");
+        assert_eq!(named.total, 2, "the one outside app/ still counts");
+    }
 }
 
 #[test]
