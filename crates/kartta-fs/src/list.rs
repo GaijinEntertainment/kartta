@@ -224,6 +224,18 @@ pub enum ListError {
     },
 }
 
+impl ListError {
+    /// The word for the failure in an answer: `not_found`, for a path the index holds nothing at, pruned or not, or
+    /// `not_a_directory`.
+    #[must_use]
+    pub const fn label(&self) -> &'static str {
+        match self {
+            Self::NotFound { .. } | Self::Pruned { .. } => "not_found",
+            Self::NotADirectory { .. } => "not_a_directory",
+        }
+    }
+}
+
 impl Index {
     /// Lists what is indexed under `dir`, depth-first.
     ///
