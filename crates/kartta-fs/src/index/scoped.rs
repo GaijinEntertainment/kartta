@@ -623,11 +623,10 @@ impl Rewalk<'_, '_> {
     }
 
     fn below(&mut self, dir: &str, state: &DirState) -> Result<Option<Tree<Payload>>, BuildError> {
-        let options = WalkOptions {
-            cancel_token: self.cancel.cloned(),
-            subtree: Some(dir.to_owned()),
-            listed_stats: self.policy.may_carry(),
-        };
+        let mut options = WalkOptions::default();
+        options.cancel_token = self.cancel.cloned();
+        options.subtree = Some(dir.to_owned());
+        options.listed_stats = self.policy.may_carry();
         let walked = self
             .index
             .on_threads(|| walk(&self.index.root, &self.policy, state, &options));
@@ -637,6 +636,7 @@ impl Rewalk<'_, '_> {
                 tree,
                 errors,
                 cancelled,
+                ..
             }) => {
                 if cancelled {
                     return Err(BuildError::Cancelled);

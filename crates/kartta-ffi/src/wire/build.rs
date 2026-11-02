@@ -340,14 +340,11 @@ mod tests {
 
     #[test]
     fn a_watch_answers_why_it_is_off_and_how_often_it_restarted_and_no_watch_says_neither() {
-        let off = Watch {
-            off: Some("the watch stopped: gone".to_owned()),
-            restarts: 2,
-        };
-        let following = Watch {
-            off: None,
-            restarts: 1,
-        };
+        let mut off = Watch::default();
+        off.off = Some("the watch stopped: gone".to_owned());
+        off.restarts = 2;
+        let mut following = Watch::default();
+        following.restarts = 1;
         let answer =
             |watch: Option<&Watch>| serde_json::to_value(WatchView::new(watch)).expect("JSON");
 

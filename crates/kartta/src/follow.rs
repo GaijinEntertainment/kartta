@@ -37,6 +37,7 @@ pub trait Followed: Send + Sync + 'static {
 /// What a [`Follower`] reports of its watch: whether a watcher follows the tree, and how many times one was started
 /// over. The default is a watch that follows its tree and never started over.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Watch {
     /// Why no watcher follows the tree any more, so that the engine takes a change in only through a refresh; `None`
     /// while one does. A restart that failed names what asked for it, such as a watcher that stopped.

@@ -84,6 +84,7 @@ impl<'r> RefreshAnswer<'r> {
                      named,
                      parts,
                      limit,
+                     ..
                  }| WidenedView {
                     named,
                     parts,

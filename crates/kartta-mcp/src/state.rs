@@ -204,10 +204,9 @@ impl Served {
 
     /// Records that the index no longer follows its tree, and why.
     fn unwatch(&self, reason: String) {
-        self.watched(Watch {
-            off: Some(reason),
-            restarts: 0,
-        });
+        let mut watch = Watch::default();
+        watch.off = Some(reason);
+        self.watched(watch);
     }
 }
 
@@ -442,10 +441,8 @@ fn build(
     if !watch {
         let outcome =
             Engine::build(&request.root, options, languages, Some(cancel)).map_err(failed)?;
-        let off = Watch {
-            off: Some("turned off in the server configuration".to_owned()),
-            restarts: 0,
-        };
+        let mut off = Watch::default();
+        off.off = Some("turned off in the server configuration".to_owned());
         return Ok((Served::new(request, outcome, cancel, off), None));
     }
     let (outcome, watcher) =

@@ -136,6 +136,7 @@ impl From<fs::FileType> for EntryKind {
 
 /// What a [`Policy`] decides for one entry.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum Visit<V> {
     /// Record the entry, and descend into it when it is a directory.
     Keep(V),
@@ -306,6 +307,7 @@ impl<'a> Entry<'a> {
 /// [`Entry::listed_stat`] hands one over. Each field is the one of the same name in unix's `MetadataExt`, so a stat of
 /// the file compares field for field.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[non_exhaustive]
 pub struct ListedStat {
     /// The file's length in bytes.
     pub size: u64,
