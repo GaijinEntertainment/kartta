@@ -720,20 +720,26 @@ impl<'s> Emitter<'s> {
     // and `$v['k'] = 1` leave it holding the object; a list assigns each variable it names, under its key or by
     // reference
     fn forget_written(&mut self, written: Node<'_>, until: usize) {
-        match written.kind() {
-            "variable_name" => self.forget(&self.source[written.byte_range()], until),
-            "member_access_expression" | "scoped_property_access_expression" => {
-                self.field_written(written);
-                if let Some((_, name)) = self.own_field(written) {
-                    self.forget(name, until);
+        let mut waiting = Vec::new();
+        let mut next = Some(written);
+        while let Some(written) = next.take().or_else(|| waiting.pop()) {
+            match written.kind() {
+                "variable_name" => self.forget(&self.source[written.byte_range()], until),
+                "member_access_expression" | "scoped_property_access_expression" => {
+                    self.forget_field(written, until);
                 }
-            }
-            "list_literal" | "pair" | "by_ref" => {
-                for element in named_child_nodes(written) {
-                    self.forget_written(element, until);
+                "list_literal" | "pair" | "by_ref" => {
+                    waiting.extend(named_child_nodes(written).rev());
                 }
+                _ => {}
             }
-            _ => {}
+        }
+    }
+
+    fn forget_field(&mut self, written: Node<'_>, until: usize) {
+        self.field_written(written);
+        if let Some((_, name)) = self.own_field(written) {
+            self.forget(name, until);
         }
     }
 
