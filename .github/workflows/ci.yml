@@ -158,6 +158,9 @@ jobs:
       CGO_LDFLAGS: -L${{ github.workspace }}/target/debug
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # constraint: a fetched module holds bindings/go alone, so it carries a copy of the header
+      - name: the module's kartta.h equals the library's
+        run: cmp crates/kartta-ffi/include/kartta.h bindings/go/kartta.h
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # The module has no dependencies to cache.

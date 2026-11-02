@@ -1,7 +1,6 @@
 package kartta
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../crates/kartta-ffi/include
 #cgo LDFLAGS: -lkartta_ffi -lm
 #cgo darwin LDFLAGS: -liconv -framework CoreServices -framework CoreFoundation
 #cgo linux LDFLAGS: -ldl -lpthread
