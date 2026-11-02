@@ -274,6 +274,24 @@ pub enum BuildError {
 }
 
 impl BuildError {
+    /// The word for the failure in an answer: `walk`, `thread_pool`, `ignore`, `name`, `read`, `content_index`,
+    /// `cancelled`, `content_ids_exhausted`, `outside_tree` or `cache`.
+    #[must_use]
+    pub const fn label(&self) -> &'static str {
+        match self {
+            Self::Walk(_) => "walk",
+            Self::ThreadPool { .. } => "thread_pool",
+            Self::Ignore { .. } => "ignore",
+            Self::Name { .. } => "name",
+            Self::Read { .. } => "read",
+            Self::ContentIndex { .. } => "content_index",
+            Self::Stopped(_) | Self::Cancelled => "cancelled",
+            Self::ContentIdsExhausted => "content_ids_exhausted",
+            Self::OutsideTree { .. } => "outside_tree",
+            Self::Cache { .. } => "cache",
+        }
+    }
+
     /// The native path the failed operation was applied to, or `None` for a failure that names no path.
     ///
     /// Native, and spelled relative to the root exactly as the root itself was given — not the root-relative
@@ -332,5 +350,63 @@ mod tests {
             error.to_string(),
             "cannot start the index's thread pool of 4: the process thread limit"
         );
+        assert_eq!(error.label(), "thread_pool");
+    }
+
+    #[test]
+    fn a_failure_that_names_no_path_has_a_label_of_its_own() {
+        let outside = BuildError::OutsideTree {
+            path: "../x".to_owned(),
+        };
+
+        assert_eq!(outside.label(), "outside_tree");
+        assert_eq!(BuildError::Cancelled.label(), "cancelled");
+        assert_eq!(
+            BuildError::ContentIdsExhausted.label(),
+            "content_ids_exhausted"
+        );
+    }
+
+    #[test]
+    fn a_failure_at_a_path_has_a_label_of_its_own() {
+        let native_path = || PathBuf::from("a");
+        let source = || io::Error::other("failed");
+
+        let name = BuildError::Name {
+            native_path: native_path(),
+        };
+        assert_eq!(name.label(), "name");
+        for (error, label) in [
+            (
+                BuildError::Ignore {
+                    native_path: native_path(),
+                    source: source(),
+                },
+                "ignore",
+            ),
+            (
+                BuildError::Read {
+                    native_path: native_path(),
+                    source: source(),
+                },
+                "read",
+            ),
+            (
+                BuildError::ContentIndex {
+                    native_path: native_path(),
+                    source: source(),
+                },
+                "content_index",
+            ),
+            (
+                BuildError::Cache {
+                    native_path: native_path(),
+                    source: source(),
+                },
+                "cache",
+            ),
+        ] {
+            assert_eq!(error.label(), label);
+        }
     }
 }
