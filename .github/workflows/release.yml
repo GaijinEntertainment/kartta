@@ -14,6 +14,7 @@ on:
       - crates/*/Cargo.toml
       - rust-toolchain.toml
       - scripts/dist.sh
+      - scripts/ffi-archive.sh
       - scripts/glibc-floor.sh
       - scripts/link-check.sh
 
