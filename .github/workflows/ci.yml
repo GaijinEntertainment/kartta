@@ -178,6 +178,30 @@ jobs:
         if: ${{ !matrix.floor }}
         working-directory: bindings/go
 
+  # The Go binding against the archive a release ships, on each musl target of the support matrix, on a real musl
+  # toolchain: dynamic as a plain `go build` links on Alpine, and static as Kensai links.
+  # constraint: the runner refuses a JavaScript action in an Alpine container on arm64, so one step enters the image
+  go-musl:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+      - run: >-
+          docker run --rm -v "$PWD:/src" -v "$(go env GOROOT):/usr/local/go:ro" -w /src
+          rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+          scripts/go-musl.sh ${{ matrix.target }}
+
   # The Node binding, loading the addon the same checkout builds. Its tests replay the golden files through every typed
   # call and run builds that a signal or close cancels, and its type check holds the wire types to the golden answers.
   node:
@@ -271,6 +295,7 @@ jobs:
       - msrv
       - semver
       - go
+      - go-musl
       - node
       - markdown
       - versions
