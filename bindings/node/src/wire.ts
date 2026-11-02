@@ -233,6 +233,8 @@ export type CancelAnswer = {
 export type Stats = {
 	/** The entries the index holds, directories included. */
 	entries: number;
+	/** The threads the index runs on: the build's `threads`, or the ambient pool's size when it named none. */
+	threads: number;
 	languages: LanguageFiles[];
 	graphs: GraphStats[];
 	/** Absent when the build made no content index. */
@@ -272,6 +274,8 @@ export type GraphStats = {
 /** What a content index holds. */
 export type ContentIndexStats = {
 	files: number;
+	/** The text files the index holds nothing of, because their read failed; every grep reads them. Absent at 0. */
+	unindexed?: number;
 	trigrams: number;
 	bytes: number;
 };
