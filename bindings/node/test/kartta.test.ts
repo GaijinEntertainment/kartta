@@ -135,6 +135,18 @@ test('a limit of 0 answers the total alone, and one left out the default', async
 	expect(listed.matches[0]?.found).toHaveLength(1);
 });
 
+test('a line of 0 selects nothing and says why, and threads of 0 rejects', async () => {
+	const kartta = open();
+
+	expect(await code(kartta.build({threads: 0}))).toBe('invalid_params');
+
+	await kartta.build();
+	const answer = await kartta.callers({name: 'f0', line: 0});
+
+	expect(answer.matches).toStrictEqual([]);
+	expect(answer.unmatched?.kind).toBe('off_line');
+});
+
 test('a build keeps the graphs of a content index it cannot store and says why', async () => {
 	const root = tree(1);
 	const kartta = opened(root);

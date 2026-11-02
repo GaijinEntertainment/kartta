@@ -26,9 +26,10 @@ appears on the wire; the names on the wire are the bulleted ones. A field reads 
 - A `min_confidence` left out takes 0, which turns no call or site away.
 - `version` needs no build. Every other method but `build` and `cancel` asks what the last finished build made, and
   answers `not_built` or `building` when there is none.
-- `build`, `grep` and `refresh` take an `id` of the caller's choosing, which `cancel` stops them by. A binding over the
-  wire gives each call it runs a `binding_id` as well, so that its own cancels never meet its callers' ids. `cancel`
-  with neither stops every call in flight. Each of these methods blocks its calling thread until it answers.
+- `build`, `grep` and `refresh` take an `id` of the caller's choosing, 0 among them, which `cancel` stops them by. A
+  binding over the wire gives each call it runs a `binding_id` as well, so that its own cancels never meet its callers'
+  ids. `cancel` with neither stops every call in flight. Each of these methods blocks its calling thread until it
+  answers.
 
 ## Surface
 
@@ -188,7 +189,8 @@ and no cache.
 - `binding_id` (integer, optional): Names the build for a cancel `by` `binding_id`, apart from `id`.
 - `languages` (array of string, optional): The languages to build graphs of, by the names of
   [Languages](#languages). Absent builds every one, empty none.
-- `threads` (integer, optional): Bounds the threads the index runs on, at least 1. Absent takes every core.
+- `threads` (integer, optional): Bounds the threads the index runs on, at least 1. Absent takes every core, and 0
+  answers `invalid_params`.
 - `ignore` ([`Ignore`](#ignore), optional): Which ignore rules apply, `in_tree` when absent.
 - `pruned_names` ([`SetChange`](#setchange), optional): Changes the entry names the walk neither indexes nor descends,
   editor and OS clutter by default.
@@ -258,7 +260,8 @@ Left empty, a refresh walks the whole tree again.
 - `name` (string, required): Selects the symbol to start from, a bare or a qualified name.
 - `path_prefix` (string, optional): Keeps only the symbols in files whose root-relative path starts with it, one file's
   path or a directory's with its closing slash. Absent looks in every file.
-- `line` (integer, optional): Keeps only the symbols that start on this one-based line. Absent looks at every line.
+- `line` (integer, optional): Keeps only the symbols that start on this one-based line. Absent looks at every line, and
+  0 selects none.
 - `lang` (string, optional): Names the graph to ask, by a language or its family. Absent asks every graph.
 - `depth` (integer, optional): How many calls away the walk goes, `CALLERS_DEPTH` for `callers` and `CALLEES_DEPTH` for
   `callees` by default. 0 follows no call.

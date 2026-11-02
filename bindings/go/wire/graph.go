@@ -55,8 +55,8 @@ type WalkParams struct {
 	// in every file.
 	PathPrefix string `json:"path_prefix,omitempty"`
 	// Line keeps only the symbols that start on it, one-based as a Definition's Line; it reaches one of several
-	// symbols of the name in one file. 0 looks at every line.
-	Line int `json:"line,omitempty"`
+	// symbols of the name in one file. nil looks at every line, and 0 selects no symbol.
+	Line *int `json:"line,omitempty"`
 	// Lang names the graph to ask, by a language or its family; empty asks every graph.
 	Lang string `json:"lang,omitempty"`
 	// Depth is how many calls away the walk goes; nil takes the method's default, 3 for callers and 1 for callees, and
@@ -162,14 +162,16 @@ type CallPathParams struct {
 	// FromPathPrefix keeps the symbols From may select to the files whose root-relative path starts with it, as one
 	// file's path or a directory's with its closing slash. Empty keeps every file.
 	FromPathPrefix string `json:"from_path_prefix,omitempty"`
-	// FromLine keeps the symbols From may select to those that start on it, one-based. 0 keeps every line.
-	FromLine int    `json:"from_line,omitempty"`
+	// FromLine keeps the symbols From may select to those that start on it, one-based. nil keeps every line, and 0 selects
+	// no symbol.
+	FromLine *int   `json:"from_line,omitempty"`
 	To       string `json:"to"`
 	// ToPathPrefix keeps the symbols To may select to the files whose root-relative path starts with it, as one
 	// file's path or a directory's with its closing slash. Empty keeps every file.
 	ToPathPrefix string `json:"to_path_prefix,omitempty"`
-	// ToLine keeps the symbols To may select to those that start on it, one-based. 0 keeps every line.
-	ToLine int    `json:"to_line,omitempty"`
+	// ToLine keeps the symbols To may select to those that start on it, one-based. nil keeps every line, and 0 selects no
+	// symbol.
+	ToLine *int   `json:"to_line,omitempty"`
 	Lang   string `json:"lang,omitempty"`
 	// Depth is how many calls long a path may be; nil takes the default, 8, and 0 follows no call.
 	Depth         *int `json:"depth,omitempty"`
@@ -218,8 +220,8 @@ type ReferencesParams struct {
 	// in every file.
 	PathPrefix string `json:"path_prefix,omitempty"`
 	// Line keeps only the symbols that start on it, one-based as a Definition's Line; it reaches one of several
-	// symbols of the name in one file. 0 looks at every line.
-	Line          int    `json:"line,omitempty"`
+	// symbols of the name in one file. nil looks at every line, and 0 selects no symbol.
+	Line          *int   `json:"line,omitempty"`
 	Lang          string `json:"lang,omitempty"`
 	MinConfidence int    `json:"min_confidence,omitempty"`
 	// Access keeps the uses that read ("read"), that set ("write") or that update ("update") the symbol, an update
@@ -376,8 +378,8 @@ type ImplementationsParams struct {
 	// in every file.
 	PathPrefix string `json:"path_prefix,omitempty"`
 	// Line keeps only the types that start on it, one-based as a Definition's Line; it reaches one of several types
-	// of the name in one file. 0 looks at every line.
-	Line int    `json:"line,omitempty"`
+	// of the name in one file. nil looks at every line, and 0 selects no type.
+	Line *int   `json:"line,omitempty"`
 	Lang string `json:"lang,omitempty"`
 	// Depth is how many levels below the root the search goes; nil takes the default, 3, and 0 finds none.
 	Depth *int `json:"depth,omitempty"`

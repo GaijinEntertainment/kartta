@@ -3,8 +3,9 @@ package wire
 // BuildOptions are the params of the build method. The zero value builds every language kartta ships, under the
 // tree's own .gitignore files, with no content index and no cache.
 type BuildOptions struct {
-	// ID names the build for a cancel; the kartta package passes it on as it is.
-	ID uint64 `json:"id,omitempty"`
+	// ID names the build for a cancel, any value 0 included; nil leaves it unnamed. The kartta package passes it on as
+	// it is.
+	ID *uint64 `json:"id,omitempty"`
 	// BindingID names the build for a cancel ByBindingID, apart from ID: a binding over the wire names each call it
 	// runs by one, so the IDs its callers give never stop a call of its own. The kartta package's Build and Call set
 	// it, in place of any the params give.
@@ -12,8 +13,8 @@ type BuildOptions struct {
 	// Languages are the languages to build graphs of, by the names Version lists; nil builds every one, and an empty
 	// list none.
 	Languages []string `json:"languages"`
-	// Threads bounds the threads the index runs on; 0 takes every core.
-	Threads int `json:"threads,omitempty"`
+	// Threads bounds the threads the index runs on, at least 1; nil takes every core, and 0 answers InvalidParams.
+	Threads *int `json:"threads,omitempty"`
 	// Ignore is IgnoreInTree, the default, or IgnoreNone.
 	Ignore Ignore `json:"ignore,omitempty"`
 	// PrunedNames changes the entry names the walk neither indexes nor descends, editor and OS clutter by default.
@@ -94,12 +95,12 @@ const (
 // CancelParams are the params of the cancel method. Naming no call stops every build in flight, running or waiting its
 // turn, every grep and every refresh in flight.
 type CancelParams struct {
-	// Build is the ID of the build to stop; 0 names none.
-	Build uint64 `json:"build,omitempty"`
-	// Grep is the ID of the grep to stop; 0 names none.
-	Grep uint64 `json:"grep,omitempty"`
-	// Refresh is the ID of the refresh to stop; 0 names none.
-	Refresh uint64 `json:"refresh,omitempty"`
+	// Build is the ID of the build to stop; nil names none.
+	Build *uint64 `json:"build,omitempty"`
+	// Grep is the ID of the grep to stop; nil names none.
+	Grep *uint64 `json:"grep,omitempty"`
+	// Refresh is the ID of the refresh to stop; nil names none.
+	Refresh *uint64 `json:"refresh,omitempty"`
 	// By is the name of a call the IDs above are compared with: ByID, the default, or ByBindingID.
 	By By `json:"by,omitempty"`
 }

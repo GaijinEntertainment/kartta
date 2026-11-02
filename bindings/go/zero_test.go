@@ -2,6 +2,7 @@ package kartta_test
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"dev.gaijin.team/go/kartta/wire"
@@ -9,7 +10,7 @@ import (
 
 func Test_ZeroParams(t *testing.T) {
 	zero := 0
-	noBytes := uint64(0)
+	noID := uint64(0)
 	tests := []struct {
 		name     string
 		give     any
@@ -17,22 +18,26 @@ func Test_ZeroParams(t *testing.T) {
 	}{
 		{
 			name:     "a walk",
-			give:     wire.WalkParams{Depth: &zero, MaxSymbols: &zero},
-			wantKeys: []string{"depth", "max_symbols"},
+			give:     wire.WalkParams{Line: &zero, Depth: &zero, MaxSymbols: &zero},
+			wantKeys: []string{"line", "depth", "max_symbols"},
 		},
 		{
 			name:     "a call path",
-			give:     wire.CallPathParams{Depth: &zero, MaxSymbols: &zero},
-			wantKeys: []string{"depth", "max_symbols"},
+			give:     wire.CallPathParams{FromLine: &zero, ToLine: &zero, Depth: &zero, MaxSymbols: &zero},
+			wantKeys: []string{"from_line", "to_line", "depth", "max_symbols"},
 		},
-		{name: "references", give: wire.ReferencesParams{Limit: &zero}, wantKeys: []string{"limit"}},
+		{
+			name:     "references",
+			give:     wire.ReferencesParams{Line: &zero, Limit: &zero},
+			wantKeys: []string{"line", "limit"},
+		},
 		{name: "definitions", give: wire.DefinitionsParams{Limit: &zero}, wantKeys: []string{"limit"}},
 		{name: "sources", give: wire.SourcesParams{Limit: &zero}, wantKeys: []string{"limit"}},
 		{name: "search", give: wire.SearchParams{Limit: &zero}, wantKeys: []string{"limit"}},
 		{
 			name:     "implementations",
-			give:     wire.ImplementationsParams{Depth: &zero, Limit: &zero},
-			wantKeys: []string{"depth", "limit"},
+			give:     wire.ImplementationsParams{Line: &zero, Depth: &zero, Limit: &zero},
+			wantKeys: []string{"line", "depth", "limit"},
 		},
 		{name: "dependents", give: wire.DependentsParams{Depth: &zero}, wantKeys: []string{"depth"}},
 		{
@@ -48,8 +53,15 @@ func Test_ZeroParams(t *testing.T) {
 		{name: "fuzzy", give: wire.FuzzyParams{Limit: &zero}, wantKeys: []string{"limit"}},
 		{
 			name:     "grep",
-			give:     wire.GrepParams{MaxLineBytes: &zero, MaxFileBytes: &noBytes},
-			wantKeys: []string{"max_line_bytes", "max_file_bytes"},
+			give:     wire.GrepParams{ID: &noID, MaxLineBytes: &zero, MaxFileBytes: &noID},
+			wantKeys: []string{"id", "max_line_bytes", "max_file_bytes"},
+		},
+		{name: "a build", give: wire.BuildOptions{ID: &noID, Threads: &zero}, wantKeys: []string{"id", "threads"}},
+		{name: "a refresh", give: wire.RefreshParams{ID: &noID}, wantKeys: []string{"id"}},
+		{
+			name:     "a cancel",
+			give:     wire.CancelParams{Build: &noID, Grep: &noID, Refresh: &noID},
+			wantKeys: []string{"build", "grep", "refresh"},
 		},
 	}
 	for _, tt := range tests {
@@ -111,4 +123,50 @@ func Test_ZeroBound(t *testing.T) {
 			t.Errorf("nil Depth reached %d, want 2", len(part.Reached))
 		}
 	})
+
+	t.Run("a line of 0 selects nothing, and nil every line", func(t *testing.T) {
+		off, err := k.Callers(wire.WalkParams{Name: "helper", Line: &zero})
+		if err != nil {
+			t.Fatal(err)
+		}
+		every, err := k.Callers(wire.WalkParams{Name: "helper"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(off.Matches) != 0 || off.Unmatched == nil || off.Unmatched.Kind != "off_line" {
+			t.Errorf("Line 0 answered %d parts, Unmatched %+v, want none, off_line", len(off.Matches), off.Unmatched)
+		}
+		if len(every.Matches) != 1 {
+			t.Errorf("nil Line answered %d parts, want 1", len(every.Matches))
+		}
+	})
+}
+
+func Test_ZeroThreads(t *testing.T) {
+	k := open(t, tree(t))
+	zero := 0
+
+	_, err := k.Build(t.Context(), wire.BuildOptions{Threads: &zero})
+
+	if !errors.Is(err, wire.InvalidParams) {
+		t.Fatalf("Build with Threads 0 = %v, want %s", err, wire.InvalidParams)
+	}
+}
+
+func Test_ZeroID(t *testing.T) {
+	k := open(t, tree(t))
+	id := uint64(0)
+	if err := k.Call("cancel", wire.CancelParams{Build: &id}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	_, cancelled := k.Build(t.Context(), wire.BuildOptions{ID: &id})
+	_, unnamed := k.Build(t.Context(), wire.BuildOptions{})
+
+	if !errors.Is(cancelled, wire.BuildCancelled) {
+		t.Errorf("Build under the cancelled ID 0 = %v, want %s", cancelled, wire.BuildCancelled)
+	}
+	if unnamed != nil {
+		t.Errorf("Build with no ID = %v, want a build", unnamed)
+	}
 }

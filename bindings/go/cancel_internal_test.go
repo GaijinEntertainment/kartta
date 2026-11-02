@@ -38,11 +38,11 @@ func cancelAhead(t *testing.T, k *Kartta, naming func(id uint64) wire.CancelPara
 }
 
 func aBuild(id uint64) wire.CancelParams {
-	return wire.CancelParams{Build: id, By: wire.ByBindingID}
+	return wire.CancelParams{Build: &id, By: wire.ByBindingID}
 }
 
 func aRefresh(id uint64) wire.CancelParams {
-	return wire.CancelParams{Refresh: id, By: wire.ByBindingID}
+	return wire.CancelParams{Refresh: &id, By: wire.ByBindingID}
 }
 
 func until(holds func(k *Kartta) bool, k *Kartta) {
@@ -133,21 +133,23 @@ func Test_Build_cancel(t *testing.T) {
 	})
 
 	t.Run("a cancel naming the id a build through Call gives stops that build", func(t *testing.T) {
-		if err := k.Call("cancel", wire.CancelParams{Build: 77}, nil); err != nil {
+		id := uint64(77)
+		if err := k.Call("cancel", wire.CancelParams{Build: &id}, nil); err != nil {
 			t.Fatal(err)
 		}
 
-		if err := k.Call("build", map[string]uint64{"id": 77}, nil); !errors.Is(err, wire.BuildCancelled) {
+		if err := k.Call("build", map[string]uint64{"id": id}, nil); !errors.Is(err, wire.BuildCancelled) {
 			t.Fatalf("Call(build) under a cancelled id = %v, want %s", err, wire.BuildCancelled)
 		}
 	})
 
 	t.Run("a cancel naming the ID a Build's options give stops that build", func(t *testing.T) {
-		if err := k.Call("cancel", wire.CancelParams{Build: 78}, nil); err != nil {
+		id := uint64(78)
+		if err := k.Call("cancel", wire.CancelParams{Build: &id}, nil); err != nil {
 			t.Fatal(err)
 		}
 
-		if _, err := k.Build(t.Context(), wire.BuildOptions{ID: 78}); !errors.Is(err, wire.BuildCancelled) {
+		if _, err := k.Build(t.Context(), wire.BuildOptions{ID: &id}); !errors.Is(err, wire.BuildCancelled) {
 			t.Fatalf("Build under a cancelled ID = %v, want %s", err, wire.BuildCancelled)
 		}
 	})
@@ -320,7 +322,7 @@ func Test_Call_ids(t *testing.T) {
 		raw := make(chan error, 1)
 		go func() { raw <- k.Call("build", map[string]uint64{"id": id}, nil) }()
 
-		if err := k.Call("cancel", wire.CancelParams{Build: id}, nil); err != nil {
+		if err := k.Call("cancel", wire.CancelParams{Build: &id}, nil); err != nil {
 			t.Fatal(err)
 		}
 
@@ -356,7 +358,7 @@ func Test_Call_ids(t *testing.T) {
 		if err := k.Call("build", map[string]uint64{"id": id}, nil); err != nil {
 			t.Fatal(err)
 		}
-		if err := k.Call("cancel", wire.CancelParams{Build: id}, nil); err != nil {
+		if err := k.Call("cancel", wire.CancelParams{Build: &id}, nil); err != nil {
 			t.Fatal(err)
 		}
 
