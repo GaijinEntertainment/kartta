@@ -107,6 +107,7 @@ pub struct RawDirective {
 
 impl RawDirective {
     /// A directive with no companion names.
+    #[inline]
     #[must_use]
     pub const fn new(form: u32, spec: String, line: u32) -> Self {
         Self {
@@ -221,6 +222,29 @@ pub struct CallRef {
     pub arguments: u8,
 }
 
+impl CallRef {
+    /// A call of `callee` from `site_of` on `line`, with [`binds_apart`](Self::binds_apart) and
+    /// [`calls_a_method`](Self::calls_a_method) false and [`arguments`](Self::arguments) 0. Set the fields that apply.
+    #[inline]
+    #[must_use]
+    pub const fn new(
+        site_of: SymbolId,
+        callee: String,
+        receiver: Option<String>,
+        line: u32,
+    ) -> Self {
+        Self {
+            site_of,
+            callee,
+            receiver,
+            line,
+            binds_apart: false,
+            calls_a_method: false,
+            arguments: 0,
+        }
+    }
+}
+
 /// A call the language's own scoping binds to a local symbol in scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalCall {
@@ -230,6 +254,19 @@ pub struct LocalCall {
     pub local: SymbolId,
     /// The one-based line of the call.
     pub line: u32,
+}
+
+impl LocalCall {
+    /// A call of `local` from `site_of` on `line`.
+    #[inline]
+    #[must_use]
+    pub const fn new(site_of: SymbolId, local: SymbolId, line: u32) -> Self {
+        Self {
+            site_of,
+            local,
+            line,
+        }
+    }
 }
 
 /// A use of a name outside a call, unresolved: a type named as one, a read or a write of a value, a member of a
@@ -251,6 +288,22 @@ pub struct UseRef {
     pub access: Access,
     /// The one-based line of the use.
     pub line: u32,
+}
+
+impl UseRef {
+    /// A read of `name`, written on `receiver`, from `site_of` on `line`. Set [`access`](Self::access) for any other
+    /// use.
+    #[inline]
+    #[must_use]
+    pub const fn new(site_of: SymbolId, name: String, receiver: Receiver, line: u32) -> Self {
+        Self {
+            site_of,
+            name,
+            receiver,
+            access: Access::Read,
+            line,
+        }
+    }
 }
 
 /// What a use's name is written on, which decides where the graph looks the name up: a guess would be worse than no
@@ -332,6 +385,15 @@ pub struct IncludeRef {
     pub target: String,
 }
 
+impl IncludeRef {
+    /// An include of the file at `target`.
+    #[inline]
+    #[must_use]
+    pub const fn new(target: String) -> Self {
+        Self { target }
+    }
+}
+
 /// A module dependency that names no file of the repository — a standard library module, an external package —
 /// kept as written for the questions about what a file depends on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -342,6 +404,19 @@ pub struct ImportRef {
     pub names: Vec<String>,
     /// The one-based line of the import.
     pub line: u32,
+}
+
+impl ImportRef {
+    /// An import of `module`, taking `names`, on `line`.
+    #[inline]
+    #[must_use]
+    pub const fn new(module: String, names: Vec<String>, line: u32) -> Self {
+        Self {
+            module,
+            names,
+            line,
+        }
+    }
 }
 
 /// The name under which the file refers to a module it imports, and where in the repository that module lives.
@@ -361,6 +436,23 @@ pub struct ImportBinding {
     /// last path segment, or the segment before it where the language's convention skips a version suffix, `yaml` for
     /// Go's `gopkg.in/yaml.v3`.
     pub last_segment: String,
+}
+
+impl ImportBinding {
+    /// A binding of the module at `target_dir`, under `alias` where the import writes one.
+    #[inline]
+    #[must_use]
+    pub const fn new(
+        alias: Option<String>,
+        target_dir: Option<String>,
+        last_segment: String,
+    ) -> Self {
+        Self {
+            alias,
+            target_dir,
+            last_segment,
+        }
+    }
 }
 
 /// A compile-time assertion that a type implements an interface. It declares nothing of the type, so it is no parent
@@ -383,6 +475,19 @@ pub struct ImplementsAssertion {
     pub interface_file: Option<String>,
 }
 
+impl ImplementsAssertion {
+    /// An assertion that `type_name` implements `interface`, each read from the asserting file.
+    #[must_use]
+    pub const fn new(type_name: String, interface: String) -> Self {
+        Self {
+            type_name,
+            interface,
+            type_file: None,
+            interface_file: None,
+        }
+    }
+}
+
 /// A name a module re-exports from another, as the bytes write it: `export { Foo } from './foo'`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RawReExport {
@@ -392,6 +497,19 @@ pub struct RawReExport {
     pub source_name: String,
     /// That module's specifier as written.
     pub source_path: String,
+}
+
+impl RawReExport {
+    /// A re-export of `source_name`, from the module `source_path` spells, as `local_name`.
+    #[inline]
+    #[must_use]
+    pub const fn new(local_name: String, source_name: String, source_path: String) -> Self {
+        Self {
+            local_name,
+            source_name,
+            source_path,
+        }
+    }
 }
 
 /// A re-export with the file its specifier names, which only the resolver can know.
@@ -434,6 +552,15 @@ pub struct Callable {
     pub role: CallableRole,
 }
 
+impl Callable {
+    /// The identity `key` of `symbol`, the occurrence `role` says.
+    #[inline]
+    #[must_use]
+    pub const fn new(symbol: SymbolId, key: String, role: CallableRole) -> Self {
+        Self { symbol, key, role }
+    }
+}
+
 /// Which occurrence of a callable a symbol is.
 ///
 /// Exhaustive on purpose: an occurrence has a body or has none.
@@ -447,6 +574,8 @@ pub enum CallableRole {
 
 /// An in-class declaration of a member that the language folds into the out-of-line definition of the same callable
 /// in the same file, so the file keeps one symbol per callable.
+///
+/// Exhaustive on purpose: the two fields locate the declaration and the definition that replaces it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FoldedDeclaration {
     /// The out-of-line definition.
