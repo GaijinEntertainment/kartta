@@ -23,16 +23,26 @@ pub(crate) struct Answer {
 impl Client {
     /// Starts the server with `arguments`, and completes the MCP handshake.
     pub(crate) fn start(arguments: &[&Path]) -> Self {
-        Self::launch(arguments, "on")
+        Self::launch(Self::command(arguments, "on"))
     }
 
     /// Starts the server with `arguments` and `KARTTA_WATCH=off`, and completes the MCP handshake.
     pub(crate) fn unwatched(arguments: &[&Path]) -> Self {
-        Self::launch(arguments, "off")
+        Self::launch(Self::command(arguments, "off"))
     }
 
-    fn launch(arguments: &[&Path], watch: &str) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_kartta-mcp"))
+    /// Starts an unwatched server that keeps a file-backed trigram index in `dir`, and completes the MCP handshake.
+    pub(crate) fn grep_indexed_in(dir: &Path) -> Self {
+        let mut command = Self::command(&[], "off");
+        command
+            .env("KARTTA_GREP_INDEX", "file")
+            .env("KARTTA_GREP_INDEX_DIR", dir);
+        Self::launch(command)
+    }
+
+    fn command(arguments: &[&Path], watch: &str) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_kartta-mcp"));
+        command
             .args(arguments)
             .env_remove("KARTTA_ROOT")
             .env_remove("KARTTA_GREP_INDEX")
@@ -40,9 +50,12 @@ impl Client {
             .env("KARTTA_WATCH", watch)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("the server starts");
+            .stderr(Stdio::inherit());
+        command
+    }
+
+    fn launch(mut command: Command) -> Self {
+        let mut child = command.spawn().expect("the server starts");
         let input = child.stdin.take().expect("stdin is piped");
         let output = BufReader::new(child.stdout.take().expect("stdout is piped"));
         let mut client = Self {
