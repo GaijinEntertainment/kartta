@@ -12,6 +12,7 @@ lost, and what would reopen it.
 - [4.46 Cut one 1.0.0 of every artifact for macOS, Linux and Windows](/design-docs/adr/4.46-release-scope.md)
 - [4.48 Check on every pull request what a published crate carries](/design-docs/adr/4.48-crate-packaging.md)
 - [4.51 Compare every crate's public API with the newest release tag](/design-docs/adr/4.51-semver-gate.md)
+- [4.55 Cut a release from a version tag](/design-docs/adr/4.55-release-workflow.md)
 - [4.56 Test the Go binding on musl against the archive a release ships](/design-docs/adr/4.56-go-musl-job.md)
 
 ## Cargo.toml
