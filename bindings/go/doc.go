@@ -8,8 +8,9 @@
 //
 // The module lives in bindings/go of the kartta repository, so its version vX.Y.Z is the tag bindings/go/vX.Y.Z, on the
 // commit of the release vX.Y.Z. The package compiles against the kartta.h the module holds, and links libkartta_ffi.a
-// of the same version: the GitHub release vX.Y.Z carries one archive per target, and in a checkout cargo build -p
-// kartta-ffi builds it. Name the archive's directory in CGO_LDFLAGS:
+// of the same version: the GitHub release vX.Y.Z carries one archive per target, and in a checkout cargo rustc --locked
+// --profile dist -p kartta-ffi --crate-type staticlib builds the same archive into target/dist. Name the archive's
+// directory in CGO_LDFLAGS:
 //
 //	go get dev.gaijin.team/go/kartta@vX.Y.Z
 //	CGO_LDFLAGS=-L<directory of libkartta_ffi.a> go build
