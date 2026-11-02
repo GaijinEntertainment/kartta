@@ -22,7 +22,8 @@ try {
 - `build({watch: true})` follows the tree: the library refreshes the index from each change the operating system
   reports, on a thread of its own, until the next `build` or `close`; `stats().watch` says whether it still does.
 - A failure rejects with a `KarttaError` whose `code` is the engine's: `not_built`, `building`, `invalid_glob` and the
-  rest that `src/wire.ts` lists, or `closed` for a call on a closed handle.
+  rest that `src/wire.ts` lists, `closed` for a call on a closed handle, or `internal` with the original error as its
+  `cause` for a failure of the addon, such as a thread that cannot start.
 - Each method of the wire has a typed call, its params and answer spelled as the wire spells them; `call(method,
   params)` reaches the wire untyped.
 

@@ -34,7 +34,7 @@ export type Methods = {
 
 /**
  * What a failure reports. Every code but `closed` is the engine's; `closed` is the binding's own, for a call on a
- * closed handle.
+ * closed handle, and the binding also rejects with `internal` for a failure of the addon or of reading its answer.
  */
 export type Code =
 	| 'invalid_request'

@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process';
 import {pbkdf2} from 'node:crypto';
 import {mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -5,7 +6,7 @@ import path from 'node:path';
 import {setImmediate} from 'node:timers/promises';
 import {promisify} from 'node:util';
 
-import {afterAll, beforeAll, beforeEach, expect, onTestFailed, onTestFinished, test} from 'vite-plus/test';
+import {afterAll, beforeAll, beforeEach, expect, onTestFailed, onTestFinished, test, vi} from 'vite-plus/test';
 
 import {Kartta, KarttaError, type Stats} from '../src/kartta.ts';
 
@@ -142,6 +143,40 @@ test('a method the library does not answer rejects with unknown_method', async (
 	const kartta = open();
 
 	expect(await code(kartta.call('paths'))).toBe('unknown_method');
+});
+
+test('a thread the addon cannot start rejects with internal, the addon error its cause', () => {
+	const script = `
+		const {Kartta} = await import(process.argv[1]);
+		const kartta = Kartta.open(process.argv[2]);
+		const refused = async (call) => call.catch(({name, code, cause}) => [name, code, cause?.message]);
+		console.log(JSON.stringify([await refused(kartta.build()), await refused(kartta.refresh())]));
+		kartta.close();
+	`;
+	const module = new URL('../src/kartta.ts', import.meta.url).href;
+
+	const stdout = execFileSync(
+		process.execPath,
+		['--no-warnings', '--input-type=module', '--eval', script, module, tree(1)],
+		// constraint: Rust's std takes a spawned thread's stack size from here, and no OS maps a stack of 2^60 bytes
+		{encoding: 'utf8', env: {...process.env, RUST_MIN_STACK: '1152921504606846976'}, timeout: 4000},
+	);
+
+	expect(stdout).toMatch(/\["KarttaError","internal","no thread for the build: [^"]+"\]/v);
+	expect(stdout).toMatch(/\["KarttaError","internal","no thread for the refresh: [^"]+"\]/v);
+});
+
+test('an answer that cannot be read rejects with internal, the error its cause', async () => {
+	const kartta = open();
+	const tooLong = new RangeError('the answer is past the string limit');
+	const decode = vi.spyOn(TextDecoder.prototype, 'decode').mockImplementationOnce(() => {
+		throw tooLong;
+	});
+	onTestFinished(() => {
+		decode.mockRestore();
+	});
+
+	await expect(kartta.stats()).rejects.toMatchObject({name: 'KarttaError', code: 'internal', cause: tooLong});
 });
 
 test('a signal aborted before the build rejects with its reason and keeps the index', async () => {
