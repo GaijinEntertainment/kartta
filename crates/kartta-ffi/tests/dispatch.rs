@@ -1649,6 +1649,55 @@ fn a_refresh_that_reads_a_failed_file_takes_it_out_of_stats_errors() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_content_index_counts_a_file_it_could_not_read_until_a_refresh_reads_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tree = tree();
+    let locked = tree.path().join("run.go");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock");
+    if fs::read(&locked).is_ok() {
+        return; // running as a user permissions do not bind, such as root
+    }
+    let kartta = open(tree.path());
+    let built = ok(
+        &kartta,
+        "build",
+        &json!({ "stamps": true, "content_index": { "storage": "memory" } }),
+    );
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("unlock");
+
+    ok(&kartta, "refresh", &json!({ "paths": ["run.go"] }));
+
+    assert_eq!(built["content_index"]["files"], 1);
+    assert_eq!(built["content_index"]["unindexed"], 1);
+    let refreshed = &ok(&kartta, "stats", &Value::Null)["content_index"];
+    assert_eq!(refreshed["files"], 2);
+    assert_eq!(
+        refreshed.get("unindexed"),
+        None,
+        "absent at zero: {refreshed}"
+    );
+}
+
+#[test]
+fn a_build_answers_the_threads_it_named_and_the_ambient_pool_s_when_it_named_none() {
+    let tree = tree();
+    let kartta = open(tree.path());
+
+    let named = ok(&kartta, "build", &json!({ "threads": 3 }));
+    let ambient = ok(&kartta, "build", &Value::Null);
+
+    assert_eq!(named["threads"], 3);
+    assert!(
+        ambient["threads"]
+            .as_u64()
+            .is_some_and(|threads| threads >= 1),
+        "{ambient}"
+    );
+}
+
 /// The file `definitions` answers for `name`, once it answers one, or `Null` once 20 s pass.
 fn defined_soon(kartta: &Kartta, name: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(20);

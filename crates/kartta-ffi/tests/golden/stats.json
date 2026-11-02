@@ -86,6 +86,7 @@
           "read": 1
         }
       ],
+      "threads": 2,
       "watch": {
         "following": false
       }

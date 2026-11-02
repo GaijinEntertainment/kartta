@@ -230,6 +230,7 @@ pub(crate) const fn kind_of(error: &BuildError) -> &'static str {
 #[derive(Serialize)]
 pub(crate) struct StatsAnswer<'e> {
     entries: usize,
+    threads: usize,
     languages: Vec<Wired<LanguageFiles<'e>>>,
     graphs: Vec<GraphStats<'e>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -271,6 +272,8 @@ struct GraphStats<'e> {
 #[derive(Debug, Serialize)]
 struct ContentIndexView {
     files: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    unindexed: usize,
     trigrams: usize,
     bytes: u64,
 }
@@ -284,6 +287,7 @@ impl<'e> StatsAnswer<'e> {
         let stats = engine.stats();
         Self {
             entries: engine.index().len(),
+            threads: engine.index().threads(),
             languages: stats.languages.into_iter().map(Wired).collect(),
             graphs: stats
                 .families
@@ -298,6 +302,7 @@ impl<'e> StatsAnswer<'e> {
                 .content_index_stats()
                 .map(|index| ContentIndexView {
                     files: index.files(),
+                    unindexed: index.unindexed(),
                     trigrams: index.trigrams(),
                     bytes: index.bytes(),
                 }),
