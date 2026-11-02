@@ -28,9 +28,11 @@ type Matches[T any] struct {
 type Unmatched struct {
 	// Kind is "several" when several definitions under the path prefix end with the name and it picks none of them, a
 	// longer name or a path prefix holding one picking one; "outside_prefix" when the name names definitions outside
-	// the path prefix and at most one under it; or "one_edit" when the name names no definition of any kind, and these
-	// are named one edit from it: one character swapped with the next, dropped, replaced or added, a replacing or
-	// added one being an ASCII letter, a digit, "_" or one the name holds.
+	// the path prefix, none under it, or one that the selector looks at; "off_line" when it names definitions under
+	// the path prefix that start off the line and at most one on it, these counting and listing those outside the
+	// prefix too; or "one_edit" when the name names no definition of any kind, and these are named one edit from it:
+	// one character swapped with the next, dropped, replaced or added, a replacing or added one being an ASCII letter,
+	// a digit, "_" or one the name holds.
 	Kind string `json:"kind"`
 	// Total counts those definitions.
 	Total int `json:"total"`

@@ -23,8 +23,11 @@ pub enum UnmatchedKind {
     /// Several definitions the selector looks at end with the name, and a query picks none of them: a longer name, or
     /// a path prefix and a line that look at only one of them, picks one.
     Several,
-    /// The name names definitions outside the path prefix or off the line, and at most one the selector looks at.
+    /// The name names definitions outside the path prefix, none under it, or one that the selector looks at.
     OutsidePrefix,
+    /// The name names definitions under the path prefix that start off the line, and at most one the selector looks
+    /// at: the line, not the prefix, keeps them out. The count and the list hold those outside the prefix too.
+    OffLine,
     /// The name names no definition, and names one edit from it do, as [`Graph::definitions_one_edit_from`] edits
     /// one: one character swapped with the next, dropped, replaced or added.
     OneEdit,
@@ -33,9 +36,10 @@ pub enum UnmatchedKind {
 /// What `named` names instead, for a name by which a query selected no symbol in the `searched` graphs.
 ///
 /// Among the definitions of the kinds `selects` takes, it answers several under the name's path prefix and on its line,
-/// else some outside them, else, for a name that names no definition of any kind, those of the names one edit from it
-/// wherever they lie, listing at most `limit`; and `None` when none holds. The name is looked up once in each graph, as
-/// [`Graph::definitions`] reads it, and a name that names nothing once more for each string one edit from it, as
+/// else some outside them, of [`UnmatchedKind::OffLine`] where one of those lies under the prefix, else, for a name
+/// that names no definition of any kind, those of the names one edit from it wherever they lie, listing at most
+/// `limit`; and `None` when none holds. The name is looked up once in each graph, as [`Graph::definitions`] reads it,
+/// and a name that names nothing once more for each string one edit from it, as
 /// [`Graph::definitions_one_edit_from`] looks them up; nothing is searched.
 pub fn unmatched<'g>(
     searched: impl Iterator<Item = (&'g str, &'g Graph)> + Clone,
@@ -47,6 +51,7 @@ pub fn unmatched<'g>(
         tally(UnmatchedKind::Several),
         tally(UnmatchedKind::OutsidePrefix),
     );
+    let on_any_line = named.with_line(None);
     let mut names_any = false;
     for (family, graph) in searched.clone() {
         let found = graph.definitions(named.name, None, usize::MAX).found;
@@ -55,11 +60,11 @@ pub fn unmatched<'g>(
             if !selects(definition.kind) {
                 continue;
             }
-            let held = if named.admits(definition.file, definition.line) {
-                &mut under
-            } else {
-                &mut outside
-            };
+            let admitted = named.admits(definition.file, definition.line);
+            if !admitted && on_any_line.admits(definition.file, definition.line) {
+                outside.kind = UnmatchedKind::OffLine;
+            }
+            let held = if admitted { &mut under } else { &mut outside };
             held.total += 1;
             if held.listed.len() < limit {
                 held.listed.push((family, definition));
