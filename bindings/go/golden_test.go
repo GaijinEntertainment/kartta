@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -84,6 +85,10 @@ func scoresAgree(answer, pinned any) bool {
 }
 
 func Test_golden(t *testing.T) {
+	// constraint: the skip keys on the repository, not on the golden files, so a checkout that lost them still fails
+	if _, err := os.Stat(filepath.Join("..", "..", "Cargo.lock")); errors.Is(err, fs.ErrNotExist) {
+		t.Skip("outside a checkout: the golden files live beside the crate, outside the module")
+	}
 	tests, err := filepath.Abs(filepath.Join("..", "..", "crates", "kartta-ffi", "tests"))
 	if err != nil {
 		t.Fatal(err)
