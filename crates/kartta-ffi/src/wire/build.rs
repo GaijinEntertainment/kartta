@@ -5,12 +5,13 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use kartta::{
-    BinaryExtensions, BuildError, BuildOptions, ContentIndexStorage, Engine, IgnoreSources,
+    BinaryExtensions, BuildError, BuildOptions, ContentIndexStorage, Engine, IgnoreSources, Index,
     Language, LanguageFiles, PrunedNames, Stats, Watch,
 };
 use serde::{Deserialize, Serialize, Serializer};
 
 use super::graph::{Wired, is_zero};
+use crate::built::StoppedBuild;
 use crate::error::{Error, ErrorCode};
 
 const ERRORS_LISTED: usize = 20;
@@ -242,6 +243,16 @@ pub(crate) struct StatsAnswer<'e> {
     content_index_failure: Option<&'e str>,
     errors: &'e StoredErrors,
     watch: WatchView<'e>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stopped_build: Option<StoppedView>,
+}
+
+/// What a file query's answer reads from when a cancel stopped the last build: the entries that build's index holds,
+/// and what its walk turned away, a floor on what the index lacks.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(crate) struct StoppedView {
+    pub(crate) entries: usize,
+    pub(crate) unvisited: usize,
 }
 
 /// Whether the engine follows its tree: `following` while a watcher refreshes it from each change, else `reason` says
@@ -302,19 +313,38 @@ impl<'e> StatsAnswer<'e> {
                     stats: Wired(stats),
                 })
                 .collect(),
-            content_index: engine
-                .index()
-                .content_index_stats()
-                .map(|index| ContentIndexView {
-                    files: index.files(),
-                    unindexed: index.unindexed(),
-                    trigrams: index.trigrams(),
-                    bytes: index.bytes(),
-                }),
+            content_index: ContentIndexView::of(engine.index()),
             content_index_failure: engine.index().content_index_failure(),
             errors,
             watch: WatchView::new(watch),
+            stopped_build: None,
         }
+    }
+
+    /// What `stats` answers from the index of a build a cancel stopped, which holds no language and no graph.
+    pub(crate) fn stopped(stopped: &'e StoppedBuild) -> Self {
+        Self {
+            entries: stopped.index.len(),
+            threads: stopped.index.threads(),
+            languages: Vec::new(),
+            graphs: Vec::new(),
+            content_index: ContentIndexView::of(&stopped.index),
+            content_index_failure: stopped.index.content_index_failure(),
+            errors: &stopped.errors,
+            watch: WatchView::new(None),
+            stopped_build: Some(stopped.view()),
+        }
+    }
+}
+
+impl ContentIndexView {
+    fn of(index: &Index) -> Option<Self> {
+        index.content_index_stats().map(|index| Self {
+            files: index.files(),
+            unindexed: index.unindexed(),
+            trigrams: index.trigrams(),
+            bytes: index.bytes(),
+        })
     }
 }
 

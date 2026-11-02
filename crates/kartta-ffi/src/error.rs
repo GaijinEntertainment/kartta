@@ -18,13 +18,14 @@ pub(crate) enum ErrorCode {
     UnknownMethod,
     /// `open` could not read the root's metadata, or the root is not a directory.
     InvalidRoot,
-    /// No build has finished, or the last one failed or was cancelled.
+    /// No build has finished, or the last one failed, or a cancel stopped it and the method needs more than its index.
     NotBuilt,
     /// A build is in flight.
     Building,
     /// The build stopped on a failure, which leaves no index.
     BuildFailed,
-    /// A cancel stopped the build, which leaves no index.
+    /// A cancel stopped the build, whose index the file queries answer from when it holds an entry, or that the cancel
+    /// came too late to stop.
     BuildCancelled,
     /// The build kept no stamps, so a refresh is refused.
     NoStamps,

@@ -804,14 +804,21 @@ fn every_key_of_a_golden_is_a_name_of_the_reference() {
 /// The keys no golden holds, because what answers them is no file of a fixture: an unreadable or removed file, a
 /// symlink a Windows checkout does not make, a machine's own path, a watcher that failed. Each comes with the file
 /// whose test pins it.
-const PINNED_ELSEWHERE: [(&str, &str, &str); 13] = [
+const PINNED_ELSEWHERE: [(&str, &str, &str); 20] = [
     ("BuildParams", "content_cache", "tests/dispatch.rs"),
     ("ContentIndexView", "unindexed", "tests/dispatch.rs"),
     ("FoundView", "error", "tests/dispatch.rs"),
+    ("FuzzyView", "stopped_build", "src/handle.rs"),
+    ("GlobView", "stopped_build", "src/handle.rs"),
     ("GrepFailureView", "message", "tests/dispatch.rs"),
     ("GrepFailureView", "path", "tests/dispatch.rs"),
+    ("GrepView", "stopped_build", "src/handle.rs"),
+    ("ListView", "stopped_build", "src/handle.rs"),
     ("ListedView", "target", "tests/dispatch.rs"),
     ("StatsAnswer", "content_index_failure", "tests/dispatch.rs"),
+    ("StatsAnswer", "stopped_build", "src/handle.rs"),
+    ("StoppedView", "entries", "src/handle.rs"),
+    ("StoppedView", "unvisited", "src/handle.rs"),
     ("StoredError", "file", "tests/dispatch.rs"),
     ("StoredError", "kind", "tests/dispatch.rs"),
     ("StoredError", "message", "tests/dispatch.rs"),
@@ -904,13 +911,18 @@ fn every_key_of_the_wire_is_in_a_golden_or_listed_with_the_test_that_pins_it() {
 }
 
 /// The Go and the Node type of each object [`PINNED_ELSEWHERE`] names.
-const BINDING_TYPES: [(&str, &str, &str); 8] = [
+const BINDING_TYPES: [(&str, &str, &str); 13] = [
     ("BuildParams", "BuildOptions", "BuildParams"),
     ("ContentIndexView", "ContentIndexStats", "ContentIndexStats"),
     ("FoundView", "Found", "Found"),
+    ("FuzzyView", "Fuzzy", "Fuzzy"),
+    ("GlobView", "Glob", "Glob"),
     ("GrepFailureView", "GrepFailure", "Grep"),
+    ("GrepView", "Grep", "Grep"),
+    ("ListView", "Listing", "Listing"),
     ("ListedView", "Listed", "Listed"),
     ("StatsAnswer", "Stats", "Stats"),
+    ("StoppedView", "StoppedBuild", "StoppedBuild"),
     ("StoredError", "BuildFailure", "BuildFailure"),
     ("WatchView", "Watch", "Watch"),
 ];
