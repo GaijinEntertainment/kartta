@@ -14,6 +14,8 @@ use kartta_lang::RawExtraction;
 
 const DEPTH: usize = 4_000;
 const STACK_BYTES: usize = 64 * 1024;
+/// A stack for what stops at a depth of its own, whose frames at that depth outgrow [`STACK_BYTES`] in a debug build.
+const BOUNDED_STACK_BYTES: usize = 1024 * 1024;
 
 /// One source: `statement` with `@` in place of `open` repeated [`DEPTH`] times, `inner`, and `close` as often.
 type Row<'s> = (&'s str, (&'s str, &'s str, &'s str));
@@ -23,10 +25,10 @@ fn nested((statement, (open, inner, close)): Row<'_>, depth: usize) -> String {
     statement.replace('@', &nesting)
 }
 
-fn extraction(language: &str, source: String) -> RawExtraction {
+fn extraction(language: &str, source: String, stack: usize) -> RawExtraction {
     let languages = kartta_languages::select([language]).expect("the language is known");
     thread::Builder::new()
-        .stack_size(STACK_BYTES)
+        .stack_size(stack)
         .spawn(move || languages[0].extract(source.as_bytes()))
         .expect("the thread starts")
         .join()
@@ -35,9 +37,13 @@ fn extraction(language: &str, source: String) -> RawExtraction {
 
 /// `rows` each read to the `after` that `declaration` declares past them.
 fn assert_read_past(language: &str, declaration: &str, rows: &[Row<'_>]) {
+    assert_read_past_on(STACK_BYTES, language, declaration, rows);
+}
+
+fn assert_read_past_on(stack: usize, language: &str, declaration: &str, rows: &[Row<'_>]) {
     for &row in rows {
         let source = format!("{}\n{declaration}\n", nested(row, DEPTH));
-        let raw = extraction(language, source);
+        let raw = extraction(language, source, stack);
         assert!(
             raw.symbols.iter().any(|symbol| symbol.name == "after"),
             "{row:?}"
@@ -60,7 +66,8 @@ fn a_chain_of_calls_builds_through_the_walk() {
 fn javascript_binds_the_name_inside_a_pattern() {
     for nesting in [("[", "bound", "]"), ("{a:", "bound", "}")] {
         let statement = "function f() { const @ = y; bound.m(); }";
-        let raw = extraction("javascript", nested((statement, nesting), DEPTH));
+        let source = nested((statement, nesting), DEPTH);
+        let raw = extraction("javascript", source, STACK_BYTES);
         let call = raw.calls.iter().find(|call| call.callee == "m");
         let receiver = call.and_then(|call| call.receiver.as_deref());
         assert_eq!(receiver, Some(""), "{nesting:?}");
@@ -88,7 +95,7 @@ fn javascript_reads_past_a_chain_or_a_pattern() {
 fn go_keeps_a_path_whose_steps_shorten_it_before_they_lengthen_it() {
     let (containers, indices, fields) = ("[]".repeat(79), "[0]".repeat(79), ".b".repeat(79));
     let source = format!("package x\nfunc f(v {containers}T) {{\n\tv{indices}{fields}.m()\n}}\n");
-    let raw = extraction("go", source);
+    let raw = extraction("go", source, STACK_BYTES);
     let call = raw.calls.iter().find(|call| call.callee == "m");
     let receiver = call.and_then(|call| call.receiver.as_deref());
     assert_eq!(receiver, Some(format!("T{fields}").as_str()));
@@ -180,4 +187,75 @@ fn cpp_reads_past_a_name_or_a_declarator() {
             ("A::A() : @() {}", ("", "a", "::b")),
         ],
     );
+}
+
+#[test]
+fn rust_reads_past_a_chain_a_path_a_type_or_a_pattern() {
+    assert_read_past(
+        "rust",
+        "fn after() {}",
+        &[
+            ("fn f() { @.c(); }", ("", "a", "?")),
+            ("fn f() { @(); }", ("", "a", "::b")),
+            ("fn f(x: @) {}", ("", "a", "::b")),
+            ("use @;", ("", "a", "::b")),
+            ("use @;", ("a::{", "b", "}")),
+            ("use @;", ("{", "a", "}")),
+            ("fn f(x: @) {}", ("& ", "u8", "")),
+            ("fn f() -> @ { g() }", ("Box<", "u8", ">")),
+            ("fn f() { let t: @ = g(); t.m(); }", ("Box<", "u8", ">")),
+            ("fn f() { let @ = y; }", ("(", "x", ",)")),
+            ("fn f() { let @ = y; }", ("S{a:", "x", "}")),
+            ("fn f() { let @ = y; }", ("Some(", "x", ")")),
+            ("fn f() { let @ = y; }", ("& ", "x", "")),
+            ("fn f() { match y { @ => 1 }; }", ("", "a", " | a")),
+            ("fn f(@: T) {}", ("(", "x", ",)")),
+            ("fn f() { let g = |@| 1; }", ("(", "x", ",)")),
+        ],
+    );
+}
+
+#[test]
+fn rust_reads_past_an_attribute_or_a_macro() {
+    assert_read_past_on(
+        BOUNDED_STACK_BYTES,
+        "rust",
+        "fn after() {}",
+        &[
+            ("#[cfg(@)]\nfn f() {}", ("all(", "a", ")")),
+            ("#[cfg(@)]\nmod t {}", ("any(", "a", ")")),
+            ("#[cfg(@)]\nfn f() {}", ("not(", "a", ")")),
+            ("fn f() { m!(@); }", ("(", "x", ")")),
+            ("fn f() { vec![@]; }", ("[", "x", "]")),
+            ("fn f() { @; }", ("m!(", "x", ")")),
+            ("fn f() { println!(\"{}\", @); }", ("g(", "x", ")")),
+            ("fn f() { matches!(y, @); }", ("(", "x", ")")),
+            ("fn f() { m!(|@| 1); }", ("(", "x", ",)")),
+            ("macro_rules! m { () => {@}; }", ("$(", "fn f() {}", ")*")),
+            ("macro_rules! m { () => {@}; }", ("{", "fn f() {}", "}")),
+            (
+                "macro_rules! m { (@) => { fn $x() {} }; }\nm!(a);",
+                ("$(", "$x:ident", ")*"),
+            ),
+            (
+                "macro_rules! m { (@) => { fn $x() {} }; }\nm!(a);",
+                ("(", "$x:ident", ")"),
+            ),
+            (
+                "macro_rules! m { ($x:ident) => { impl T for $x { @ } }; }\nm!(a);",
+                ("$(", "fn f() {}", ")*"),
+            ),
+        ],
+    );
+}
+
+#[test]
+fn a_macro_argument_is_read_through_the_trees_a_file_writes() {
+    let source = |depth| nested(("fn f() { m!(@); }", ("(", "reached()", ")")), depth);
+    let reads_the_call = |depth| {
+        let raw = extraction("rust", source(depth), BOUNDED_STACK_BYTES);
+        raw.calls.iter().any(|call| call.callee == "reached")
+    };
+    assert!(reads_the_call(64));
+    assert!(!reads_the_call(DEPTH));
 }
