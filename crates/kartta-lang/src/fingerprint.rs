@@ -20,11 +20,15 @@ use std::{env, fs};
 
 /// Sets `SOURCE_ID` in the compile-time environment of the crate whose build script calls it.
 ///
-/// The identity is the crate's name, its version and a digest of three things: its `Cargo.toml`, the versions a
-/// `Cargo.lock` in a directory above the crate resolves for its `[dependencies]`, and the files under its `src`. Cargo
-/// runs the script again when one of them changes. The dependencies a language extracts through, its grammar and
-/// tree-sitter, are among them, so updating either changes the identity, whether the manifest or only the lock moves.
-/// A build that sees no lock, such as one from a registry, digests the manifest's version requirements alone.
+/// The identity is the crate's name, its version and a digest of three things: its `Cargo.toml`, the versions the
+/// build's `Cargo.lock` resolves for its `[dependencies]`, and the files under its `src`. Cargo runs the script again
+/// when one of them changes. The dependencies a language extracts through, its grammar and tree-sitter, are among
+/// them, so updating either changes the identity, whether the manifest or only the lock moves.
+///
+/// The build's lock is the nearest one above `OUT_DIR`, which is the consumer's whenever the target directory sits in
+/// the consumer's workspace, and otherwise the nearest one above the crate. A build that finds neither, such as a
+/// dependency from a registry built into a target directory outside the workspace, digests the manifest's version
+/// requirements alone, so an update there leaves the identity as it was.
 ///
 /// # Errors
 ///
@@ -33,10 +37,7 @@ use std::{env, fs};
 pub fn set_source_id() -> io::Result<()> {
     let manifest_dir = PathBuf::from(var("CARGO_MANIFEST_DIR")?);
     let manifest = fs::read_to_string(manifest_dir.join("Cargo.toml"))?;
-    let lock = manifest_dir
-        .ancestors()
-        .map(|dir| dir.join("Cargo.lock"))
-        .find(|lock| lock.is_file());
+    let lock = build_lock(Path::new(&var("OUT_DIR")?), &manifest_dir);
     let resolved = match &lock {
         Some(lock) => resolved_versions(&manifest, &fs::read_to_string(lock)?),
         None => String::new(),
@@ -67,6 +68,16 @@ pub fn set_source_id() -> io::Result<()> {
         var("CARGO_PKG_NAME")?.to_string_lossy(),
         var("CARGO_PKG_VERSION")?.to_string_lossy()
     )
+}
+
+// constraint: `cargo package` writes a lock beside a published crate's manifest, and a consumer's build resolves
+// without it, so the search past `OUT_DIR` starts above the crate; Cargo tells a build script no workspace root
+fn build_lock(out_dir: &Path, manifest_dir: &Path) -> Option<PathBuf> {
+    out_dir
+        .ancestors()
+        .chain(manifest_dir.ancestors().skip(1))
+        .map(|dir| dir.join("Cargo.lock"))
+        .find(|lock| lock.is_file())
 }
 
 fn head(manifest: &str, resolved: &str) -> u64 {
@@ -152,7 +163,17 @@ fn collect(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{head, resolved_versions};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use super::{build_lock, head, resolved_versions};
+
+    fn lock_in(dir: &Path) -> PathBuf {
+        fs::create_dir_all(dir).unwrap();
+        let lock = dir.join("Cargo.lock");
+        fs::write(&lock, "version = 4\n").unwrap();
+        lock
+    }
 
     const MANIFEST: &str = "[package]\nname = \"kartta-lang-cpp\"\n\n[dependencies]\n# the grammar\n\
         tree-sitter = \"0.27.1\"\n\n[dependencies.tree-sitter-cpp]\nversion = \"0.23.4\"\n\n\
@@ -164,6 +185,51 @@ mod tests {
              [[package]]\nname = \"tree-sitter\"\nversion = \"{runtime}\"\nsource = \"registry\"\n\n\
              [[package]]\nname = \"tree-sitter-cpp\"\nversion = \"{grammar}\"\nchecksum = \"00\"\n"
         )
+    }
+
+    #[test]
+    fn a_published_crate_reads_the_consumer_s_lock_and_not_the_one_its_package_holds() {
+        let root = tempfile::tempdir().unwrap();
+        let consumer = lock_in(&root.path().join("consumer"));
+        let package = root.path().join("registry/kartta-lang-cpp-1.0.0");
+        lock_in(&package);
+
+        assert_eq!(
+            build_lock(
+                &root.path().join("consumer/target/debug/build/cpp-1/out"),
+                &package
+            ),
+            Some(consumer)
+        );
+    }
+
+    #[test]
+    fn a_published_crate_built_outside_the_consumer_s_workspace_sees_no_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let package = root.path().join("registry/kartta-lang-cpp-1.0.0");
+        lock_in(&package);
+
+        assert_eq!(
+            build_lock(
+                &root.path().join("elsewhere/debug/build/cpp-1/out"),
+                &package
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_workspace_member_built_into_a_target_outside_it_reads_the_workspace_s_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = lock_in(&root.path().join("workspace"));
+
+        assert_eq!(
+            build_lock(
+                &root.path().join("elsewhere/debug/build/cpp-1/out"),
+                &root.path().join("workspace/crates/kartta-lang-cpp")
+            ),
+            Some(workspace)
+        );
     }
 
     #[test]

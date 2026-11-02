@@ -20,6 +20,9 @@ workspace = true
 [dependencies]
 tree-sitter = { version = "0.27.1", optional = true }
 
+[dev-dependencies]
+tempfile = "3.27.0"
+
 [features]
 # Walk helpers for a language that extracts through tree-sitter. Off by default: the contract itself names no parser.
 tree-sitter = ["dep:tree-sitter"]
