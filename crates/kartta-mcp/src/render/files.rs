@@ -219,14 +219,13 @@ const fn kind(kind: EntryKind) -> &'static str {
     }
 }
 
-#[cfg(test)]
+// constraint: Windows refuses a line break in a file name
+#[cfg(all(test, unix))]
 mod tests {
     use kartta_fs::{BuildOptions, Filter, GlobOptions, Index};
 
     use super::globbed;
 
-    // constraint: Windows refuses a line break in a file name
-    #[cfg(unix)]
     #[test]
     fn a_glob_answer_keeps_a_path_with_a_line_break_on_its_line() {
         let dir = tempfile::tempdir().expect("create temp dir");
