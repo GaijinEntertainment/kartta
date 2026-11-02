@@ -6,7 +6,7 @@
 
 import {createRequire} from 'node:module';
 
-import {target} from './target.ts';
+import {TARGETS, target} from './target.ts';
 import type {
 	BuildOptions,
 	CallPath,
@@ -54,8 +54,6 @@ import type {
 } from './wire.ts';
 
 export type * from './wire.ts';
-
-const TARGETS = ['darwin-arm64', 'linux-x64-gnu', 'linux-arm64-gnu'];
 
 const decoder = new TextDecoder();
 

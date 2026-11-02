@@ -17,11 +17,16 @@ type CargoMessage = {
 	filenames?: string[];
 };
 
+const host = target();
 const profile = process.argv.includes('--release') ? ['--release'] : [];
+// constraint: a Rust target for musl links the C library statically and builds no cdylib until told not to
+const env = host.endsWith('-musl')
+	? {...process.env, RUSTFLAGS: `${process.env.RUSTFLAGS ?? ''} -C target-feature=-crt-static`}
+	: process.env;
 const messages = execFileSync(
 	'cargo',
 	['build', '--locked', '-p', 'kartta-node', '--message-format=json-render-diagnostics', ...profile],
-	{encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 1 << 26},
+	{encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 1 << 26},
 );
 const library = messages
 	.split('\n')
@@ -34,6 +39,6 @@ const library = messages
 if (library === undefined) {
 	throw new Error('cargo reported no shared library for kartta-node');
 }
-const addon = fileURLToPath(new URL(`../kartta.${target()}.node`, import.meta.url));
+const addon = fileURLToPath(new URL(`../kartta.${host}.node`, import.meta.url));
 copyFileSync(library, addon);
 process.stdout.write(`${addon}\n`);
