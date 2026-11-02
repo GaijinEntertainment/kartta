@@ -160,7 +160,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo check --locked --workspace --exclude kartta-node --all-features
 
-  # Every crate's public API against the newest release tag, which `scripts/semver.sh` passes without.
+  # Every crate's public API and the wire against the newest release tag, which both scripts pass without.
   semver:
     runs-on: ubuntu-24.04
     steps:
@@ -177,6 +177,7 @@ jobs:
           echo "cacadafaa5cd27ae6d05a74a103266917ebab4c5e43c898360e177d4fbf06a65  $archive" | sha256sum -c
           tar -xzf "$archive" -C ~/.cargo/bin
       - run: scripts/semver.sh
+      - run: scripts/wire-freeze.sh
 
   # The Go binding, linked against the static library the same checkout builds. Its cgo build compiles the
   # hand-written kartta.h and links what Go names, and the round trip exercises the ABI's ownership rules under the race
