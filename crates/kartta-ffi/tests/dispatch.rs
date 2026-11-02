@@ -186,6 +186,18 @@ fn a_fuzzy_answer_counts_its_matches_unless_the_query_is_empty() {
 }
 
 #[test]
+fn empty_text_whitespace_and_null_each_read_as_no_params() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    let empty_object = kartta.call("version", b"{}");
+    assert!(empty_object.starts_with(br#"{"ok":"#));
+
+    for params in [&b""[..], b" \n", b"null", b" null\n"] {
+        assert_eq!(kartta.call("version", params), empty_object, "{params:?}");
+    }
+}
+
+#[test]
 fn params_that_are_not_the_method_s_answer_invalid_params() {
     let tree = tree();
     let kartta = open(tree.path());
