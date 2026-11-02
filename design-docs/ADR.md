@@ -68,6 +68,7 @@ lost, and what would reopen it.
 - [4.45 Drop a handle's engine before its next build walks](/design-docs/adr/4.45-wire-build-lifecycle.md)
 - [4.52 Publish the wire as a hand-written reference a test holds to the code](/design-docs/adr/4.52-wire-reference.md)
 - [4.57 State what each wire method takes and what its answer left out](/design-docs/adr/4.57-wire-params-answers.md)
+- [4.58 Keep only the C ABI global in the macOS and Linux static libraries, and test each target's link command](/design-docs/adr/4.58-archive-symbols.md)
 
 ## crates/kartta-fs
 
