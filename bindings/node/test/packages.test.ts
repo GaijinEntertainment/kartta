@@ -1,4 +1,4 @@
-import {execFileSync} from 'node:child_process';
+import {execFileSync, execSync} from 'node:child_process';
 import {existsSync, mkdtempSync, readdirSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -113,4 +113,24 @@ test('the stage fails on a target with no addon built', () => {
 	const {directory, run} = runStage(['linux-riscv64-musl']);
 	expect(run).toThrow(/kartta\.linux-riscv64-musl\.node/v);
 	expect(existsSync(path.join(directory, 'kartta.linux-riscv64-musl.node'))).toBe(false);
+});
+
+test('npm pack of the host package holds its addon, the notices and the licence', {timeout: 60_000}, () => {
+	const addon = `kartta.${target()}.node`;
+	const staged = ['LICENSE', 'THIRD-PARTY-NOTICES.txt', addon];
+	const directory = fileURLToPath(new URL(`../npm/${target()}/`, import.meta.url));
+	onTestFinished(() => {
+		for (const file of staged) {
+			rmSync(path.join(directory, file), {force: true});
+		}
+	});
+
+	// constraint: on Windows npm is npm.cmd, which runs only through a shell (Node's child_process, "Spawning .bat and
+	// .cmd files on Windows")
+	const answer = execSync('npm pack --dry-run --json', {cwd: directory, encoding: 'utf8', stdio: 'pipe'});
+
+	// SAFETY: npm answers one object a package under --json, and the assertion below fails on a field it lacks.
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion
+	const [pack] = JSON.parse(answer) as [{files: Array<{path: string}>}];
+	expect(pack.files.map((file) => file.path).toSorted()).toStrictEqual([...staged, 'package.json'].toSorted());
 });
