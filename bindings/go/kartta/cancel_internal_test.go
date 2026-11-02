@@ -11,7 +11,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/GaijinEntertainment/kartta/bindings/go/wire"
+	"dev.gaijin.team/go/kartta/wire"
 )
 
 func openTree(t *testing.T) *Kartta {

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GaijinEntertainment/kartta/bindings/go/kartta"
-	"github.com/GaijinEntertainment/kartta/bindings/go/wire"
+	"dev.gaijin.team/go/kartta/kartta"
+	"dev.gaijin.team/go/kartta/wire"
 )
 
 func tree(t *testing.T) string {
