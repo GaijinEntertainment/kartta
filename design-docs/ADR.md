@@ -64,6 +64,7 @@ lost, and what would reopen it.
 - [4.35 Flag a references part where its language records none of its symbol's uses](/design-docs/adr/4.35-wire-unrecorded-uses.md)
 - [4.36 Pin each wire method in a golden file both bindings replay](/design-docs/adr/4.36-wire-method-pinning.md)
 - [4.45 Drop a handle's engine before its next build walks](/design-docs/adr/4.45-wire-build-lifecycle.md)
+- [4.52 Publish the wire as a hand-written reference a test holds to the code](/design-docs/adr/4.52-wire-reference.md)
 
 ## crates/kartta-fs
 
