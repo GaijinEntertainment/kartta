@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 
@@ -19,7 +19,8 @@ use crate::tree::{Slot, Tree};
 /// There is deliberately no cap on entries recorded. Truncating a walk hands back an arbitrary subset — which entries
 /// survive depends on scheduling — that a consumer cannot tell from a complete tree without asking, so a guard against
 /// large trees becomes a source of quietly wrong answers. A bound worth having would *fail* the walk instead.
-/// Cancellation is safe only because the caller who cancelled is the one discarding the result.
+/// Cancellation is safe only because the caller who cancelled knows: [`WalkOutcome::cancelled`] marks the tree and
+/// [`WalkOutcome::unvisited`] counts what the cancel turned away.
 #[derive(Clone, Debug, Default)]
 #[non_exhaustive]
 pub struct WalkOptions {
@@ -121,7 +122,7 @@ pub fn walk<P: Policy>(
         policy,
         options,
         list,
-        cancelled: AtomicBool::new(false),
+        unvisited: AtomicUsize::new(0),
     };
 
     let frame = Frame {
@@ -145,10 +146,12 @@ pub fn walk<P: Policy>(
         "the walk counted every recorded entry and name byte"
     );
 
+    let unvisited = walker.unvisited.into_inner();
     Ok(WalkOutcome {
         tree,
         errors,
-        cancelled: walker.cancelled.load(Ordering::Relaxed),
+        cancelled: unvisited > 0,
+        unvisited,
     })
 }
 
@@ -169,9 +172,12 @@ pub struct WalkOutcome<V> {
     pub errors: Vec<WalkError>,
     /// Whether the walk was cancelled before it saw every entry the policy allowed.
     ///
-    /// A cancelled tree holds whichever entries the threads had reached, which depends on scheduling — so it is
-    /// something to report or discard, never to build on. No errors and no cancellation is the only complete answer.
+    /// A cancelled tree holds whichever entries the threads had reached, which depends on scheduling — so anything
+    /// built on it says so. No errors and no cancellation is the only complete answer.
     pub cancelled: bool,
+    /// The entries the walk listed and the cancel turned away: a floor on what a cancelled tree lacks, since one that
+    /// is a directory holds more the walk never listed. Zero when the walk was not cancelled.
+    pub unvisited: usize,
 }
 
 struct Frame<'a, P: Policy> {
@@ -184,21 +190,15 @@ struct Walker<'a, P: Policy> {
     policy: &'a P,
     options: &'a WalkOptions,
     list: fn(&Path) -> io::Result<Listing>,
-    cancelled: AtomicBool,
+    unvisited: AtomicUsize,
 }
 
 impl<P: Policy> Walker<'_, P> {
     fn cancelled_here(&self) -> bool {
-        let cancelled = self
-            .options
+        self.options
             .cancel_token
             .as_ref()
-            .is_some_and(CancelToken::is_cancelled);
-        if cancelled {
-            self.cancelled.store(true, Ordering::Relaxed);
-        }
-
-        cancelled
+            .is_some_and(CancelToken::is_cancelled)
     }
 
     fn walk_dir(&self, frame: &Frame<'_, P>, listing: Listing) -> Subtree<P::Value> {
@@ -260,12 +260,8 @@ impl<P: Policy> Walker<'_, P> {
         if dir.listing().len() >= PARALLEL_CLASSIFY {
             self.classify_in_parallel(&at, &path, &mut classified);
         } else {
-            let decided = dir
-                .listing()
-                .iter()
-                .map(|item| (item, self.decide(&at, &mut path, item)))
-                .take_while(|(_, decided)| !matches!(decided, Decided::Cancelled));
-            for (item, decided) in decided {
+            for item in dir.listing() {
+                let decided = self.decide(&at, &mut path, item);
                 classified.record(item, decided);
             }
         }
@@ -294,13 +290,8 @@ impl<P: Policy> Walker<'_, P> {
                     |path, item| self.decide(at, path, item),
                 )
                 .collect();
-            let mut cancelled = false;
             for (item, decided) in run.iter().zip(decided) {
-                cancelled |= matches!(decided, Decided::Cancelled);
                 classified.record(item, decided);
-            }
-            if cancelled {
-                return;
             }
         }
     }
@@ -312,6 +303,7 @@ impl<P: Policy> Walker<'_, P> {
         item: &ListedEntry,
     ) -> Decided<P::Value> {
         if self.cancelled_here() {
+            self.unvisited.fetch_add(1, Ordering::Relaxed);
             return Decided::Cancelled;
         }
 
