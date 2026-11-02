@@ -6,6 +6,7 @@ use crate::requirement::Requirement;
 
 /// Whether a content search tells letters of different case apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum Case {
     /// `Main` finds `Main` and not `main`.
     #[default]

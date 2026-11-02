@@ -128,10 +128,8 @@ fn sorted(seen: &Mutex<Vec<String>>) -> Vec<String> {
 fn a_subtree_walk_shows_the_policy_the_paths_the_whole_walk_would() {
     let dir = fixture();
     let seen = Seen::default();
-    let options = WalkOptions {
-        subtree: Some("dir".to_owned()),
-        ..WalkOptions::default()
-    };
+    let mut options = WalkOptions::default();
+    options.subtree = Some("dir".to_owned());
 
     let outcome = walk(dir.path(), &seen, &(), &options).expect("walk");
 
@@ -151,10 +149,8 @@ fn a_subtree_walk_shows_the_policy_the_paths_the_whole_walk_would() {
 fn a_nested_subtree_spelled_loosely_walks_as_the_whole_walk_sees_it() {
     let dir = fixture();
     let seen = Seen::default();
-    let options = WalkOptions {
-        subtree: Some("/dir//./nested/".to_owned()),
-        ..WalkOptions::default()
-    };
+    let mut options = WalkOptions::default();
+    options.subtree = Some("/dir//./nested/".to_owned());
 
     let outcome = walk(dir.path(), &seen, &(), &options).expect("walk");
 
@@ -166,10 +162,8 @@ fn a_nested_subtree_spelled_loosely_walks_as_the_whole_walk_sees_it() {
 #[test]
 fn a_subtree_that_may_leave_the_root_fails_the_walk() {
     let dir = fixture();
-    let options = WalkOptions {
-        subtree: Some("dir/../dir".to_owned()),
-        ..WalkOptions::default()
-    };
+    let mut options = WalkOptions::default();
+    options.subtree = Some("dir/../dir".to_owned());
 
     let walked = walk(dir.path(), &Everything, &(), &options);
 
@@ -182,10 +176,8 @@ fn a_subtree_that_may_leave_the_root_fails_the_walk() {
 #[test]
 fn a_subtree_that_cannot_be_listed_fails_the_walk_naming_it() {
     let dir = fixture();
-    let options = WalkOptions {
-        subtree: Some("dir/missing".to_owned()),
-        ..WalkOptions::default()
-    };
+    let mut options = WalkOptions::default();
+    options.subtree = Some("dir/missing".to_owned());
 
     let walked = walk(dir.path(), &Everything, &(), &options);
 
@@ -514,10 +506,8 @@ type RenderedWithErrors = (Vec<String>, Vec<Option<PathBuf>>);
 
 fn with_and_without_listed_stats(root: &Path) -> [RenderedWithErrors; 2] {
     [false, true].map(|listed_stats| {
-        let options = WalkOptions {
-            listed_stats,
-            ..WalkOptions::default()
-        };
+        let mut options = WalkOptions::default();
+        options.listed_stats = listed_stats;
         let outcome = walk(root, &Facts, &(), &options).expect("walk");
         let errors = outcome
             .errors
@@ -578,10 +568,8 @@ fn a_walk_not_asked_for_listed_stats_hands_none() {
 #[test]
 fn a_listing_that_carries_no_stats_hands_none_when_asked() {
     let dir = fixture();
-    let options = WalkOptions {
-        listed_stats: true,
-        ..WalkOptions::default()
-    };
+    let mut options = WalkOptions::default();
+    options.listed_stats = true;
 
     let outcome = walk(dir.path(), &Stats, &(), &options).expect("walk");
 
@@ -600,10 +588,8 @@ fn listed_stats_give_each_regular_file_what_a_stat_of_it_gives() {
     let dir = fixture();
     std::os::unix::fs::symlink(dir.path().join("a.txt"), dir.path().join("to_file"))
         .expect("symlink to file");
-    let options = WalkOptions {
-        listed_stats: true,
-        ..WalkOptions::default()
-    };
+    let mut options = WalkOptions::default();
+    options.listed_stats = true;
 
     let outcome = walk(dir.path(), &Stats, &(), &options).expect("walk");
 
@@ -648,10 +634,8 @@ fn cancellation_truncates_the_walk_and_reports_it() {
         after: 2,
         seen: AtomicUsize::new(0),
     };
-    let options = WalkOptions {
-        cancel_token: Some(token),
-        ..Default::default()
-    };
+    let mut options = WalkOptions::default();
+    options.cancel_token = Some(token);
 
     let outcome = on_threads(1, || {
         walk(dir.path(), &policy, &(), &options).expect("walk")
@@ -678,10 +662,8 @@ fn a_token_cancelled_after_the_last_entry_leaves_a_complete_walk_reported_comple
         after: 6,
         seen: AtomicUsize::new(0),
     };
-    let options = WalkOptions {
-        cancel_token: Some(token.clone()),
-        ..Default::default()
-    };
+    let mut options = WalkOptions::default();
+    options.cancel_token = Some(token.clone());
 
     let outcome = on_threads(1, || {
         walk(dir.path(), &policy, &(), &options).expect("walk")
@@ -703,10 +685,8 @@ fn a_token_cancelled_up_front_records_nothing() {
     let dir = fixture();
     let token = CancelToken::new();
     token.cancel();
-    let options = WalkOptions {
-        cancel_token: Some(token),
-        ..Default::default()
-    };
+    let mut options = WalkOptions::default();
+    options.cancel_token = Some(token);
 
     let outcome = walk(dir.path(), &Everything, &(), &options).expect("walk");
 

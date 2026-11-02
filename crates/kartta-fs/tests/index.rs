@@ -585,7 +585,7 @@ fn a_build_outcome_hands_over_its_index_and_its_report_together() {
     let gitignore_that_is_a_directory = (".gitignore/", "");
     let dir = tree(&[gitignore_that_is_a_directory, ("main.rs", "code")]);
 
-    let BuildOutcome { index, errors } =
+    let BuildOutcome { index, errors, .. } =
         Index::build(dir.path(), &BuildOptions::default()).expect("build the index");
 
     assert!(index.entry("main.rs").is_some());

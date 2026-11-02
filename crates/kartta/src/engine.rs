@@ -45,6 +45,7 @@ pub(crate) struct Family {
 
 /// What one [`Engine::build`] produced: the engine, and the failures the build collected.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct EngineOutcome {
     /// The engine the build produced. Check [`EngineOutcome::errors`] before keeping it alone: a graph built from an
     /// incomplete walk looks exactly like one built from a complete walk.
@@ -88,6 +89,7 @@ pub struct EngineRefresh {
 /// How an [`Engine::refresh_paths`] came to refresh the whole tree: the paths it was named came to more parts than it
 /// walks apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Widened {
     /// The paths the call was named.
     pub named: usize,
@@ -222,7 +224,12 @@ impl Engine {
         walk: impl FnOnce(&dyn ContentVisitor) -> Result<(BuildOutcome, T), BuildError>,
     ) -> Result<(EngineOutcome, T), BuildError> {
         let extracting = Extracting::new(&languages);
-        let (BuildOutcome { index, mut errors }, walked) = walk(&extracting)?;
+        let (
+            BuildOutcome {
+                index, mut errors, ..
+            },
+            walked,
+        ) = walk(&extracting)?;
         let (extracted, mut file_counts) = extracting.into_extracted();
 
         let (families, family_of) = families(&languages);

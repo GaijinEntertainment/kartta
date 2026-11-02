@@ -313,16 +313,15 @@ impl Index {
             previous,
         };
         let policy = indexing(root, options, visitor, numbering)?.descending(descending);
-        let walk_options = WalkOptions {
-            cancel_token: cancel.cloned(),
-            listed_stats: policy.may_carry(),
-            ..WalkOptions::default()
-        };
+        let mut walk_options = WalkOptions::default();
+        walk_options.cancel_token = cancel.cloned();
+        walk_options.listed_stats = policy.may_carry();
 
         let WalkOutcome {
             tree,
             errors: walk_errors,
             cancelled,
+            ..
         } = on_pool(pool.as_deref(), || {
             walk(root, &policy, &DirState::default(), &walk_options)
         })?;
@@ -1480,6 +1479,7 @@ fn depth_first_below(
 /// The index is the part worth keeping; the errors are a report about this particular build, which a consumer surfaces
 /// or logs and then drops.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct BuildOutcome {
     /// The index the build produced. Check [`BuildOutcome::errors`] before keeping it alone: an index built from an
     /// incomplete walk looks exactly like one built from a complete walk.
