@@ -19,6 +19,11 @@
 //! floor left out. `WIRE.md`, beside this crate's manifest, is the reference of every method, field, default, error code
 //! and enumerated value.
 
+#[cfg(not(panic = "unwind"))]
+compile_error!(
+    "kartta.h promises that no panic crosses the C ABI, which holds only under `panic = \"unwind\"`"
+);
+
 mod abi;
 mod built;
 mod error;
