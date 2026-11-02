@@ -41,14 +41,14 @@ Two properties it commits to:
 - **Symlinks are never followed.** A symlink is reported as one and never descended, so the walk stays inside the tree
   it was given and cycle detection is unnecessary.
 
-A `CancelToken` ends a walk early, returning the partial tree and saying so through `cancelled`; stopping is a
-truncated answer, not an error. Likewise an unreadable subdirectory is collected into the result's error list rather
-than failing the walk.
+A `CancelToken` ends a walk early, returning the partial tree and saying so through `cancelled`, with `unvisited`
+counting the listed entries the cancel turned away; stopping is a truncated answer, not an error. Likewise an unreadable
+subdirectory is collected into the result's error list rather than failing the walk.
 
 There is deliberately no cap on entries recorded. Truncating a walk returns an arbitrary subset of the tree — which
 entries survive depends on scheduling — and a consumer cannot tell that from a complete tree without asking, so a
 resource guard becomes a source of quietly wrong answers. A bound worth having would fail the walk instead. Cancellation
-escapes the objection only because the caller who cancelled is the one discarding the result.
+escapes the objection only because the caller who cancelled knows the tree is cut, and by how much.
 
 The walk runs on the rayon pool it is called from, so a caller that does not own the machine — a container with a CPU
 quota, a process under a thread limit — bounds its parallelism by installing a pool of the size it may use around the
