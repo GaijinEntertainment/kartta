@@ -751,6 +751,8 @@ fn the_header_states_what_a_consumer_of_the_archive_relies_on() {
         "WIRE.md",
         "ignores the keys it does not know",
         "kartta_call blocks its thread",
+        "a thread the call starts, with 8 MiB of stack",
+        "stack needs about 2 KiB",
         "call the cancel method with {}",
         "then join every thread",
         "A string outlives the handle",

@@ -177,9 +177,9 @@ Also what `kartta_open` writes to its error out-parameter.
   that the cancel came too late to stop.
 - `build_failed`: The build stopped on a failure, which leaves no index.
 - `building`: A build is in flight; ask again once it finishes.
-- `internal`: The engine panicked, or an answer could not be encoded. The handle stays usable, though a refresh that
-  panicked partway leaves every call that reads the engine answering this code, naming `build`, until a build replaces
-  the engine. A `kartta_open` that answers it made no handle.
+- `internal`: The engine panicked, `kartta_call` could not start its thread, or an answer could not be encoded. The
+  handle stays usable, though a refresh that panicked partway leaves every call that reads the engine answering this
+  code, naming `build`, until a build replaces the engine. A `kartta_open` that answers it made no handle.
 - `invalid_glob`: A glob the params name does not compile, answered by the call that takes it.
 - `invalid_params`: Params the method does not take, the message naming what: JSON that is neither an object nor `null`,
   a field that is unknown, missing or of the wrong type, a value the method refuses, or a graph the build did not make.
