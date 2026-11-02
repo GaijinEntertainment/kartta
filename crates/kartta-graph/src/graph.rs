@@ -99,6 +99,17 @@ pub enum Nearness {
     Elsewhere,
 }
 
+impl Nearness {
+    /// The word for the nearness in an answer: `same_directory` or `elsewhere`.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::SameDirectory => "same_directory",
+            Self::Elsewhere => "elsewhere",
+        }
+    }
+}
+
 /// A definition a name selects, and how near it sits to the file the lookup asks from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
