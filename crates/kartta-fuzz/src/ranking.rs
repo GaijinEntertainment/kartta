@@ -129,21 +129,23 @@ impl Ranking {
         }
     }
 
-    /// Offers one candidate, and answers whether a later candidate can still enter the ranking.
+    /// Offers one candidate, and answers whether to offer the next.
     ///
-    /// Only an empty query ever answers `false`: everything matches it in input order, so once the limit is reached
-    /// the rest is turned away unscored.
+    /// Only an empty query ever answers `false`, for the first candidate past the limit: everything matches it in input
+    /// order, so the rest would be turned away unscored, and [`matched`](Self::matched) past the limit shows that one
+    /// was.
     pub fn offer(&mut self, position: usize, candidate: &str) -> bool {
         if self.terms.is_empty() {
             self.matched += 1;
-            if self.has_room() {
+            let room = self.has_room();
+            if room {
                 self.all.push(Ranked {
                     position,
                     score: 0,
                     tiebreak: 0,
                 });
             }
-            return self.has_room();
+            return room;
         }
 
         let Some(score) = self.score_terms(candidate) else {
