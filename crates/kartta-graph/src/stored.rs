@@ -412,6 +412,8 @@ pub(crate) struct StoredBinding {
 pub(crate) struct StoredAssertion {
     pub(crate) type_name: Str,
     pub(crate) interface: Str,
+    pub(crate) type_file: Option<Str>,
+    pub(crate) interface_file: Option<Str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

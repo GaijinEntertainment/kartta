@@ -17,9 +17,10 @@
 //! items apart. A `macro_rules!` keeps its bare name, because a macro is in scope by text order rather than by path,
 //! and only `#[macro_export]` exports one, at its crate's root path. A file's own module is named by its path, which no
 //! qualified name carries. `impl Trait for Type` adds `Trait` to the parents of the `Type` the file declares under that
-//! name or path. An impl's owner settles after the walk, and its members, the items nested in them, its `self`
-//! receivers and its trait pair follow it. `pub` exports an item, but `pub(self)` and `pub(in self)` do not; a trait's
-//! members take the trait's visibility and a variant its enum's.
+//! name or path, and of a `Type` it does not declare the file asserts that `Type` implements `Trait`, where its `use`s,
+//! a glob or a path can lead each name into the tree. An impl's owner settles after the walk, and its members, the
+//! items nested in them, its `self` receivers and its trait pair follow it. `pub` exports an item, but `pub(self)` and
+//! `pub(in self)` do not; a trait's members take the trait's visibility and a variant its enum's.
 //!
 //! An invocation of a `macro_rules!` the file defines before it, in its block or module or one around it, by its bare
 //! name, defines the items the first arm its tokens match names by a metavariable, `pub struct $name;` or

@@ -84,6 +84,19 @@ pub(super) fn impl_type_name(node: Node<'_>, source: &[u8]) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
+// constraint: a primitive and a type parameter of the impl itself, `impl<T> Tr for &T`, are no item a path reaches
+pub(super) fn targets_an_item(implementation: Node<'_>, source: &[u8]) -> bool {
+    let Some(base) = implementation.child_by_field_name("type").map(type_base) else {
+        return false;
+    };
+    let parameters = implementation.child_by_field_name("type_parameters");
+    base.kind() != "primitive_type"
+        && !(parameters.into_iter().flat_map(named_child_nodes))
+            .filter(|parameter| parameter.kind() == "type_parameter")
+            .filter_map(|parameter| parameter.child_by_field_name("name"))
+            .any(|name| name.utf8_text(source).ok() == base.utf8_text(source).ok())
+}
+
 // constraint: a generic type reduces to its base and a reference, pointer or array to its element, so `&[T]` names
 // `T` rather than carrying the wrapper syntax
 pub(super) fn type_base(node: Node<'_>) -> Node<'_> {

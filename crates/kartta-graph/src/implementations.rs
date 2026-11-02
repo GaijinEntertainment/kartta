@@ -7,7 +7,7 @@ use crate::graph::{
     Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_parent, last_segment,
 };
 use crate::resolve::Cascade;
-use crate::stored::{Parent, SymbolAt};
+use crate::stored::{Parent, StoredAssertion, SymbolAt};
 use crate::strings::Str;
 
 /// A type that names another as its parent, or names one of that type's implementors.
@@ -45,8 +45,9 @@ impl Graph {
     ///
     /// A parent is what a language records a type to implement, extend, embed or include: a base class, an
     /// interface, a trait, a mixed-in module; only a type, an enum or a namespace that records one is an implementor.
-    /// A compile-time assertion that a type implements an interface, as Go's `var _ I = T{}` in a file that does not
-    /// declare `T`, makes the interface a parent of the type it names, read from the asserting file.
+    /// A compile-time assertion that a type implements an interface, as Go's `var _ I = T{}` or Rust's `impl I for T`
+    /// in a file that does not declare `T`, makes the interface a parent of the type it names, read from the asserting
+    /// file, or from the file a Rust path reaches, and each name adds nothing where it reaches no one type.
     /// A name selects among classes, structs, interfaces, traits, namespaces and type aliases as [`Graph::definitions`]
     /// does: the type whose qualified name it is, else the type of that bare name, and where several share it, the one
     /// the most distinct types name as a direct parent, the first in path order on a tie; else, for a name with a
@@ -316,17 +317,55 @@ impl Types<'_> {
             if self.graph.listing_key(assertion.interface) != Some(asked.name) {
                 continue;
             }
-            let named = self.file_named_by(slot, assertion.interface, asked);
+            let named = self.asserted_interface(slot, assertion, asked);
             if named.is_empty() {
                 continue;
             }
-            let Some(implementor) = self.asserted_type(slot, assertion.type_name) else {
+            let written = (assertion.type_name, assertion.type_file);
+            let Some(implementor) = self.asserted_name(slot, written) else {
                 continue;
             };
             named
                 .into_iter()
                 .filter(|&ty| ty != implementor)
                 .for_each(|ty| found(ty, implementor));
+        }
+    }
+
+    // constraint: where a package is not a directory, a file's scope reaches one type of the name
+    fn asserted_interface(
+        &self,
+        slot: u32,
+        assertion: &StoredAssertion,
+        asked: Namesakes<'_>,
+    ) -> Vec<SymbolAt> {
+        let interface = assertion.interface;
+        if self.cascade.conventions.directory_packages {
+            return self.file_named_by(slot, interface, asked);
+        }
+        (self
+            .asserted_name(slot, (interface, assertion.interface_file))
+            .into_iter())
+        .filter(|at| asked.types.contains(at))
+        .collect()
+    }
+
+    // constraint: a name its file does not declare comes in through the one glob whose module's file declares it, as a
+    // file's own item shadows a glob's and two globs' names cannot be told apart
+    fn read_from(&self, slot: u32, file: Option<Str>, types: &[SymbolAt]) -> u32 {
+        if let Some(file) = file {
+            return self.graph.slot_of(file).unwrap_or(slot);
+        }
+        let declared_in = |slot: &u32| types.iter().any(|at| at.file == *slot);
+        if declared_in(&slot) {
+            return slot;
+        }
+        let mut globbed = (self.cascade.dot_imported_dirs(slot).into_iter())
+            .filter_map(|target| self.graph.slot_of(target))
+            .filter(declared_in);
+        match (globbed.next(), globbed.next()) {
+            (Some(module), None) => module,
+            _ => slot,
         }
     }
 
@@ -432,23 +471,30 @@ impl Types<'_> {
         if self.cascade.conventions.directory_packages {
             self.in_packages(file, written, asked)
         } else {
-            self.nearest_of_its_name(file, Spelling::Written(written), asked)
+            self.nearest_of_its_name(file, Spelling::Asserted(written), asked)
         }
     }
 
     // constraint: an assertion names its implementing type as the file writes it: a type the file declares is the one
     // a bare name means, and any other name that selects several types, as an external test package shadowing its own
-    // package's type does, names none
-    fn asserted_type(&self, file: u32, type_name: Str) -> Option<SymbolAt> {
-        let (name, types) = self.of_last_segment(type_name)?;
-        if name == type_name
+    // package's type does, names none; a member, as an associated type, is no such name, and a type a name alone
+    // reaches lies within what the file's package is built with
+    fn asserted_name(&self, slot: u32, (written, file): (Str, Option<Str>)) -> Option<SymbolAt> {
+        let (name, mut types) = self.of_last_segment(written)?;
+        let gate = self.cascade.gate(slot);
+        types.retain(|&at| {
+            self.graph.sym(at).owner.is_none()
+                && (gate.as_ref()).is_none_or(|gate| gate.admits_at(self.graph, at))
+        });
+        let file = self.read_from(slot, file, &types);
+        if name == written
             && let Some(&own) = types.iter().find(|at| at.file == file)
         {
             return Some(own);
         }
         match self.file_named_by(
             file,
-            type_name,
+            written,
             Namesakes {
                 name,
                 types: &types,
@@ -516,7 +562,8 @@ impl Types<'_> {
         spelling: Spelling<'_>,
         asked: Namesakes<'_>,
     ) -> Vec<SymbolAt> {
-        let spelled = |at: SymbolAt| self.is_type_at(at) && self.is_spelled(at, spelling);
+        let spelled =
+            |at: SymbolAt| self.is_of_spelled_kind(at, spelling) && self.is_spelled(at, spelling);
         let mut nearest: Vec<SymbolAt> = asked
             .types
             .iter()
@@ -539,6 +586,13 @@ impl Types<'_> {
         nearest
     }
 
+    fn is_of_spelled_kind(&self, at: SymbolAt, spelling: Spelling<'_>) -> bool {
+        match spelling {
+            Spelling::Asserted(_) => self.graph.sym(at).kind.is_type(),
+            Spelling::FromRoot(_) | Spelling::Written(_) => self.is_type_at(at),
+        }
+    }
+
     fn is_spelled(&self, at: SymbolAt, spelling: Spelling<'_>) -> bool {
         let qualified = self
             .graph
@@ -546,7 +600,7 @@ impl Types<'_> {
             .resolve(self.graph.sym(at).qualified_name);
         match spelling {
             Spelling::FromRoot(written) => qualified == written,
-            Spelling::Written(written) => {
+            Spelling::Asserted(written) | Spelling::Written(written) => {
                 !written.contains(QUALIFIER_SEPARATORS)
                     || qualified == written
                     || qualified
@@ -580,6 +634,8 @@ struct Selected {
 enum Spelling<'w> {
     FromRoot(&'w str),
     Written(&'w str),
+    // constraint: an assertion's implementing type can be an enum, which no parent names
+    Asserted(&'w str),
 }
 
 fn lookup_depth(qualified: &str, enclosing: &str, written: &str, separator: &str) -> Option<usize> {

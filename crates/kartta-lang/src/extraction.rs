@@ -365,13 +365,18 @@ pub struct ImportBinding {
 /// The graph reads both names from the asserting file by the rules it reads a parent the file writes by: where a
 /// package is a directory, a bare name in the file's own package and a qualified one in the package its import binds.
 /// A bare type name the asserting file declares names that type. Any other type name that reaches no type, or several,
-/// adds nothing.
+/// adds nothing. A name with a file beside it, which only a resolver sets, is read from that file instead, as a Rust
+/// path that reaches a module is.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImplementsAssertion {
     /// The implementing type as written: `T` or `pkg.T`.
     pub type_name: String,
     /// The interface as written: `I` or `pkg.I`.
     pub interface: String,
+    /// The root-relative path of the file `type_name` is read from, where it is not the asserting file.
+    pub type_file: Option<String>,
+    /// The root-relative path of the file `interface` is read from, where it is not the asserting file.
+    pub interface_file: Option<String>,
 }
 
 /// A name a module re-exports from another, as the bytes write it: `export { Foo } from './foo'`.
