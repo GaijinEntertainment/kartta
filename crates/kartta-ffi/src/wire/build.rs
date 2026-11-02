@@ -235,6 +235,8 @@ pub(crate) struct StatsAnswer<'e> {
     graphs: Vec<GraphStats<'e>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content_index: Option<ContentIndexView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_index_failure: Option<&'e str>,
     errors: &'e StoredErrors,
     watch: WatchView<'e>,
 }
@@ -306,6 +308,7 @@ impl<'e> StatsAnswer<'e> {
                     trigrams: index.trigrams(),
                     bytes: index.bytes(),
                 }),
+            content_index_failure: engine.index().content_index_failure(),
             errors,
             watch: WatchView::new(watch),
         }

@@ -1752,6 +1752,44 @@ fn a_content_index_counts_a_file_it_could_not_read_until_a_refresh_reads_it() {
 }
 
 #[test]
+fn a_content_index_that_cannot_be_kept_leaves_the_graphs_and_says_why_through_a_refresh() {
+    let tree = tree();
+    let missing = tree.path().join("no such directory");
+    let kartta = open(tree.path());
+
+    let built = ok(
+        &kartta,
+        "build",
+        &json!({
+            "languages": ["go"],
+            "stamps": true,
+            "content_index": { "storage": "file", "dir": missing },
+        }),
+    );
+
+    assert_eq!(built["graphs"][0]["symbols"], 3);
+    assert_eq!(built.get("content_index"), None, "{built}");
+    let failure = built["content_index_failure"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no reason: {built}"));
+    assert!(failure.contains("no such directory"), "{failure}");
+    assert_eq!(built["errors"]["total"], 1);
+    assert_eq!(built["errors"]["listed"][0]["kind"], "content_index");
+    assert_eq!(built["errors"]["listed"][0]["message"], failure);
+    assert_eq!(ok(&kartta, "stats", &Value::Null), built);
+    let found = ok(&kartta, "grep", &json!({ "patterns": ["helper"] }));
+    assert_eq!(found["files"].as_array().map(Vec::len), Some(1), "{found}");
+
+    let refreshed = ok(&kartta, "refresh", &Value::Null);
+    let stats = ok(&kartta, "stats", &Value::Null);
+
+    assert_eq!(refreshed["errors"]["total"], 0, "{refreshed}");
+    assert_eq!(stats["errors"]["total"], 0, "{stats}");
+    assert_eq!(stats["content_index_failure"], failure);
+    assert_eq!(stats.get("content_index"), None, "{stats}");
+}
+
+#[test]
 fn a_build_answers_the_threads_it_named_and_the_ambient_pool_s_when_it_named_none() {
     let tree = tree();
     let kartta = open(tree.path());

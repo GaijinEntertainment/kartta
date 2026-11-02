@@ -123,6 +123,21 @@ test('a query before any build rejects with not_built', async () => {
 	expect(await code(kartta.stats())).toBe('not_built');
 });
 
+test('a build keeps the graphs of a content index it cannot store and says why', async () => {
+	const root = tree(1);
+	const kartta = opened(root);
+
+	const stats = await kartta.build({
+		languages: ['go'],
+		content_index: {storage: 'file', dir: path.join(root, 'gone')},
+	});
+
+	expect(stats.content_index).toBeUndefined();
+	expect(stats.content_index_failure).toContain('gone');
+	expect(stats.graphs).toHaveLength(1);
+	expect(stats.errors.listed.map((failure) => failure.kind)).toStrictEqual(['content_index']);
+});
+
 test('a method the library does not answer rejects with unknown_method', async () => {
 	const kartta = open();
 

@@ -427,6 +427,8 @@ How a site touches a symbol. A call, and a use as a type, read it.
 - `languages` (array of [`LanguageFiles`](#languagefiles), always): What the build made of each language's files.
 - `graphs` (array of [`GraphStats`](#graphstats), always): What each family's graph holds.
 - `content_index` ([`ContentIndexView`](#contentindexview), optional): Absent when the build made no content index.
+- `content_index_failure` (string, optional): Why the build made no content index though it was asked for one; a build
+  tries again, and a refresh does not. Absent otherwise.
 - `errors` ([`Listed`](#listed), always): The failures the build collected rather than stopped on.
 - `watch` ([`WatchView`](#watchview), always): Whether the index follows its tree.
 
