@@ -27,8 +27,12 @@
           },
           "local_calls": 0,
           "name": "go",
+          "reads": 4,
           "symbols": 50,
-          "uses": 8
+          "types": 4,
+          "updates": 0,
+          "uses": 8,
+          "writes": 0
         },
         {
           "calls": 2,
@@ -43,8 +47,12 @@
           },
           "local_calls": 0,
           "name": "cpp",
+          "reads": 0,
           "symbols": 10,
-          "uses": 0
+          "types": 0,
+          "updates": 0,
+          "uses": 0,
+          "writes": 0
         },
         {
           "calls": 0,
@@ -58,8 +66,12 @@
           },
           "local_calls": 0,
           "name": "rust",
+          "reads": 0,
           "symbols": 3,
-          "uses": 0
+          "types": 0,
+          "updates": 0,
+          "uses": 0,
+          "writes": 0
         }
       ],
       "languages": [

@@ -508,7 +508,11 @@ The fields of [`Stats`](#stats), and:
   graph holds none of left out.
 - `calls` (integer, always): The calls written by name inside a definition.
 - `local_calls` (integer, always): The calls of a definition local to the caller's body.
-- `uses` (integer, always): The uses of a name outside a call inside a definition.
+- `uses` (integer, always): The uses of a name outside a call inside a definition: the four counts below together.
+- `reads` (integer, always): The uses that read the value their name binds.
+- `writes` (integer, always): The uses that assign the value without reading it.
+- `updates` (integer, always): The uses that read and assign the value.
+- `types` (integer, always): The uses that name it as a type.
 - `includes` (integer, always): The files the held files include, once for each file and each file it includes.
 
 ### ContentIndexView

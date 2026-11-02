@@ -179,6 +179,10 @@ type GraphStats struct {
 	Calls               int            `json:"calls"`
 	LocalCalls          int            `json:"local_calls"`
 	Uses                int            `json:"uses"`
+	Reads               int            `json:"reads"`
+	Writes              int            `json:"writes"`
+	Updates             int            `json:"updates"`
+	Types               int            `json:"types"`
 	Includes            int            `json:"includes"`
 }
 
