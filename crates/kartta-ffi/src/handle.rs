@@ -181,7 +181,7 @@ impl Kartta {
         let mut builds = lock(&self.builds);
         builds.leave(ticket);
         let (shared, follower) = match outcome {
-            Ok(Ok(_) | Err(BuildError::Cancelled)) if token.is_cancelled() => Err(Error::new(
+            Ok(Ok(_) | Err(BuildError::Stopped(_))) if token.is_cancelled() => Err(Error::new(
                 ErrorCode::BuildCancelled,
                 "a cancel stopped the build; the handle holds no index until a build finishes",
             )),

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use foldhash::fast::FixedState;
-use kartta_fs::{BuildError, ContentId, Index, RefreshOutcome};
+use kartta_fs::{ContentId, Index, RefreshOutcome};
 use kartta_lang::Language;
 
 use crate::engine::{EngineRefresh, Family};
@@ -144,11 +144,7 @@ impl Following {
     /// handed over, and resolves again from a second read every file whose questions a change answers differently,
     /// every file of a family whose resolver now derives another configuration among them. A family's kept resolver
     /// resolves them unless the refresh reached what it read as it was built.
-    pub(crate) fn refresh(
-        &mut self,
-        engine: Refreshing<'_>,
-        walked: Walked,
-    ) -> Result<EngineRefresh, BuildError> {
+    pub(crate) fn refresh(&mut self, engine: Refreshing<'_>, walked: Walked) -> EngineRefresh {
         let Walked {
             outcome,
             extracted,
@@ -181,7 +177,7 @@ impl Following {
                 .remove(&followed.path);
             file_counts[followed.language].held -= 1;
         }
-        let inserted = resolving.insert_all(plan.work, (&self.resolvers, &repository), families)?;
+        let inserted = resolving.insert_all(plan.work, (&self.resolvers, &repository), families);
         self.tables = repository.into_tables();
         let reread: HashSet<ContentId, FixedState> = plan.reread_ids.iter().copied().collect();
         let resolved_again = inserted
@@ -208,7 +204,7 @@ impl Following {
             &inserted.held,
         );
 
-        Ok(EngineRefresh {
+        EngineRefresh {
             index: outcome,
             errors: inserted.errors,
             extracted,
@@ -221,7 +217,7 @@ impl Following {
                 .collect(),
             rebuilt: false,
             widened: None,
-        })
+        }
     }
 
     /// The work of a refresh, with the resolver of each family it reaches built again: of a family whose kept resolver
