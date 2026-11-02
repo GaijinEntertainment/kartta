@@ -2,10 +2,10 @@
 
 use kartta_graph::{Candidate, Graph, Limits, Selector, SiteQuery, Walk};
 use kartta_lang::{
-    Access, BareReceivers, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction,
+    BareReceivers, CallRef, Callable, CallableRole, CallsOnValues, Conventions, Extraction,
     FILE_SCOPE, ImportBinding, IncludeReach, IncludeRef, IncludedRuntimeMembers, InheritedMembers,
-    LocalCall, MemberCalls, NamespaceCalls, OwnMembers, ReExport, Receiver, Symbol, SymbolFlags,
-    SymbolId, SymbolKind, UnlistedReceivers, UntypedOwners, UseRef,
+    LocalCall, MemberCalls, NamespaceCalls, OwnMembers, RawReExport, ReExport, Receiver, Symbol,
+    SymbolFlags, SymbolId, SymbolKind, UnlistedReceivers, UntypedOwners, UseRef,
 };
 
 use crate::{call, function, graph, graph_of};
@@ -23,10 +23,9 @@ const fn exported(mut symbol: Symbol) -> Symbol {
 }
 
 fn member_call(from: u32, receiver: &str, callee: &str, line: u32) -> CallRef {
-    CallRef {
-        receiver: Some(receiver.to_owned()),
-        ..call(from, callee, line)
-    }
+    let mut call = call(from, callee, line);
+    call.receiver = Some(receiver.to_owned());
+    call
 }
 
 fn file(path: &str, symbols: Vec<Symbol>, calls: Vec<CallRef>) -> Extraction {
@@ -90,11 +89,7 @@ fn a_local_call_binds_the_local_its_scope_declares() {
         Vec::new(),
     );
     extraction.local_symbols = vec![SymbolId(1)];
-    extraction.local_calls = vec![LocalCall {
-        site_of: SymbolId(0),
-        local: SymbolId(1),
-        line: 3,
-    }];
+    extraction.local_calls = vec![LocalCall::new(SymbolId(0), SymbolId(1), 3)];
     let elsewhere = file("b.go", vec![function("helper", 1)], Vec::new());
 
     let graph = graph(&[extraction, elsewhere]);
@@ -113,11 +108,7 @@ fn a_local_that_is_no_call_target_binds_no_call() {
         Vec::new(),
     );
     extraction.local_symbols = vec![SymbolId(1)];
-    extraction.local_calls = vec![LocalCall {
-        site_of: SymbolId(0),
-        local: SymbolId(1),
-        line: 3,
-    }];
+    extraction.local_calls = vec![LocalCall::new(SymbolId(0), SymbolId(1), 3)];
 
     let graph = graph_of(cpp(), &[extraction]);
 
@@ -287,11 +278,11 @@ fn importing(
 ) -> Extraction {
     let mut extraction = file(path, vec![function("main", 1)], calls);
     extraction.package = Some("main".to_owned());
-    extraction.bindings = vec![ImportBinding {
-        alias: alias.map(str::to_owned),
-        target_dir: target_dir.map(str::to_owned),
-        last_segment: "lib".to_owned(),
-    }];
+    extraction.bindings = vec![ImportBinding::new(
+        alias.map(str::to_owned),
+        target_dir.map(str::to_owned),
+        "lib".to_owned(),
+    )];
     extraction
 }
 
@@ -380,11 +371,11 @@ fn a_bare_call_named_like_a_package_import_binds_no_export_of_the_package() {
 
 fn importing_module(path: &str, name: &str, module: &str, calls: Vec<CallRef>) -> Extraction {
     let mut extraction = file(path, vec![function("main", 1)], calls);
-    extraction.bindings = vec![ImportBinding {
-        alias: None,
-        target_dir: Some(module.to_owned()),
-        last_segment: name.to_owned(),
-    }];
+    extraction.bindings = vec![ImportBinding::new(
+        None,
+        Some(module.to_owned()),
+        name.to_owned(),
+    )];
     extraction
 }
 
@@ -756,11 +747,8 @@ fn a_callee_its_scope_qualifies_binds_the_member_of_the_class_that_scope_names()
 }
 
 fn box_copy(dir: &str) -> [Extraction; 2] {
-    let callable = |symbol, role| Callable {
-        symbol: SymbolId(symbol),
-        key: "ns::Box::fill()".to_owned(),
-        role,
-    };
+    let callable =
+        |symbol, role| Callable::new(SymbolId(symbol), "ns::Box::fill()".to_owned(), role);
     let mut header = file(
         &format!("{dir}/box.h"),
         vec![
@@ -1134,9 +1122,7 @@ fn locks_and_cache() -> [Extraction; 2] {
         ],
         Vec::new(),
     );
-    cache.includes = vec![IncludeRef {
-        target: "lock.h".to_owned(),
-    }];
+    cache.includes = vec![IncludeRef::new("lock.h".to_owned())];
     [file("lock.h", locks, Vec::new()), cache]
 }
 
@@ -1243,9 +1229,7 @@ fn a_cpp_call_on_a_field_of_a_base_binds_the_member_of_the_class_it_is_declared_
         ],
         Vec::new(),
     );
-    guard.includes = vec![IncludeRef {
-        target: "cache.h".to_owned(),
-    }];
+    guard.includes = vec![IncludeRef::new("cache.h".to_owned())];
     let root = file(
         "root.h",
         vec![
@@ -1269,9 +1253,7 @@ fn a_cpp_call_on_a_field_of_a_base_binds_the_member_of_the_class_it_is_declared_
     ];
     let [locks, mut cache] = locks_and_cache();
     cache.symbols[0].parents = vec!["Root".to_owned()];
-    cache.includes.push(IncludeRef {
-        target: "root.h".to_owned(),
-    });
+    cache.includes.push(IncludeRef::new("root.h".to_owned()));
 
     let graph = graph_of(cpp(), &[locks, root, cache, guard, source]);
 
@@ -1302,9 +1284,7 @@ fn a_cpp_call_through_a_class_template_field_s_arrow_binds_the_member_of_the_cla
         ],
         Vec::new(),
     );
-    holder.includes = vec![IncludeRef {
-        target: "lock.h".to_owned(),
-    }];
+    holder.includes = vec![IncludeRef::new("lock.h".to_owned())];
     let mut source = including(
         "holder.cpp",
         &["holder.h"],
@@ -1406,9 +1386,7 @@ fn a_cpp_call_on_fields_of_one_template_binds_its_member_whatever_their_elements
             vec![class_in("", "Holder", 1, 3), field_of_tab(2, element)],
             Vec::new(),
         );
-        holder.includes = vec![IncludeRef {
-            target: "lock.h".to_owned(),
-        }];
+        holder.includes = vec![IncludeRef::new("lock.h".to_owned())];
         holder
     };
     let tab = file(
@@ -1585,9 +1563,9 @@ fn flushing_classes() -> Extraction {
             member(class, "Close", SymbolKind::Method, line + 1),
             member(class, "Stop", SymbolKind::Method, line + 3),
         ]);
-        calls.extend(this_and_bare(class, line).map(|call| CallRef {
-            site_of: SymbolId(from + 1 + call.site_of.0),
-            ..call
+        calls.extend(this_and_bare(class, line).map(|mut call| {
+            call.site_of = SymbolId(from + 1 + call.site_of.0);
+            call
         }));
     }
     let own = u32::try_from(symbols.len()).expect("a handful of symbols");
@@ -2065,11 +2043,11 @@ fn a_dot_import_binds_no_namespace_where_the_language_binds_none() {
 #[test]
 fn a_dot_import_binds_before_the_package_of_the_caller_s_directory() {
     let mut external_test = package("app/app_test.go", "app_test", vec![function("TestRun", 1)]);
-    external_test.bindings = vec![ImportBinding {
-        alias: Some(".".to_owned()),
-        target_dir: Some("lib".to_owned()),
-        last_segment: "lib".to_owned(),
-    }];
+    external_test.bindings = vec![ImportBinding::new(
+        Some(".".to_owned()),
+        Some("lib".to_owned()),
+        "lib".to_owned(),
+    )];
     external_test.calls = vec![call(0, "Helper", 2)];
     let graph = graph_of(
         go(),
@@ -2095,9 +2073,7 @@ fn including(path: &str, targets: &[&str], calls: Vec<CallRef>) -> Extraction {
     let mut extraction = file(path, vec![function("run", 1)], calls);
     extraction.includes = targets
         .iter()
-        .map(|target| IncludeRef {
-            target: (*target).to_owned(),
-        })
+        .map(|target| IncludeRef::new((*target).to_owned()))
         .collect();
     extraction
 }
@@ -2236,18 +2212,18 @@ fn a_member_call_binds_the_one_member_whose_declaration_its_file_s_includes_reac
         ],
         Vec::new(),
     );
-    class_header.callables = vec![Callable {
-        symbol: SymbolId(1),
-        key: "Widget::draw()".to_owned(),
-        role: CallableRole::Declaration,
-    }];
+    class_header.callables = vec![Callable::new(
+        SymbolId(1),
+        "Widget::draw()".to_owned(),
+        CallableRole::Declaration,
+    )];
     let mut source = including("src/widget.cpp", &["inc/widget.h"], Vec::new());
     source.symbols = vec![member("Widget", "draw", SymbolKind::Method, 3)];
-    source.callables = vec![Callable {
-        symbol: SymbolId(0),
-        key: "Widget::draw()".to_owned(),
-        role: CallableRole::Definition,
-    }];
+    source.callables = vec![Callable::new(
+        SymbolId(0),
+        "Widget::draw()".to_owned(),
+        CallableRole::Definition,
+    )];
     let caller = including(
         "app/main.cpp",
         &["inc/all.h"],
@@ -2293,9 +2269,7 @@ fn header(path: &str, symbols: Vec<Symbol>, includes: &[&str]) -> Extraction {
     let mut extraction = file(path, symbols, Vec::new());
     extraction.includes = includes
         .iter()
-        .map(|target| IncludeRef {
-            target: (*target).to_owned(),
-        })
+        .map(|target| IncludeRef::new((*target).to_owned()))
         .collect();
     extraction
 }
@@ -2425,12 +2399,7 @@ fn two_files_included_further_in_that_define_the_name_leave_the_call_to_later_ti
 #[test]
 fn a_re_export_chain_binds_the_renamed_definition() {
     let mut barrel = file("ui/index.ts", Vec::new(), Vec::new());
-    barrel.re_exports = vec![ReExport {
-        local_name: "Button".to_owned(),
-        source_name: "BaseButton".to_owned(),
-        source_path: "./button".to_owned(),
-        source_file: Some("ui/button.ts".to_owned()),
-    }];
+    barrel.re_exports = vec![re_export("Button", "BaseButton", "ui/button.ts")];
     let graph = graph(&[
         including("app/main.ts", &["ui/index.ts"], vec![call(0, "Button", 2)]),
         barrel,
@@ -2456,12 +2425,13 @@ fn a_caller_reaches_its_callee_through_every_rename_of_a_re_export_chain() {
 }
 
 fn re_export(local_name: &str, source_name: &str, source_file: &str) -> ReExport {
-    ReExport {
-        local_name: local_name.to_owned(),
-        source_name: source_name.to_owned(),
-        source_path: String::new(),
-        source_file: Some(source_file.to_owned()),
-    }
+    let mut re_export = ReExport::from(RawReExport::new(
+        local_name.to_owned(),
+        source_name.to_owned(),
+        String::new(),
+    ));
+    re_export.source_file = Some(source_file.to_owned());
+    re_export
 }
 
 fn barrel(path: &str, re_exports: Vec<ReExport>) -> Extraction {
@@ -3749,9 +3719,7 @@ fn a_runtime_method_s_call_binds_an_included_member_its_receiver_spells_or_its_c
             vec![caller, panel],
             vec![member_call(0, receiver, "setValue", 3)],
         );
-        options.includes = vec![IncludeRef {
-            target: "ui/settings.nut".to_owned(),
-        }];
+        options.includes = vec![IncludeRef::new("ui/settings.nut".to_owned())];
         let graph = graph_of(
             conventions,
             &[
@@ -3970,9 +3938,10 @@ fn an_attribute_write_on_a_value_binds_by_name_only_as_a_guess() {
 fn a_method_call_of_a_library_method_on_a_value_binds_the_one_method_of_its_name_only_as_a_guess() {
     let mut conventions = Conventions::default();
     conventions.library_methods = &["start"];
-    let method = |receiver: &str, callee: &str| CallRef {
-        calls_a_method: true,
-        ..member_call(0, receiver, callee, 2)
+    let method = |receiver: &str, callee: &str| {
+        let mut call = member_call(0, receiver, callee, 2);
+        call.calls_a_method = true;
+        call
     };
     let calling = |call: CallRef| {
         let watcher = vec![
@@ -4251,18 +4220,18 @@ fn a_bare_call_inside_a_member_reaches_a_member_of_a_base_the_lookup_finds() {
 #[test]
 fn a_declaration_and_its_linked_definition_are_one_callable() {
     let mut header = file("w.h", vec![function("draw", 1)], Vec::new());
-    header.callables = vec![Callable {
-        symbol: SymbolId(0),
-        key: "draw()".to_owned(),
-        role: CallableRole::Declaration,
-    }];
+    header.callables = vec![Callable::new(
+        SymbolId(0),
+        "draw()".to_owned(),
+        CallableRole::Declaration,
+    )];
     let mut source = including("w.cpp", &["w.h"], Vec::new());
     source.symbols = vec![function("draw", 3)];
-    source.callables = vec![Callable {
-        symbol: SymbolId(0),
-        key: "draw()".to_owned(),
-        role: CallableRole::Definition,
-    }];
+    source.callables = vec![Callable::new(
+        SymbolId(0),
+        "draw()".to_owned(),
+        CallableRole::Definition,
+    )];
     let caller = including("main.cpp", &["w.h"], vec![call(0, "draw", 2)]);
 
     let graph = graph_of(cpp(), &[header, source, caller]);
@@ -4657,15 +4626,14 @@ fn candidate_files<'g>(candidates: &[Candidate<'g>]) -> Vec<(&'g str, usize)> {
 }
 
 fn using(name: &str, qualifier: Option<&str>) -> UseRef {
-    UseRef {
-        site_of: SymbolId(0),
-        name: name.to_owned(),
-        receiver: qualifier.map_or(Receiver::Bare, |qualifier| {
-            Receiver::Qualifier(qualifier.to_owned())
-        }),
-        access: Access::Read,
-        line: 3,
-    }
+    let receiver = qualifier.map_or(Receiver::Bare, |qualifier| {
+        Receiver::Qualifier(qualifier.to_owned())
+    });
+    UseRef::new(SymbolId(0), name.to_owned(), receiver, 3)
+}
+
+fn bare_use(site_of: SymbolId, name: &str, line: u32) -> UseRef {
+    UseRef::new(site_of, name.to_owned(), Receiver::Bare, line)
 }
 
 #[test]
@@ -4685,10 +4653,7 @@ fn references_bind_through_imports_the_file_and_the_package() {
             function("load", 5),
         ],
     );
-    same_file.uses = vec![UseRef {
-        site_of: SymbolId(1),
-        ..using("Config", None)
-    }];
+    same_file.uses = vec![bare_use(SymbolId(1), "Config", 3)];
     let mut same_package = package("pkg/lib/other.go", "lib", vec![function("other", 1)]);
     same_package.uses = vec![using("Config", None)];
 
@@ -4764,15 +4729,8 @@ fn references_select_the_symbol_with_the_most_calls_and_uses_together() {
         Vec::new(),
     );
     used.uses = vec![
-        UseRef {
-            site_of: SymbolId(1),
-            ..using("parse", None)
-        },
-        UseRef {
-            site_of: SymbolId(1),
-            line: 6,
-            ..using("parse", None)
-        },
+        bare_use(SymbolId(1), "parse", 3),
+        bare_use(SymbolId(1), "parse", 6),
     ];
     let graph = graph(&[
         file(
@@ -4806,11 +4764,7 @@ fn references_select_among_every_symbol_a_use_can_name_where_values_are_no_call_
     );
     constant.uses = [6, 7, 8]
         .into_iter()
-        .map(|line| UseRef {
-            site_of: SymbolId(1),
-            line,
-            ..using("limit", None)
-        })
+        .map(|line| bare_use(SymbolId(1), "limit", line))
         .collect();
     let graph = graph_of(
         cpp(),
@@ -4890,10 +4844,7 @@ fn removing_a_file_takes_its_calls_and_its_callees_out_of_every_answer() {
 fn a_file_inserted_again_answers_with_its_new_uses() {
     let using_file = |line: u32| {
         let mut using_file = file("a.go", vec![function("run", 1)], Vec::new());
-        using_file.uses = vec![UseRef {
-            line,
-            ..using("Limit", None)
-        }];
+        using_file.uses = vec![bare_use(SymbolId(0), "Limit", line)];
         using_file.package = Some("p".to_owned());
         using_file
     };
@@ -5050,18 +5001,18 @@ fn a_walk_over_callees_counts_what_its_floor_and_its_cap_left_out() {
 #[test]
 fn a_call_of_a_declaration_reaches_the_definition_it_links_to() {
     let mut header = file("w.h", vec![function("draw", 1)], Vec::new());
-    header.callables = vec![Callable {
-        symbol: SymbolId(0),
-        key: "draw()".to_owned(),
-        role: CallableRole::Declaration,
-    }];
+    header.callables = vec![Callable::new(
+        SymbolId(0),
+        "draw()".to_owned(),
+        CallableRole::Declaration,
+    )];
     let mut source = including("w.cpp", &["w.h"], Vec::new());
     source.symbols = vec![function("draw", 3)];
-    source.callables = vec![Callable {
-        symbol: SymbolId(0),
-        key: "draw()".to_owned(),
-        role: CallableRole::Definition,
-    }];
+    source.callables = vec![Callable::new(
+        SymbolId(0),
+        "draw()".to_owned(),
+        CallableRole::Definition,
+    )];
     let caller = including("main.cpp", &["w.h"], vec![call(0, "draw", 2)]);
 
     let graph = graph_of(cpp(), &[header, source, caller]);
@@ -5076,11 +5027,7 @@ fn with_callables(
 ) -> Extraction {
     extraction.callables = keys
         .iter()
-        .map(|&(symbol, key)| Callable {
-            symbol: SymbolId(symbol),
-            key: key.to_owned(),
-            role,
-        })
+        .map(|&(symbol, key)| Callable::new(SymbolId(symbol), key.to_owned(), role))
         .collect();
     extraction
 }
@@ -5099,9 +5046,7 @@ fn inline_header_tree(included: &[&str], elsewhere: &[&str]) -> Vec<Extraction> 
     );
     class_header.includes = included
         .iter()
-        .map(|&target| IncludeRef {
-            target: target.to_owned(),
-        })
+        .map(|&target| IncludeRef::new(target.to_owned()))
         .collect();
     let keys = [
         (1, "net::uri::parse(const char *)"),
@@ -5209,9 +5154,7 @@ fn test_stub_tree(product_includes: bool) -> Vec<Extraction> {
         &[(0, "native(const void *)")],
     );
     if product_includes {
-        product.includes = vec![IncludeRef {
-            target: "mem/helper.h".to_owned(),
-        }];
+        product.includes = vec![IncludeRef::new("mem/helper.h".to_owned())];
     }
     let mut stub = with_callables(
         file(
@@ -5222,9 +5165,7 @@ fn test_stub_tree(product_includes: bool) -> Vec<Extraction> {
         CallableRole::Definition,
         &[(0, "native(const void *)")],
     );
-    stub.includes = vec![IncludeRef {
-        target: "mem/helper.h".to_owned(),
-    }];
+    stub.includes = vec![IncludeRef::new("mem/helper.h".to_owned())];
     vec![header, product, stub]
 }
 
@@ -5594,9 +5535,9 @@ fn callers_list_the_files_whose_top_level_names_a_function_by_how_each_sees_it()
             call(FILE_SCOPE.0, "shared", 10),
         ],
     );
-    script.includes.push(IncludeRef {
-        target: "lib/common.sh".to_owned(),
-    });
+    script
+        .includes
+        .push(IncludeRef::new("lib/common.sh".to_owned()));
     let graph = graph(&[
         script,
         file("lib/common.sh", vec![function("shared", 1)], Vec::new()),
@@ -5645,9 +5586,9 @@ fn callers_list_the_files_whose_top_level_names_a_function_by_how_each_sees_it()
 fn callers_list_the_files_whose_top_level_names_a_function_in_path_order() {
     let script = |path: &str| {
         let mut script = file(path, Vec::new(), vec![call(FILE_SCOPE.0, "shared", 3)]);
-        script.includes.push(IncludeRef {
-            target: "lib/common.sh".to_owned(),
-        });
+        script
+            .includes
+            .push(IncludeRef::new("lib/common.sh".to_owned()));
         script
     };
     let graph = graph(&[
@@ -5700,14 +5641,10 @@ fn callers_list_a_package_file_whose_top_level_names_a_function_at_the_package_s
 #[test]
 fn callers_list_a_file_whose_top_level_passes_a_function_as_a_value() {
     let mut script = file("bin/run.sh", Vec::new(), Vec::new());
-    script.uses = vec![UseRef {
-        site_of: FILE_SCOPE,
-        line: 4,
-        ..using("shared", None)
-    }];
-    script.includes.push(IncludeRef {
-        target: "lib/common.sh".to_owned(),
-    });
+    script.uses = vec![bare_use(FILE_SCOPE, "shared", 4)];
+    script
+        .includes
+        .push(IncludeRef::new("lib/common.sh".to_owned()));
     let graph = graph(&[
         script,
         file("lib/common.sh", vec![function("shared", 1)], Vec::new()),
@@ -5734,11 +5671,7 @@ fn callers_of_a_field_list_no_file_whose_top_level_names_it() {
         ],
         vec![call(FILE_SCOPE.0, "limit", 5)],
     );
-    config.uses = vec![UseRef {
-        site_of: FILE_SCOPE,
-        line: 6,
-        ..using("limit", None)
-    }];
+    config.uses = vec![bare_use(FILE_SCOPE, "limit", 6)];
     let graph = graph(&[config]);
 
     let walk = graph
@@ -6020,13 +5953,12 @@ fn formula(separators: &[&str]) -> Extraction {
     })
     .collect();
     let mut extraction = file("formula.rb", symbols, calls);
-    extraction.uses = vec![UseRef {
-        site_of: SymbolId(first_caller + 3),
-        name: "build".to_owned(),
-        receiver: Receiver::Path("Formula.".to_owned()),
-        access: Access::Read,
-        line: 13,
-    }];
+    extraction.uses = vec![UseRef::new(
+        SymbolId(first_caller + 3),
+        "build".to_owned(),
+        Receiver::Path("Formula.".to_owned()),
+        13,
+    )];
     extraction
 }
 
@@ -6376,18 +6308,15 @@ fn an_import_outside_the_graph_holds_a_qualifier_an_included_file_s_package_shar
         ),
         &["vendor/checks.go"],
     );
-    binds.bindings.push(ImportBinding {
-        alias: None,
-        target_dir: None,
-        last_segment: "checks".to_owned(),
-    });
-    binds.uses.push(UseRef {
-        site_of: SymbolId(1),
-        name: "has_volume".to_owned(),
-        receiver: Receiver::Qualifier("checks".to_owned()),
-        access: Access::Read,
-        line: 22,
-    });
+    binds
+        .bindings
+        .push(ImportBinding::new(None, None, "checks".to_owned()));
+    binds.uses.push(UseRef::new(
+        SymbolId(1),
+        "has_volume".to_owned(),
+        Receiver::Qualifier("checks".to_owned()),
+        22,
+    ));
     let graph = graph_of(Conventions::default(), &[checks, binds]);
 
     assert_eq!(callees(&graph, "binds.own"), Vec::<String>::new());
@@ -6406,11 +6335,7 @@ fn a_module_declared_under_a_name_no_file_bears_answers_over_a_binding_outside_t
         &["has_volume"],
         vec![member_call(1, "checks", "has_volume", 21)],
     );
-    binds.bindings = vec![ImportBinding {
-        alias: None,
-        target_dir: None,
-        last_segment: "checks".to_owned(),
-    }];
+    binds.bindings = vec![ImportBinding::new(None, None, "checks".to_owned())];
     let graph = graph_of(modules(), &[checks, binds]);
 
     assert_eq!(

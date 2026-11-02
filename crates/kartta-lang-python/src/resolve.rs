@@ -47,11 +47,11 @@ impl Resolver for Modules {
                 imports.bind_outside(&mut extraction.bindings, &directive, imported);
             }
             directive.names.truncate(imported);
-            extraction.imports.push(ImportRef {
-                module: directive.spec,
-                names: directive.names,
-                line: directive.line,
-            });
+            extraction.imports.push(ImportRef::new(
+                directive.spec,
+                directive.names,
+                directive.line,
+            ));
         }
         extraction.includes = imports.includes;
 
@@ -118,23 +118,17 @@ impl Imports<'_> {
             {
                 return;
             }
-            bindings.push(ImportBinding {
-                last_segment: if alias.is_some() { last_segment } else { head }.to_owned(),
-                alias,
-                target_dir: None,
-            });
+            let last_segment = if alias.is_some() { last_segment } else { head }.to_owned();
+            bindings.push(ImportBinding::new(alias, None, last_segment));
             return;
         }
-        bindings.extend(
-            names
-                .iter()
-                .zip(aliases)
-                .map(|(name, alias)| ImportBinding {
-                    alias: Some(if alias.is_empty() { name } else { alias }.clone()),
-                    target_dir: None,
-                    last_segment: last_segment.to_owned(),
-                }),
-        );
+        bindings.extend(names.iter().zip(aliases).map(|(name, alias)| {
+            ImportBinding::new(
+                Some(if alias.is_empty() { name } else { alias }.clone()),
+                None,
+                last_segment.to_owned(),
+            )
+        }));
     }
 
     fn holds(&self, module: &str) -> bool {
@@ -158,7 +152,7 @@ impl Imports<'_> {
     fn absolute(&mut self, module: &str) -> Found {
         for anchor in anchors(self.path) {
             if let Some((target, package)) = self.probe(&child(anchor, module)) {
-                self.includes.push(IncludeRef { target });
+                self.includes.push(IncludeRef::new(target));
                 return package.map_or(Found::Module, Found::Package);
             }
         }
@@ -194,7 +188,7 @@ impl Imports<'_> {
         let mut plain_module = false;
         if let Some((target, as_package)) = self.probe(&package) {
             plain_module = as_package.is_none();
-            self.includes.push(IncludeRef { target });
+            self.includes.push(IncludeRef::new(target));
         }
         if !plain_module {
             self.submodules(&package, names);
@@ -205,7 +199,7 @@ impl Imports<'_> {
     fn submodules(&mut self, package: &str, names: &[String]) {
         for name in names {
             if let Some((target, _)) = self.probe(&child(package, name)) {
-                self.includes.push(IncludeRef { target });
+                self.includes.push(IncludeRef::new(target));
             }
         }
     }

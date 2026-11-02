@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use kartta_lang::tree::{line, text};
-use kartta_lang::{Access, FILE_SCOPE, Receiver, SymbolId, SymbolKind, UseRef};
+use kartta_lang::{FILE_SCOPE, Receiver, SymbolId, SymbolKind, UseRef};
 use tree_sitter::Node;
 
 use super::Emitter;
@@ -106,13 +106,8 @@ impl Emitter<'_> {
                     }
                     _ => false,
                 };
-                known.then(|| UseRef {
-                    site_of: read.site_of,
-                    name: name.into_owned(),
-                    receiver: read.receiver,
-                    access: Access::Read,
-                    line: read.line,
-                })
+                known
+                    .then(|| UseRef::new(read.site_of, name.into_owned(), read.receiver, read.line))
             }));
     }
 }

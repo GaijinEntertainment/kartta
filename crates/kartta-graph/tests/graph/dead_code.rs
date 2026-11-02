@@ -41,13 +41,9 @@ fn field(owner: &str, name: &str, line: u32) -> Symbol {
 }
 
 fn use_of(name: &str, receiver: Receiver, access: Access, line: u32) -> UseRef {
-    UseRef {
-        site_of: SymbolId(0),
-        name: name.to_owned(),
-        receiver,
-        access,
-        line,
-    }
+    let mut site = UseRef::new(SymbolId(0), name.to_owned(), receiver, line);
+    site.access = access;
+    site
 }
 
 fn go() -> Conventions {
@@ -116,9 +112,9 @@ fn a_call_at_file_scope_reaches_its_file_and_the_files_it_includes() {
             call(FILE_SCOPE.0, "shared", 10),
         ],
     );
-    script.includes.push(IncludeRef {
-        target: "lib/common.sh".to_owned(),
-    });
+    script
+        .includes
+        .push(IncludeRef::new("lib/common.sh".to_owned()));
     let graph = graph(&[
         script,
         file("lib/common.sh", vec![function("shared", 1)], Vec::new()),
@@ -204,20 +200,15 @@ fn a_call_bound_to_a_fallback_leaves_every_namesake_uncertain() {
 #[test]
 fn a_receiver_call_that_binds_nothing_leaves_members_and_what_its_file_sees_uncertain() {
     let mut caller = file("app/main.c", vec![function("run", 1)], Vec::new());
-    caller.calls.push(CallRef {
-        site_of: SymbolId(0),
-        callee: "close".to_owned(),
-        receiver: Some(String::new()),
-        line: 2,
-        binds_apart: false,
-        calls_a_method: false,
-        arguments: 0,
-    });
+    caller.calls.push(CallRef::new(
+        SymbolId(0),
+        "close".to_owned(),
+        Some(String::new()),
+        2,
+    ));
     caller
         .includes
-        .extend(["lib/fd.h", "lib/sock.h"].map(|target| IncludeRef {
-            target: target.to_owned(),
-        }));
+        .extend(["lib/fd.h", "lib/sock.h"].map(|target| IncludeRef::new(target.to_owned())));
     let graph = graph(&[
         caller,
         file("lib/fd.h", vec![function("close", 1)], Vec::new()),
@@ -246,15 +237,12 @@ fn a_receiver_call_that_binds_nothing_leaves_members_and_what_its_file_sees_unce
 fn a_receiver_call_that_binds_nothing_leaves_a_free_definition_no_member_could_stand_for_uncertain()
 {
     let mut loader = file("tools/load.py", vec![function("load", 1)], Vec::new());
-    loader.calls.push(CallRef {
-        site_of: SymbolId(0),
-        callee: "get_mapping".to_owned(),
-        receiver: Some("module".to_owned()),
-        line: 3,
-        binds_apart: false,
-        calls_a_method: false,
-        arguments: 0,
-    });
+    loader.calls.push(CallRef::new(
+        SymbolId(0),
+        "get_mapping".to_owned(),
+        Some("module".to_owned()),
+        3,
+    ));
     let graph = graph(&[
         loader,
         file(
@@ -285,15 +273,12 @@ fn a_call_through_a_value_bound_to_its_own_caller_leaves_the_members_of_its_name
         ],
         Vec::new(),
     );
-    wrapper.calls.push(CallRef {
-        site_of: SymbolId(1),
-        callee: "setLimit".to_owned(),
-        receiver: Some(String::new()),
-        line: 3,
-        binds_apart: false,
-        calls_a_method: false,
-        arguments: 0,
-    });
+    wrapper.calls.push(CallRef::new(
+        SymbolId(1),
+        "setLimit".to_owned(),
+        Some(String::new()),
+        3,
+    ));
     let graph = graph(&[
         wrapper,
         file(
@@ -350,9 +335,8 @@ fn test_generated_entry_and_vendored_code_is_counted_and_not_judged() {
 #[test]
 fn a_file_only_test_modules_include_is_counted_as_test_code() {
     let mut lib = file("src/lib.rs", vec![function("unused", 1)], Vec::new());
-    lib.includes.push(IncludeRef {
-        target: "src/tests.rs".to_owned(),
-    });
+    lib.includes
+        .push(IncludeRef::new("src/tests.rs".to_owned()));
     lib.test_includes.push("src/tests.rs".to_owned());
     let graph = graph(&[
         lib,
@@ -494,9 +478,7 @@ fn a_use_ambiguous_among_fields_alone_leaves_a_method_of_its_name_dead() {
         2,
     ));
     user.includes
-        .extend(["src/box.h", "src/bag.h"].map(|target| IncludeRef {
-            target: target.to_owned(),
-        }));
+        .extend(["src/box.h", "src/bag.h"].map(|target| IncludeRef::new(target.to_owned())));
     let holder = |path, owner| {
         file(
             path,
@@ -602,13 +584,12 @@ fn a_field_reflection_reads_is_counted_as_reflected_where_no_use_reaches_it() {
 #[test]
 fn a_method_taken_only_as_a_value_is_live() {
     let mut user = file("pkg/user.go", vec![function("Run", 1)], Vec::new());
-    user.uses.push(UseRef {
-        site_of: SymbolId(0),
-        name: "handle".to_owned(),
-        receiver: Receiver::Path("Server".to_owned()),
-        access: Access::Read,
-        line: 2,
-    });
+    user.uses.push(UseRef::new(
+        SymbolId(0),
+        "handle".to_owned(),
+        Receiver::Path("Server".to_owned()),
+        2,
+    ));
     let conventions = go();
     let method = |name, line| {
         let mut symbol = member("Server", name, line);
@@ -634,13 +615,12 @@ fn a_method_taken_only_as_a_value_is_live() {
 #[test]
 fn a_type_is_judged_where_uses_name_every_type() {
     let mut user = file("pkg/user.go", vec![function("Handle", 1)], Vec::new());
-    user.uses.push(UseRef {
-        site_of: SymbolId(0),
-        name: "Request".to_owned(),
-        receiver: Receiver::Bare,
-        access: Access::Read,
-        line: 2,
-    });
+    user.uses.push(UseRef::new(
+        SymbolId(0),
+        "Request".to_owned(),
+        Receiver::Bare,
+        2,
+    ));
     let graph = graph_of(
         go(),
         &[
@@ -688,13 +668,12 @@ fn a_definition_local_to_a_body_is_unobservable_as_no_use_binds_a_local() {
 #[test]
 fn a_use_at_file_scope_reaches_the_types_its_package_defines() {
     let mut assertion = file("pkg/assert.go", Vec::new(), Vec::new());
-    assertion.uses.push(UseRef {
-        site_of: FILE_SCOPE,
-        name: "Checked".to_owned(),
-        receiver: Receiver::Bare,
-        access: Access::Read,
-        line: 3,
-    });
+    assertion.uses.push(UseRef::new(
+        FILE_SCOPE,
+        "Checked".to_owned(),
+        Receiver::Bare,
+        3,
+    ));
     let graph = graph_of(
         go(),
         &[
@@ -733,13 +712,12 @@ fn a_type_only_its_own_members_name_is_dead() {
         vec![call(FILE_SCOPE.0, "Make", 20)],
     );
     for (site_of, name, line) in [(1, "Lonely", 5), (1, "Lonely", 6), (3, "Used", 12)] {
-        types.uses.push(UseRef {
-            site_of: SymbolId(site_of),
-            name: name.to_owned(),
-            receiver: Receiver::Bare,
-            access: Access::Read,
+        types.uses.push(UseRef::new(
+            SymbolId(site_of),
+            name.to_owned(),
+            Receiver::Bare,
             line,
-        });
+        ));
     }
     let graph = graph_of(go(), &[types]);
 
@@ -810,20 +788,20 @@ fn a_method_defined_apart_from_its_owner_reads_the_parents_of_its_owners_name() 
 #[test]
 fn a_declaration_and_the_definition_it_links_to_are_judged_once() {
     let mut header = file("src/api.h", vec![function("open", 1)], Vec::new());
-    header.callables.push(Callable {
-        symbol: SymbolId(0),
-        key: "open()".to_owned(),
-        role: CallableRole::Declaration,
-    });
+    header.callables.push(Callable::new(
+        SymbolId(0),
+        "open()".to_owned(),
+        CallableRole::Declaration,
+    ));
     let mut source = file("src/api.c", vec![function("open", 3)], Vec::new());
-    source.callables.push(Callable {
-        symbol: SymbolId(0),
-        key: "open()".to_owned(),
-        role: CallableRole::Definition,
-    });
-    source.includes.push(IncludeRef {
-        target: "src/api.h".to_owned(),
-    });
+    source.callables.push(Callable::new(
+        SymbolId(0),
+        "open()".to_owned(),
+        CallableRole::Definition,
+    ));
+    source
+        .includes
+        .push(IncludeRef::new("src/api.h".to_owned()));
     let graph = graph(&[header, source]);
 
     let dead = graph.dead_code(&[], None, 10);
@@ -868,15 +846,11 @@ fn a_call_reaches_every_definition_the_tier_that_bound_it_held_equal() {
 
 #[test]
 fn every_definition_of_a_declaration_too_many_implement_to_link_is_reached_through_it() {
-    let callable = |at: u32, role| Callable {
-        symbol: SymbolId(at),
-        key: "open()".to_owned(),
-        role,
-    };
+    let callable = |at: u32, role| Callable::new(SymbolId(at), "open()".to_owned(), role);
     let including = |mut extraction: Extraction| {
-        extraction.includes.push(IncludeRef {
-            target: "include/api.h".to_owned(),
-        });
+        extraction
+            .includes
+            .push(IncludeRef::new("include/api.h".to_owned()));
         extraction
     };
     let mut header = file("include/api.h", vec![function("open", 1)], Vec::new());
@@ -938,11 +912,11 @@ fn the_limit_bounds_the_answer_and_a_path_prefix_the_files_judged() {
 
 fn binding_of_f(alias: &str) -> Extraction {
     let mut extraction = file("src/user.rs", Vec::new(), Vec::new());
-    extraction.bindings = vec![ImportBinding {
-        alias: Some(alias.to_owned()),
-        target_dir: Some("src/m.rs".to_owned()),
-        last_segment: "f".to_owned(),
-    }];
+    extraction.bindings = vec![ImportBinding::new(
+        Some(alias.to_owned()),
+        Some("src/m.rs".to_owned()),
+        "f".to_owned(),
+    )];
     extraction
 }
 

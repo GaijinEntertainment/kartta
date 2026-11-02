@@ -54,7 +54,7 @@ impl Sources<'_> {
 
         for directive in directives {
             if let Some(target) = self.source(&directive.spec, path) {
-                extraction.includes.push(IncludeRef { target });
+                extraction.includes.push(IncludeRef::new(target));
             }
         }
 

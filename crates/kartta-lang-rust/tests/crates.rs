@@ -373,11 +373,7 @@ fn resolve(files: &[(&str, &str)], path: &str) -> Extraction {
 }
 
 fn binding(target: &str, last_segment: &str) -> ImportBinding {
-    ImportBinding {
-        alias: None,
-        target_dir: Some(target.to_owned()),
-        last_segment: last_segment.to_owned(),
-    }
+    ImportBinding::new(None, Some(target.to_owned()), last_segment.to_owned())
 }
 
 const WORKSPACE: &[(&str, &str)] = &[
@@ -490,9 +486,12 @@ fn a_glob_binds_the_file_of_the_module_it_ends_at_as_a_dot_import() {
     )
     .bindings;
 
-    let glob = |target: &str, last_segment: &str| ImportBinding {
-        alias: Some(".".to_owned()),
-        ..binding(target, last_segment)
+    let glob = |target: &str, last_segment: &str| {
+        ImportBinding::new(
+            Some(".".to_owned()),
+            Some(target.to_owned()),
+            last_segment.to_owned(),
+        )
     };
     assert_eq!(got, [glob("src/lib.rs", "super"), glob("src/m.rs", "m")]);
 }

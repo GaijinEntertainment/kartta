@@ -289,11 +289,9 @@ impl<'a> Emitter<'a> {
                 .max_by_key(|binding| binding.strength());
             match binding {
                 Some(Binding::Definition(local)) if binds_locals => {
-                    self.raw.local_calls.push(LocalCall {
-                        site_of: call.site_of,
-                        local,
-                        line: call.line,
-                    });
+                    self.raw
+                        .local_calls
+                        .push(LocalCall::new(call.site_of, local, call.line));
                 }
                 Some(Binding::Definition(_) | Binding::Imported) => self.push_call(&call),
                 Some(Binding::Module) => self.push_free_call(&call),
@@ -681,15 +679,9 @@ impl<'a> Emitter<'a> {
             self.mark_builtin(callee.as_bytes());
         }
 
-        self.raw.calls.push(CallRef {
-            site_of,
-            callee,
-            receiver,
-            line,
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        });
+        self.raw
+            .calls
+            .push(CallRef::new(site_of, callee, receiver, line));
     }
 
     fn mark_builtin(&mut self, callee: &[u8]) {
@@ -719,15 +711,12 @@ impl<'a> Emitter<'a> {
     }
 
     fn push_call(&mut self, call: &BareCall<'_>) {
-        self.raw.calls.push(CallRef {
-            site_of: call.site_of,
-            callee: String::from_utf8_lossy(call.callee).into_owned(),
-            receiver: None,
-            line: call.line,
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        });
+        self.raw.calls.push(CallRef::new(
+            call.site_of,
+            String::from_utf8_lossy(call.callee).into_owned(),
+            None,
+            call.line,
+        ));
     }
 
     fn import(&mut self, node: Node<'_>) {
@@ -759,12 +748,13 @@ impl<'a> Emitter<'a> {
             .map(|name| alias(name, self.source).unwrap_or_default());
         names.extend(aliases);
 
-        self.raw.directives.push(RawDirective {
-            form: IMPORT_FORM,
-            spec: text(module, self.source),
-            names,
-            line: line(node.start_position().row),
-        });
+        let mut directive = RawDirective::new(
+            IMPORT_FORM,
+            text(module, self.source),
+            line(node.start_position().row),
+        );
+        directive.names = names;
+        self.raw.directives.push(directive);
     }
 
     // constraint: a future feature cannot be aliased, so its names are read as written
@@ -775,12 +765,13 @@ impl<'a> Emitter<'a> {
             .map(|name| text(name, self.source))
             .collect();
 
-        self.raw.directives.push(RawDirective {
-            form: FUTURE_FORM,
-            spec: "__future__".to_owned(),
-            names,
-            line: line(node.start_position().row),
-        });
+        let mut directive = RawDirective::new(
+            FUTURE_FORM,
+            "__future__".to_owned(),
+            line(node.start_position().row),
+        );
+        directive.names = names;
+        self.raw.directives.push(directive);
     }
 }
 

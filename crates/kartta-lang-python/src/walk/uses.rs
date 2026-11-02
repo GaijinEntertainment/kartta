@@ -159,13 +159,10 @@ impl<'a> Emitter<'a> {
     }
 
     fn push_site(&mut self, used: &NameUse<'_>, name: &[u8], receiver: Receiver) {
-        self.raw.uses.push(UseRef {
-            site_of: used.caller,
-            name: String::from_utf8_lossy(name).into_owned(),
-            receiver,
-            access: used.access,
-            line: used.line,
-        });
+        let name = String::from_utf8_lossy(name).into_owned();
+        let mut site = UseRef::new(used.caller, name, receiver, used.line);
+        site.access = used.access;
+        self.raw.uses.push(site);
     }
 }
 

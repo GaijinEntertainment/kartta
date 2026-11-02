@@ -615,11 +615,8 @@ impl Emitter<'_> {
             Some(module) => format!("{}/{name}", module.chain.replace("::", "/")),
             None => name,
         };
-        self.raw.directives.push(RawDirective {
-            form,
-            spec,
-            names: path_attribute(node, self.source).into_iter().collect(),
-            line: line(node.start_position().row),
-        });
+        let mut directive = RawDirective::new(form, spec, line(node.start_position().row));
+        directive.names = path_attribute(node, self.source).into_iter().collect();
+        self.raw.directives.push(directive);
     }
 }

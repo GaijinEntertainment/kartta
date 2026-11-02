@@ -242,11 +242,9 @@ impl Emitter<'_> {
         if receiver.is_none() && !self.function_spans.is_empty() {
             match self.bindings.get(callee.as_bytes()) {
                 Some(&Binding::Local(local, _)) => {
-                    self.raw.local_calls.push(LocalCall {
-                        site_of,
-                        local,
-                        line: start_line(node),
-                    });
+                    self.raw
+                        .local_calls
+                        .push(LocalCall::new(site_of, local, start_line(node)));
                     return;
                 }
                 Some(Binding::Parameter(_)) if self.file_is_generated => binds_apart = true,
@@ -258,15 +256,10 @@ impl Emitter<'_> {
                 Some(_) => {}
             }
         }
-        self.raw.calls.push(CallRef {
-            site_of,
-            callee,
-            receiver,
-            line: start_line(node),
-            binds_apart,
-            calls_a_method: false,
-            arguments,
-        });
+        let mut call = CallRef::new(site_of, callee, receiver, start_line(node));
+        call.binds_apart = binds_apart;
+        call.arguments = arguments;
+        self.raw.calls.push(call);
     }
 }
 

@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use kartta_lang::tree::{line, named_child_nodes, signature_from, text};
 use kartta_lang::{
-    Access, CallRef, FILE_SCOPE, LocalCall, RawExtraction, Receiver, SymbolId, SymbolKind, UseRef,
+    CallRef, FILE_SCOPE, LocalCall, RawExtraction, Receiver, SymbolId, SymbolKind, UseRef,
 };
 use tree_sitter::Node;
 
@@ -198,11 +198,7 @@ impl Emitter<'_> {
             });
             match innermost {
                 Some(method) if call.site_of != FILE_SCOPE => {
-                    local_calls.push(LocalCall {
-                        site_of: call.site_of,
-                        local: method.id,
-                        line: call.line,
-                    });
+                    local_calls.push(LocalCall::new(call.site_of, method.id, call.line));
                     false
                 }
                 Some(_) => true,
@@ -458,13 +454,7 @@ fn filters<'a>(call: Node<'a>, source: &'a [u8]) -> impl Iterator<Item = String>
 }
 
 const fn file_scope_read(name: String, line: u32) -> UseRef {
-    UseRef {
-        site_of: FILE_SCOPE,
-        name,
-        receiver: Receiver::Bare,
-        access: Access::Read,
-        line,
-    }
+    UseRef::new(FILE_SCOPE, name, Receiver::Bare, line)
 }
 
 // constraint: `example_group.rb:158-198` and `:282-308` define these, and `RSpec.describe` is an alias of the group's

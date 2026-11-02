@@ -18,19 +18,14 @@ fn asserting(path: &str, assertions: &[(&str, &str)], imports: &[(&str, &str)]) 
     let mut extraction = file(path, Vec::new());
     extraction.assertions = assertions
         .iter()
-        .map(|&(type_name, interface)| ImplementsAssertion {
-            type_name: type_name.to_owned(),
-            interface: interface.to_owned(),
-            type_file: None,
-            interface_file: None,
+        .map(|&(type_name, interface)| {
+            ImplementsAssertion::new(type_name.to_owned(), interface.to_owned())
         })
         .collect();
     extraction.bindings = imports
         .iter()
-        .map(|&(name, dir)| ImportBinding {
-            alias: Some(name.to_owned()),
-            target_dir: Some(dir.to_owned()),
-            last_segment: name.to_owned(),
+        .map(|&(name, dir)| {
+            ImportBinding::new(Some(name.to_owned()), Some(dir.to_owned()), name.to_owned())
         })
         .collect();
     extraction

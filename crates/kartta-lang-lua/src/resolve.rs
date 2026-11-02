@@ -61,9 +61,7 @@ impl Loaders<'_> {
         let loaded = directives
             .iter()
             .filter_map(|directive| self.loaded_file(directive, path));
-        extraction
-            .includes
-            .extend(loaded.map(|target| IncludeRef { target }));
+        extraction.includes.extend(loaded.map(IncludeRef::new));
 
         extraction
     }

@@ -139,11 +139,11 @@ impl Crates {
             Reached::Item { holder, name } if !glob => (holder, name),
             Reached::Item { .. } => return None,
         };
-        Some(ImportBinding {
-            alias: (name != last).then(|| name.to_owned()),
-            target_dir: Some(file),
-            last_segment: last.to_owned(),
-        })
+        Some(ImportBinding::new(
+            (name != last).then(|| name.to_owned()),
+            Some(file),
+            last.to_owned(),
+        ))
     }
 
     // constraint: a bare name stays for the asserting file to read, and a path gives the file that holds the item it
@@ -186,10 +186,8 @@ impl Crates {
         caller: &Caller<'_>,
         repository: &dyn Repository,
     ) -> Option<(String, String)> {
-        let directive = RawDirective {
-            names: vec![path.rsplit("::").next()?.to_owned()],
-            ..RawDirective::new(USE_FORM, path.to_owned(), 1)
-        };
+        let mut directive = RawDirective::new(USE_FORM, path.to_owned(), 1);
+        directive.names = vec![path.rsplit("::").next()?.to_owned()];
         let binding = self.crate_binding(&directive, caller, repository)?;
         Some((binding.target_dir?, binding.last_segment))
     }
@@ -525,7 +523,7 @@ impl Resolver for Crates {
             if directive.form == MOD_TEST_FORM || role.test {
                 extraction.test_includes.push(target.clone());
             }
-            extraction.includes.push(IncludeRef { target });
+            extraction.includes.push(IncludeRef::new(target));
         }
         (extraction.assertions)
             .retain_mut(|assertion| self.read_assertion(assertion, &caller, repository));

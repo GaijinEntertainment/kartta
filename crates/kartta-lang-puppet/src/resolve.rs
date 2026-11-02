@@ -57,9 +57,7 @@ impl Manifests<'_> {
             .iter()
             .filter(|directive| directive.form == CLASS_FORM)
             .filter_map(|directive| manifest(&directive.spec, self.repository));
-        extraction
-            .includes
-            .extend(manifests.map(|target| IncludeRef { target }));
+        extraction.includes.extend(manifests.map(IncludeRef::new));
 
         extraction
     }

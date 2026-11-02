@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use kartta_lang::tree::{self, signature, text};
 use kartta_lang::{
-    Access, CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolId,
-    SymbolKind, UseRef,
+    CallRef, FILE_SCOPE, RawDirective, RawExtraction, Receiver, Symbol, SymbolId, SymbolKind,
+    UseRef,
 };
 use tree_sitter::{Node, Tree, TreeCursor};
 
@@ -226,15 +226,10 @@ impl Walker<'_> {
 
     fn macro_call(&mut self, node: Node<'_>) {
         if let Some(name) = node.child_by_field_name("macro") {
-            self.raw.calls.push(CallRef {
-                site_of: self.caller(),
-                callee: text(name, self.source),
-                receiver: None,
-                line: line(node),
-                binds_apart: false,
-                calls_a_method: false,
-                arguments: count_past_zero(node.child_by_field_name("arguments"), "macro_argument"),
-            });
+            let mut call = CallRef::new(self.caller(), text(name, self.source), None, line(node));
+            call.arguments =
+                count_past_zero(node.child_by_field_name("arguments"), "macro_argument");
+            self.raw.calls.push(call);
         }
     }
 
@@ -273,13 +268,9 @@ impl Walker<'_> {
     }
 
     fn reference(&mut self, name: String, node: Node<'_>) {
-        self.raw.uses.push(UseRef {
-            site_of: self.caller(),
-            name,
-            receiver: Receiver::Bare,
-            access: Access::Read,
-            line: line(node),
-        });
+        self.raw
+            .uses
+            .push(UseRef::new(self.caller(), name, Receiver::Bare, line(node)));
     }
 }
 

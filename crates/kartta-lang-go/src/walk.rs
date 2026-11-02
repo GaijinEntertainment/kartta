@@ -522,12 +522,9 @@ impl<'a> Emitter<'a> {
             None => self.import_names.extend(default_name_candidates(&path)),
         }
 
-        self.raw.directives.push(RawDirective {
-            form: IMPORT_FORM,
-            spec: path,
-            names: alias.into_iter().collect(),
-            line: line(spec.start_position().row),
-        });
+        let mut directive = RawDirective::new(IMPORT_FORM, path, line(spec.start_position().row));
+        directive.names = alias.into_iter().collect();
+        self.raw.directives.push(directive);
     }
 
     fn push_symbol(&mut self, symbol: Symbol) -> SymbolId {
@@ -858,12 +855,9 @@ impl<'a> Emitter<'a> {
             return;
         };
 
-        self.raw.assertions.push(ImplementsAssertion {
-            type_name,
-            interface,
-            type_file: None,
-            interface_file: None,
-        });
+        self.raw
+            .assertions
+            .push(ImplementsAssertion::new(type_name, interface));
     }
 }
 

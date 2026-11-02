@@ -209,15 +209,12 @@ fn an_attribute_a_method_gives_its_instance_is_a_field_declared_once_after_the_c
     assert_eq!(raw.local_symbols, [id_of(&raw, "reset")]);
     assert_eq!(
         raw.calls,
-        [CallRef {
-            site_of: id_of(&raw, "grow"),
-            callee: "append".to_owned(),
-            receiver: Some(String::new()),
-            line: 17,
-            binds_apart: false,
-            calls_a_method: false,
-            arguments: 0,
-        }]
+        [CallRef::new(
+            id_of(&raw, "grow"),
+            "append".to_owned(),
+            Some(String::new()),
+            17
+        )]
     );
 }
 

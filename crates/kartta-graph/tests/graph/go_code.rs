@@ -26,10 +26,8 @@ pub(crate) fn importing(
 ) -> Extraction {
     extraction.bindings = imports
         .iter()
-        .map(|&(name, target_dir)| ImportBinding {
-            alias: None,
-            target_dir: target_dir.map(str::to_owned),
-            last_segment: name.to_owned(),
+        .map(|&(name, target_dir)| {
+            ImportBinding::new(None, target_dir.map(str::to_owned), name.to_owned())
         })
         .collect();
     extraction

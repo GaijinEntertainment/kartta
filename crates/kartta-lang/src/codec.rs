@@ -95,14 +95,8 @@ impl RawExtraction {
             local_symbols: reader.seq(Reader::id)?,
             re_exports: reader.seq(Reader::re_export)?,
             package: reader.optional()?,
-            assertions: reader.seq(|reader| {
-                Ok(ImplementsAssertion {
-                    type_name: reader.text()?,
-                    interface: reader.text()?,
-                    type_file: None,
-                    interface_file: None,
-                })
-            })?,
+            assertions: reader
+                .seq(|reader| Ok(ImplementsAssertion::new(reader.text()?, reader.text()?)))?,
             directives: reader.seq(Reader::directive)?,
             entry_candidates: reader.seq(Reader::id)?,
         })

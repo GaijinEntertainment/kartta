@@ -68,12 +68,12 @@ impl Resolver for Autoload {
         for directive in directives {
             if directive.form != INCLUDE_FORM {
                 match self.used_file(directive.form, &directive.spec, repository) {
-                    Some(target) => extraction.includes.push(IncludeRef { target }),
-                    None => extraction.imports.push(ImportRef {
-                        module: directive.spec,
-                        names: Vec::new(),
-                        line: directive.line,
-                    }),
+                    Some(target) => extraction.includes.push(IncludeRef::new(target)),
+                    None => extraction.imports.push(ImportRef::new(
+                        directive.spec,
+                        Vec::new(),
+                        directive.line,
+                    )),
                 }
                 continue;
             }
@@ -84,9 +84,7 @@ impl Resolver for Autoload {
                 directive.spec
             };
             let included = Self::included_file(&spec, path, repository);
-            extraction
-                .includes
-                .extend(included.map(|target| IncludeRef { target }));
+            extraction.includes.extend(included.map(IncludeRef::new));
         }
 
         extraction
