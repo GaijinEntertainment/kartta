@@ -80,6 +80,7 @@ struct Surface {
     objects: BTreeMap<String, Object>,
     value_sets: Vec<BTreeSet<String>>,
     bounds: BTreeMap<String, u64>,
+    exports: BTreeSet<String>,
 }
 
 impl Surface {
@@ -260,11 +261,77 @@ fn integer_of(expr: &Expr) -> Option<u64> {
     }
 }
 
+/// `ty` as `kartta.h` spells it.
+fn c_type(ty: &syn::Type) -> String {
+    match ty {
+        syn::Type::Ptr(pointer) => match pointer.mutability {
+            syn::PointerMutability::Const(_) => format!("const {} *", c_type(&pointer.elem)),
+            syn::PointerMutability::Mut(_) => format!("{} *", c_type(&pointer.elem)),
+        },
+        syn::Type::Path(path) => {
+            let name = path.path.segments.last().expect("a type's name");
+            match name.ident.to_string().as_str() {
+                "c_char" => "char".to_owned(),
+                "u8" => "uint8_t".to_owned(),
+                "u32" => "uint32_t".to_owned(),
+                "usize" => "size_t".to_owned(),
+                "Kartta" => "KarttaHandle".to_owned(),
+                "KarttaString" => "KarttaString".to_owned(),
+                other => panic!("kartta.h has no spelling of {other}"),
+            }
+        }
+        _ => panic!("kartta.h has no spelling of a type the ABI takes"),
+    }
+}
+
+/// `name` after a C type, which keeps a pointer's star against the name.
+fn c_declarator(ty: &str, name: &str) -> String {
+    let gap = if ty.ends_with('*') { "" } else { " " };
+    format!("{ty}{gap}{name}")
+}
+
+/// The declaration `kartta.h` must hold of the exported function `signature`.
+fn c_declaration(signature: &syn::Signature) -> String {
+    let inputs: Vec<String> = signature
+        .inputs
+        .iter()
+        .map(|input| {
+            let syn::FnArg::Typed(input) = input else {
+                panic!("{}: a C function takes no self", signature.ident);
+            };
+            let syn::Pat::Ident(name) = &*input.pat else {
+                panic!("{}: a C parameter has a name", signature.ident);
+            };
+            c_declarator(&c_type(&input.ty), &name.ident.to_string())
+        })
+        .collect();
+    let inputs = if inputs.is_empty() {
+        "void".to_owned()
+    } else {
+        inputs.join(", ")
+    };
+    let output = match &signature.output {
+        syn::ReturnType::Default => "void".to_owned(),
+        syn::ReturnType::Type(_, ty) => c_type(ty),
+    };
+    format!(
+        "{}({inputs});",
+        c_declarator(&output, &signature.ident.to_string())
+    )
+}
+
 impl<'ast> Visit<'ast> for Surface {
     fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
         if module.ident != "tests" {
             visit::visit_item_mod(self, module);
         }
+    }
+
+    fn visit_item_fn(&mut self, function: &'ast syn::ItemFn) {
+        if function.sig.abi.is_some() {
+            self.exports.insert(c_declaration(&function.sig));
+        }
+        visit::visit_item_fn(self, function);
     }
 
     fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
@@ -596,6 +663,21 @@ fn every_language_has_a_row_with_its_family() {
             row.name
         );
     }
+}
+
+/// A cgo build links only the functions Go code names and reads each signature from the header alone, so a function
+/// the library lacks and a signature that drifted pass it.
+#[test]
+fn the_header_declares_each_exported_function_with_its_signature_and_no_other() {
+    let header = read(&here("include/kartta.h"));
+    let declared: BTreeSet<String> = header
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.ends_with(");") && !line.starts_with(['*', '/']))
+        .map(str::to_owned)
+        .collect();
+
+    assert_eq!(Surface::of_the_crate().exports, declared);
 }
 
 /// A consumer of the release archive holds the header and no ADR, so each promise it must rely on is the header's.

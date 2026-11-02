@@ -159,8 +159,8 @@ jobs:
       - run: scripts/semver.sh
 
   # The Go binding, linked against the static library the same checkout builds. Its cgo build compiles the
-  # hand-written kartta.h and links every function it declares, so a header that drifts from the library fails here,
-  # and the round trip exercises the ABI's ownership rules under the race detector.
+  # hand-written kartta.h and links what Go names, and the round trip exercises the ABI's ownership rules under the race
+  # detector. The header's signatures are held to the library's by the kartta-ffi reference test.
   go:
     strategy:
       fail-fast: false
