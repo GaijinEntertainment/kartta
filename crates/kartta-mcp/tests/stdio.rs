@@ -17,6 +17,25 @@ use serde_json::json;
 use common::{Client, go_module, rooted};
 
 #[test]
+fn a_grep_index_that_cannot_be_kept_costs_only_itself_and_stays_named_through_a_refresh() {
+    let tree = go_module();
+    let reason = "grep_index=\"off: cannot keep the content index in ";
+    let mut client = Client::grep_indexed_in(&tree.path().join("gone"));
+
+    let indexed = client.index(tree.path());
+    let found = client.answer("grep", &json!({"patterns": ["Greet"]}));
+    client.answer("refresh", &json!({}));
+    let refreshed = client.answer("index_stats", &json!({}));
+
+    assert!(indexed.contains(reason), "{indexed}");
+    assert!(indexed.contains("<language name=\"go\""), "{indexed}");
+    assert!(indexed.contains("<errors count=\"1\">"), "{indexed}");
+    assert!(found.contains("func (s *Service) Greet"), "{found}");
+    assert!(refreshed.contains(reason), "{refreshed}");
+    assert!(!refreshed.contains("<errors"), "{refreshed}");
+}
+
+#[test]
 fn the_server_lists_its_tools() {
     let mut client = Client::start(&[]);
 

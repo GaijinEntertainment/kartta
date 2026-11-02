@@ -269,7 +269,15 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
             "symbols",
             graphs.iter().map(|row| row.symbols).sum::<usize>(),
         )
-        .attr("calls", graphs.iter().map(|row| row.calls).sum::<usize>());
+        .attr("calls", graphs.iter().map(|row| row.calls).sum::<usize>())
+        .optional(
+            "grep_index",
+            indexed
+                .engine
+                .index()
+                .content_index_failure()
+                .map(|failure| format!("off: {failure}")),
+        );
     if graphs.is_empty() && indexed.errors.is_empty() {
         return element.inline("the code graph is empty");
     }

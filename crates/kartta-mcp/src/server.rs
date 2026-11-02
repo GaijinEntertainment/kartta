@@ -250,7 +250,9 @@ impl Server {
                        until it exists. Takes seconds on large repositories; one repository is indexed per server, \
                        and indexing another replaces the previous one (a build of the same root and languages already \
                        under way is waited for, not repeated). Returns an <index> envelope, its gitignore= naming the \
-                       ignore files that applied as index_stats describes, with one <language/> record \
+                       ignore files that applied as index_stats describes, its grep_index= present only when the \
+                       configured trigram index could not be kept, saying why (grep then opens every candidate, and a \
+                       new index_repo tries again), with one <language/> record \
                        per built graph (files, symbols, calls, uses and includes, plus 'files_without_symbols' when a \
                        language's files did not all yield symbols and 'unheld' when some files it claims are binary or \
                        unreadable), and an <errors> block listing what the walk could not read - those language names \
