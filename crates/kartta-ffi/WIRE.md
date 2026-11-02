@@ -478,7 +478,11 @@ The failures a build or a refresh collected rather than stopped on.
 ### StoredError
 
 - `kind` ([`FailureKind`](#failurekind), always): What failed.
-- `path` (string, optional): The path that failed, where one did.
+- `path` (string, optional): The path that failed, where one did, as the system spells it. One in the tree starts with
+  the root as `open` was given it.
+- `file` (string, optional): That path relative to the root, which `paths` of [`RefreshParams`](#refreshparams) takes.
+  Empty for the root itself; absent for a path outside the tree, such as a cache directory. A name that is not UTF-8
+  reads with replacement characters here as in `path`, so `file` does not name it to a refresh.
 - `message` (string, always): Why.
 
 ### WatchView
