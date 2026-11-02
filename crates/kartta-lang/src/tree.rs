@@ -65,8 +65,8 @@ macro_rules! tree_sitter_fingerprint {
 /// It holds `source_id`, the identity of the language crate's code and dependency versions that
 /// [`set_source_id`](crate::fingerprint::set_source_id) hands its build, then the grammar's version, a digest of its
 /// `node_types` and its counts of ABI version, node kinds, parse states and fields. `source_id` follows the versions of
-/// the grammar crate and of tree-sitter that a visible `Cargo.lock` resolves, so an update of either changes it. A
-/// build that sees no lock follows only the manifest's version requirements, and the rest covers a later release it
+/// the grammar crate and of tree-sitter that the build's `Cargo.lock` resolves, so an update of either changes it. A
+/// build that finds no lock follows only the manifest's version requirements, and the rest covers a later release it
 /// resolves as far as that release changes its version metadata, node types or counts: many grammars of ABI 14 carry
 /// no version metadata.
 #[must_use]
