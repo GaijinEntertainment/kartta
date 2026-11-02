@@ -125,8 +125,16 @@ rc_buffer = "warn"
 verbose_file_reads = "warn"
 
 [profile.release]
-# Matches the deployment build; lto stays off for iteration speed.
+# Local work; the distributed artifacts build with `dist`.
 opt-level = 3
+
+[profile.dist]
+# The artifacts a release ships. Panics keep unwinding: the C ABI catches them at its boundary.
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"
 
 [profile.profiling]
 # Release codegen with full debug info so sampling profilers resolve inlined frames.
