@@ -98,7 +98,27 @@ impl<'a> Emitter<'a> {
     }
 
     // constraint: the symbol that owns an anonymous struct's fields holds the types the struct embeds
-    pub(super) fn declare_anonymous(&mut self, struct_type: Node<'_>, scope: &str) {
+    pub(super) fn declare_anonymous(&mut self, struct_type: Node<'_>, scope: String) {
+        let mut open = Vec::new();
+        self.open_anonymous(struct_type, scope, &mut open);
+        while let Some(innermost) = open.last_mut() {
+            let Some(field) = innermost.fields.pop() else {
+                open.pop();
+                continue;
+            };
+            let nested = self.declare_field(field, (&innermost.owner, &innermost.scope));
+            if let Some((struct_type, scope)) = nested {
+                self.open_anonymous(struct_type, scope, &mut open);
+            }
+        }
+    }
+
+    fn open_anonymous<'t>(
+        &mut self,
+        struct_type: Node<'t>,
+        scope: String,
+        open: &mut Vec<OpenStruct<'t>>,
+    ) {
         let Some(&host) = self.anonymous.get(&struct_type.id()) else {
             return;
         };
@@ -106,35 +126,53 @@ impl<'a> Emitter<'a> {
         let host = &mut self.raw.symbols[host.0 as usize];
         host.parents.extend(parents);
         let owner = host.name.clone();
-        let fields = child_nodes(struct_type).filter(|field| field.kind() == "field_declaration");
-        for field in fields {
-            self.field_names(field, (&owner, scope));
-        }
+        let fields = child_nodes(struct_type)
+            .filter(|field| field.kind() == "field_declaration")
+            .rev()
+            .collect();
+        open.push(OpenStruct {
+            fields,
+            owner,
+            scope,
+        });
     }
 }
 
+/// An anonymous struct whose fields the walk is declaring: the fields left, last first, and the names that own them.
+struct OpenStruct<'t> {
+    fields: Vec<Node<'t>>,
+    owner: String,
+    scope: String,
+}
+
 pub(super) fn literal_type(value: Node<'_>) -> Option<Node<'_>> {
-    match value.kind() {
-        "composite_literal" => value.child_by_field_name("type"),
-        "parenthesized_expression" => literal_type(first_operand(value)?),
-        "unary_expression" if value.child_by_field_name("operator")?.kind() == "&" => {
-            literal_type(value.child_by_field_name("operand")?)
-        }
-        _ => None,
+    let mut value = value;
+    loop {
+        value = match value.kind() {
+            "composite_literal" => return value.child_by_field_name("type"),
+            "parenthesized_expression" => first_operand(value)?,
+            "unary_expression" if value.child_by_field_name("operator")?.kind() == "&" => {
+                value.child_by_field_name("operand")?
+            }
+            _ => return None,
+        };
     }
 }
 
 // constraint: `struct{}` holds nothing a use can name, and a set's `map[K]struct{}` or a signal's `chan struct{}`
 // spell it everywhere, so only a struct with a field takes an owner
 fn anonymous_struct(written: Node<'_>) -> Option<Node<'_>> {
-    match written.kind() {
-        "struct_type" => child_nodes(written)
-            .any(|field| field.kind() == "field_declaration")
-            .then_some(written),
-        "pointer_type" | "parenthesized_type" => anonymous_struct(first_operand(written)?),
-        _ if is_container_type(written) => {
-            anonymous_struct(written.child_by_field_name("element")?)
-        }
-        _ => None,
+    let mut written = written;
+    loop {
+        written = match written.kind() {
+            "struct_type" => {
+                return child_nodes(written)
+                    .any(|field| field.kind() == "field_declaration")
+                    .then_some(written);
+            }
+            "pointer_type" | "parenthesized_type" => first_operand(written)?,
+            _ if is_container_type(written) => written.child_by_field_name("element")?,
+            _ => return None,
+        };
     }
 }
