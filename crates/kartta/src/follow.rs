@@ -409,6 +409,16 @@ mod tests {
         seen
     }
 
+    // constraint: a change the system reports after the drain comes with a later wait, as FSEvents reports one made in
+    // a stream's first moments, so a change made during the walk may reach the engine only after it was caught up
+    fn held_once_told(owner: &Owner, mut watcher: Watcher, path: &str) -> Watcher {
+        if !owner.holds(path) {
+            let late = seen_soon(&mut watcher, path);
+            watcher = caught_up(owner, watcher, Ok(late), &mut 0).unwrap();
+        }
+        watcher
+    }
+
     #[test]
     fn a_caught_up_engine_holds_a_directory_made_while_it_was_built_and_follows_it() {
         let tree = tempfile::tempdir().unwrap();
@@ -419,8 +429,8 @@ mod tests {
         let (owner, follower) = caught_up_on(tree.path(), languages);
 
         assert_eq!(owner.watch.read().unwrap().off, None);
+        let mut watcher = held_once_told(&owner, follower.unwrap().watcher, "late/b.txt");
         assert!(owner.holds("late/b.txt"));
-        let mut watcher = follower.unwrap().watcher;
         std::fs::write(tree.path().join("late/c.txt"), "c").unwrap();
         let seen = seen_soon(&mut watcher, "late/c.txt");
         assert!(seen.iter().any(|path| path == "late/c.txt"), "{seen:?}");
@@ -442,12 +452,12 @@ mod tests {
         let (dropped, batch) = dropped_changes(elsewhere.path());
         let mut restarts = 0;
 
-        let watcher = caught_up(&owner, dropped, batch, &mut restarts);
+        let watcher = caught_up(&owner, dropped, batch, &mut restarts).unwrap();
 
+        let mut watcher = held_once_told(&owner, watcher, "late/deeper/c.txt");
         assert!(owner.holds("late/b.txt") && owner.holds("late/deeper/c.txt"));
         assert!(restarts >= 1, "the dropped changes restarted the watch");
         assert_eq!(owner.watch.read().unwrap().restarts, restarts);
-        let mut watcher = watcher.unwrap();
         for path in ["late/c.txt", "late/deeper/d.txt"] {
             std::fs::write(tree.path().join(path), "c").unwrap();
             let seen = seen_soon(&mut watcher, path);
