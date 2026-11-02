@@ -1617,7 +1617,7 @@ fn a_cancel_while_no_build_runs_leaves_the_next_build_alone() {
 }
 
 #[test]
-fn a_cancelled_build_leaves_no_index_behind() {
+fn a_build_cancelled_before_its_walk_reached_an_entry_leaves_nothing_behind() {
     let tree = tree();
     let kartta = open(tree.path());
     ok(&kartta, "build", &Value::Null);
@@ -1629,6 +1629,27 @@ fn a_cancelled_build_leaves_no_index_behind() {
     );
 
     assert_eq!(code(&kartta, "stats", &Value::Null), "not_built");
+    assert_eq!(
+        code(&kartta, "glob", &json!({ "globs": ["**"] })),
+        "not_built"
+    );
+}
+
+#[test]
+fn a_build_that_fails_leaves_the_file_queries_not_built() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    let root = tree.path().to_owned();
+    tree.close().expect("the tree goes");
+
+    let failed = call(&kartta, "build", &Value::Null);
+
+    assert_eq!(failed["err"]["code"], "build_failed", "{}", root.display());
+    assert_eq!(
+        code(&kartta, "glob", &json!({ "globs": ["**"] })),
+        "not_built"
+    );
 }
 
 #[test]

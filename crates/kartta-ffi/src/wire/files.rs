@@ -7,6 +7,7 @@ use kartta::{
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, ErrorCode};
+use crate::wire::StoppedView;
 
 const LIST_DEPTH: usize = 1;
 const LIST_LIMIT: usize = 1000;
@@ -89,6 +90,8 @@ pub(crate) struct ListView<'a> {
     truncated: bool,
     excluded: usize,
     total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stopped_build: Option<StoppedView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,7 +118,11 @@ const fn kind(kind: EntryKind) -> &'static str {
 }
 
 impl<'a> ListView<'a> {
-    pub(crate) fn new(index: &'a Index, params: &'a ListParams) -> Result<Self, Error> {
+    pub(crate) fn new(
+        index: &'a Index,
+        params: &'a ListParams,
+        stopped: Option<StoppedView>,
+    ) -> Result<Self, Error> {
         let collapse = filter(params.collapse.as_deref())?;
         let exclude = filter(params.exclude.as_deref())?;
         let mut options = ListOptions::default()
@@ -129,11 +136,11 @@ impl<'a> ListView<'a> {
         }
         let listing = index
             .list(&params.path, &options)
-            .map_err(|error| list_error(&error))?;
-        Ok(Self::of(&params.path, &listing))
+            .map_err(|error| list_error(&error, stopped))?;
+        Ok(Self::of(&params.path, &listing, stopped))
     }
 
-    fn of(path: &'a str, listing: &Listing<'a>) -> Self {
+    fn of(path: &'a str, listing: &Listing<'a>, stopped: Option<StoppedView>) -> Self {
         Self {
             path,
             entries: listing
@@ -154,16 +161,23 @@ impl<'a> ListView<'a> {
             truncated: listing.truncated(),
             excluded: listing.excluded(),
             total: listing.total(),
+            stopped_build: stopped,
         }
     }
 }
 
-fn list_error(error: &ListError) -> Error {
+fn list_error(error: &ListError, stopped: Option<StoppedView>) -> Error {
     let code = match error {
         ListError::NotADirectory { .. } => ErrorCode::NotADirectory,
         _ => ErrorCode::NotFound,
     };
-    Error::new(code, error.to_string())
+    let cut_short = stopped.is_some_and(|stopped| stopped.unvisited > 0);
+    let note = if cut_short {
+        "; a cancel stopped the walk short, so the tree may hold it"
+    } else {
+        ""
+    };
+    Error::new(code, format!("{error}{note}"))
 }
 
 #[derive(Debug, Serialize)]
@@ -172,10 +186,16 @@ pub(crate) struct GlobView {
     truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     excluded: Option<NonZeroUsize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stopped_build: Option<StoppedView>,
 }
 
 impl GlobView {
-    pub(crate) fn new(index: &Index, params: &GlobParams) -> Result<Self, Error> {
+    pub(crate) fn new(
+        index: &Index,
+        params: &GlobParams,
+        stopped: Option<StoppedView>,
+    ) -> Result<Self, Error> {
         let exclude = filter(params.exclude.as_deref())?;
         let filter = Filter::new(&params.globs)
             .map_err(|error| Error::new(ErrorCode::InvalidGlob, error.to_string()))?;
@@ -193,6 +213,7 @@ impl GlobView {
                 .collect(),
             truncated: found.truncated(),
             excluded: NonZeroUsize::new(found.excluded()),
+            stopped_build: stopped,
         })
     }
 }
@@ -203,6 +224,8 @@ pub(crate) struct FuzzyView {
     truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     matched: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stopped_build: Option<StoppedView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -212,7 +235,11 @@ struct FuzzyMatchView {
 }
 
 impl FuzzyView {
-    pub(crate) fn new(index: &Index, params: &FuzzyParams) -> Result<Self, Error> {
+    pub(crate) fn new(
+        index: &Index,
+        params: &FuzzyParams,
+        stopped: Option<StoppedView>,
+    ) -> Result<Self, Error> {
         let exclude = filter(params.exclude.as_deref())?;
         let filter = filter(params.globs.as_deref())?;
         let limit = NonZeroUsize::new(params.limit.unwrap_or(FUZZY_LIMIT));
@@ -243,6 +270,7 @@ impl FuzzyView {
                 .collect(),
             truncated,
             matched: ranked.matched(),
+            stopped_build: stopped,
         })
     }
 }
@@ -266,6 +294,8 @@ pub(crate) struct GrepView<'a> {
     ruled_out: usize,
     unsearched: usize,
     failures: Vec<GrepFailureView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stopped_build: Option<StoppedView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -330,7 +360,11 @@ impl GrepParams {
 }
 
 impl<'a> GrepView<'a> {
-    pub(crate) fn new(index: &Index, matches: &'a Matches<'_>) -> Self {
+    pub(crate) fn new(
+        index: &Index,
+        matches: &'a Matches<'_>,
+        stopped: Option<StoppedView>,
+    ) -> Self {
         let mut paths = index.paths();
         Self {
             files: matches
@@ -377,6 +411,7 @@ impl<'a> GrepView<'a> {
                     message: failure.error().to_string(),
                 })
                 .collect(),
+            stopped_build: stopped,
         }
     }
 }

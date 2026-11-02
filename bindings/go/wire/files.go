@@ -23,6 +23,8 @@ type Listing struct {
 	Excluded int `json:"excluded"`
 	// Total counts the entries the index holds under the directory, at every depth.
 	Total int `json:"total"`
+	// StoppedBuild is nil unless the answer reads a stopped build's index.
+	StoppedBuild *StoppedBuild `json:"stopped_build,omitempty"`
 }
 
 // Listed is one entry of a listing.
@@ -53,6 +55,8 @@ type Glob struct {
 	Truncated bool     `json:"truncated"`
 	// Excluded counts the matching paths Exclude left out before the answer ended.
 	Excluded int `json:"excluded,omitempty"`
+	// StoppedBuild is nil unless the answer reads a stopped build's index.
+	StoppedBuild *StoppedBuild `json:"stopped_build,omitempty"`
 }
 
 // FuzzyParams are the params of the fuzzy method.
@@ -73,6 +77,8 @@ type Fuzzy struct {
 	// Matched counts the paths that matched the query, those past the limit included; nil for an empty query, which
 	// is not counted.
 	Matched *int `json:"matched,omitempty"`
+	// StoppedBuild is nil unless the answer reads a stopped build's index.
+	StoppedBuild *StoppedBuild `json:"stopped_build,omitempty"`
 }
 
 // FuzzyMatch is a path a fuzzy query ranked.
@@ -128,6 +134,8 @@ type Grep struct {
 	RuledOut   int           `json:"ruled_out"`
 	Unsearched int           `json:"unsearched"`
 	Failures   []GrepFailure `json:"failures"`
+	// StoppedBuild is nil unless the answer reads a stopped build's index.
+	StoppedBuild *StoppedBuild `json:"stopped_build,omitempty"`
 }
 
 // GrepFile is a file holding a match, and its lines answered.

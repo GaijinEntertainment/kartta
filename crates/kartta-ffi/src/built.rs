@@ -1,15 +1,15 @@
 use std::path::Path;
-use std::sync::{PoisonError, RwLock};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use kartta::{
-    BuildError, BuildOptions, CancelToken, Engine, EngineRefresh, Followed, Follower, Graph,
-    Language, Unmatched, Watch,
+    BuildError, BuildOptions, CancelToken, Engine, EngineRefresh, Followed, Follower, Graph, Index,
+    Language, Stopped, Unmatched, Watch,
 };
 use serde::Serialize;
 
 use crate::error::{Error, ErrorCode};
 use crate::wire::graph::Wired;
-use crate::wire::{self, RefreshAnswer, StoredErrors};
+use crate::wire::{self, RefreshAnswer, StoppedView, StoredErrors};
 
 const NO_STAMPS: &str = concat!(
     "the build kept no stamps, so a refresh would read every file again and build every graph again while every ",
@@ -35,6 +35,56 @@ pub(crate) struct Built {
 pub(crate) struct Shared {
     pub(crate) built: RwLock<Built>,
     follow: CancelToken,
+}
+
+/// What the last build left on a handle: an engine, or the index of a build a cancel stopped.
+#[derive(Debug, Clone)]
+pub(crate) enum Held {
+    Built(Arc<Shared>),
+    Stopped(Arc<StoppedBuild>),
+}
+
+/// The index of a build a cancel stopped, which answers the file queries alone: it holds what the walk reached, and no
+/// graph, no follow and nothing a refresh could carry over.
+#[derive(Debug)]
+pub(crate) struct StoppedBuild {
+    pub(crate) index: Index,
+    pub(crate) errors: StoredErrors,
+    unvisited: usize,
+}
+
+impl StoppedBuild {
+    pub(crate) fn new(stopped: Stopped) -> Self {
+        let Stopped {
+            index,
+            errors,
+            unvisited,
+            ..
+        } = stopped;
+        Self {
+            errors: StoredErrors::new(index.root(), &errors),
+            index,
+            unvisited,
+        }
+    }
+
+    pub(crate) const fn view(&self) -> StoppedView {
+        StoppedView {
+            entries: self.index.len(),
+            unvisited: self.unvisited,
+        }
+    }
+
+    /// What the file queries answer from, as a failure's message says it.
+    pub(crate) fn answers(&self) -> String {
+        let StoppedView { entries, unvisited } = self.view();
+        let reached = if unvisited == 0 {
+            format!("the {entries} entries its walk reached")
+        } else {
+            format!("the {entries} entries its walk reached, and it turned {unvisited} away")
+        };
+        format!("glob, list, fuzzy, grep and stats answer from {reached}; call build for the rest")
+    }
 }
 
 impl Shared {

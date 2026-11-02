@@ -243,6 +243,22 @@ export type Stats = {
 	content_index_failure?: string;
 	errors: BuildErrors;
 	watch: Watch;
+	/** Present when the answer reads a stopped build's index, which leaves `languages` and `graphs` empty. */
+	stopped_build?: StoppedBuild;
+};
+
+/**
+ * A cancel stopped the last build, so the handle holds its index and no graph, and an answer that carries this lacks
+ * what that index lacks: a path it does not name may exist.
+ */
+export type StoppedBuild = {
+	/** The entries the index holds. */
+	entries: number;
+	/**
+	 * The entries the walk listed and the cancel turned away: a floor on what the index lacks, since one that is a
+	 * directory holds more. 0 when the cancel turned nothing away.
+	 */
+	unvisited: number;
 };
 
 /** What a build made of one language's files. */
@@ -1009,6 +1025,8 @@ export type Listing = {
 	excluded: number;
 	/** The entries the index holds under the directory, at every depth. */
 	total: number;
+	/** Present when the answer reads a stopped build's index. */
+	stopped_build?: StoppedBuild;
 };
 
 /** One entry of a listing. */
@@ -1039,6 +1057,8 @@ export type Glob = {
 	truncated: boolean;
 	/** The matching paths `exclude` left out before the answer ended; absent when none. */
 	excluded?: number;
+	/** Present when the answer reads a stopped build's index. */
+	stopped_build?: StoppedBuild;
 };
 
 /** The params of `fuzzy`. */
@@ -1061,6 +1081,8 @@ export type Fuzzy = {
 	 * counted.
 	 */
 	matched?: number;
+	/** Present when the answer reads a stopped build's index. */
+	stopped_build?: StoppedBuild;
 };
 
 /** The params of `grep`. */
@@ -1113,6 +1135,8 @@ export type Grep = {
 	ruled_out: number;
 	unsearched: number;
 	failures: Array<{path: string; message: string}>;
+	/** Present when the answer reads a stopped build's index. */
+	stopped_build?: StoppedBuild;
 };
 
 /** A matching line, or a line of context around one. */

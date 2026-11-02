@@ -3,27 +3,28 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
-use kartta::{BuildError, CancelToken};
+use kartta::{BuildError, CancelToken, Index, Language, Stopped};
 use serde::Serialize;
 
 use crate::ABI_VERSION;
-use crate::built::{BROKEN, Built, Shared};
+use crate::built::{BROKEN, Built, Held, Shared, StoppedBuild};
 use crate::error::{Error, ErrorCode};
-use crate::query::QUERIES;
+use crate::query::{FILE_QUERIES, QUERIES};
 use crate::wire::files::{GrepParams, GrepView};
 use crate::wire::{
     self, BuildParams, By, CancelAnswer, CancelParams, NoParams, OpenParams, RefreshParams,
-    StatsAnswer,
+    StatsAnswer, StoppedView,
 };
 
 /// One tree, and the engine its last finished build made of it: what a C handle points to.
 ///
 /// [`Kartta::open`] only names the tree. The `build` method walks it and builds the file index and every graph in one
 /// pass, and every other method that queries asks the engine that build left. Queries run concurrently with each other
-/// and with `cancel`; builds run one at a time, and a build drops the engine the handle held before it walks, so the
-/// handle never holds two and a query during the walk answers the code `building`. A query that was already
-/// running keeps the engine it asked until it returns. A build that fails or is cancelled leaves the handle without an
-/// engine, the file index included.
+/// and with `cancel`; builds run one at a time, and a build drops what the handle held before it walks, so the
+/// handle never holds two engines and a query during the walk answers the code `building`. A query that was already
+/// running keeps the engine it asked until it returns. A build that fails leaves the handle without an engine. A build
+/// a cancel stops leaves no engine, and the index of what it reached when that holds an entry, which answers `glob`,
+/// `list`, `fuzzy`, `grep` and `stats`, each saying so.
 ///
 /// The `refresh` method brings the engine up to the tree in place and holds it alone while it runs, so a query waits
 /// for a refresh under way, and refreshes run one at a time. A build cancels the refreshes in flight as it drops the
@@ -38,7 +39,7 @@ use crate::wire::{
 #[derive(Debug)]
 pub struct Kartta {
     root: PathBuf,
-    built: RwLock<Option<Arc<Shared>>>,
+    held: RwLock<Option<Held>>,
     builds: Mutex<Calls>,
     greps: Mutex<Calls>,
     refreshes: Mutex<Calls>,
@@ -103,7 +104,7 @@ impl Kartta {
         }
         Ok(Self {
             root,
-            built: RwLock::new(None),
+            held: RwLock::new(None),
             builds: Mutex::default(),
             greps: Mutex::default(),
             refreshes: Mutex::default(),
@@ -130,6 +131,20 @@ impl Kartta {
             "cancel" => wire::ok(&self.cancel(&wire::params(params)?)),
             "grep" => self.grep(&wire::params(params)?),
             "refresh" => self.refresh(&wire::params(params)?),
+            "stats" => {
+                let NoParams {} = wire::params(params)?;
+                match self.held()? {
+                    Held::Built(shared) => {
+                        let built = read(&shared)?;
+                        wire::ok(&StatsAnswer::new(
+                            &built.engine,
+                            &built.errors,
+                            built.watch.as_ref(),
+                        ))
+                    }
+                    Held::Stopped(stopped) => wire::ok(&StatsAnswer::stopped(&stopped)),
+                }
+            }
             "version" => {
                 let NoParams {} = wire::params(params)?;
                 wire::ok(&About {
@@ -140,6 +155,9 @@ impl Kartta {
                 })
             }
             _ => {
+                if let Some(&(_, query)) = FILE_QUERIES.iter().find(|(name, _)| *name == method) {
+                    return self.on_index(|index, stopped| query(index, stopped, params));
+                }
                 let Some(&(_, query)) = QUERIES.iter().find(|(name, _)| *name == method) else {
                     return Err(Error::new(
                         ErrorCode::UnknownMethod,
@@ -156,15 +174,22 @@ impl Kartta {
     }
 
     fn build(&self, params: &BuildParams) -> Result<Vec<u8>, Error> {
-        let languages = params.languages()?;
+        self.build_languages(params, params.languages()?)
+    }
+
+    fn build_languages(
+        &self,
+        params: &BuildParams,
+        languages: Vec<Box<dyn Language>>,
+    ) -> Result<Vec<u8>, Error> {
         let options = params.options()?;
 
         let (ticket, token) = lock(&self.builds).enter(params.id, params.binding_id);
         let _one_build = lock(&self.one_build_at_a_time);
         let mut refreshes = lock(&self.refreshes);
         refreshes.cancel(None);
-        let mut slot = self.built.write().unwrap_or_else(PoisonError::into_inner);
-        if let Some(replaced) = &*slot {
+        let mut slot = self.held.write().unwrap_or_else(PoisonError::into_inner);
+        if let Some(Held::Built(replaced)) = &*slot {
             replaced.unfollow();
         }
         *slot = None;
@@ -181,10 +206,7 @@ impl Kartta {
         let mut builds = lock(&self.builds);
         builds.leave(ticket);
         let (shared, follower) = match outcome {
-            Ok(Ok(_) | Err(BuildError::Stopped(_))) if token.is_cancelled() => Err(Error::new(
-                ErrorCode::BuildCancelled,
-                "a cancel stopped the build; the handle holds no index until a build finishes",
-            )),
+            Ok(Err(BuildError::Stopped(stopped))) => Err(self.keep(*stopped)),
             Ok(Ok(built)) => Ok(built),
             Ok(Err(error)) => Err(Error::new(ErrorCode::BuildFailed, error.to_string())),
             Err(payload) => Err(Error::panicked(payload.as_ref())),
@@ -201,24 +223,60 @@ impl Kartta {
                 built.watch.as_ref(),
             ))
         };
-        *self.built.write().unwrap_or_else(PoisonError::into_inner) = Some(shared);
+        self.hold(Held::Built(shared));
         drop(builds);
+        if token.is_cancelled() {
+            return Err(Error::new(
+                ErrorCode::BuildCancelled,
+                "the cancel came after the build finished; every query answers from it",
+            ));
+        }
         answer
     }
 
+    /// Holds what a cancel left of a build, unless its walk reached nothing, and answers the failure the build ends
+    /// with.
+    fn keep(&self, stopped: Stopped) -> Error {
+        if stopped.index.is_empty() {
+            return Error::new(
+                ErrorCode::BuildCancelled,
+                "a cancel stopped the build before its walk reached an entry; call build",
+            );
+        }
+        let stopped = StoppedBuild::new(stopped);
+        let message = format!("a cancel stopped the build; {}", stopped.answers());
+        self.hold(Held::Stopped(Arc::new(stopped)));
+        Error::new(ErrorCode::BuildCancelled, message)
+    }
+
+    fn hold(&self, held: Held) {
+        *self.held.write().unwrap_or_else(PoisonError::into_inner) = Some(held);
+    }
+
     fn grep(&self, params: &GrepParams) -> Result<Vec<u8>, Error> {
-        let built = self.built()?;
-        let built = read(&built)?;
-        let index = built.engine.index();
+        self.on_index(|index, stopped| {
+            let (ticket, token) = lock(&self.greps).enter(params.id, params.binding_id);
+            let searched = panic::catch_unwind(AssertUnwindSafe(|| params.search(index, &token)));
+            lock(&self.greps).leave(ticket);
 
-        let (ticket, token) = lock(&self.greps).enter(params.id, params.binding_id);
-        let searched = panic::catch_unwind(AssertUnwindSafe(|| params.search(index, &token)));
-        lock(&self.greps).leave(ticket);
+            let matches =
+                searched.unwrap_or_else(|payload| Err(Error::panicked(payload.as_ref())))?;
+            wire::ok(&GrepView::new(index, &matches, stopped))
+        })
+    }
 
-        let matches = searched.unwrap_or_else(|payload| Err(Error::panicked(payload.as_ref())))?;
-        let answer = wire::ok(&GrepView::new(index, &matches));
-        drop(built);
-        answer
+    /// What `ask` answers from the index the handle holds, told when that index is a stopped build's.
+    fn on_index(
+        &self,
+        ask: impl FnOnce(&Index, Option<StoppedView>) -> Result<Vec<u8>, Error>,
+    ) -> Result<Vec<u8>, Error> {
+        match self.held()? {
+            Held::Built(shared) => {
+                let built = read(&shared)?;
+                ask(built.engine.index(), None)
+            }
+            Held::Stopped(stopped) => ask(&stopped.index, Some(stopped.view())),
+        }
     }
 
     fn refresh(&self, params: &RefreshParams) -> Result<Vec<u8>, Error> {
@@ -254,14 +312,28 @@ impl Kartta {
         }
     }
 
+    /// The engine to answer from, or what names the fix when the handle holds no engine.
     fn built(&self) -> Result<Arc<Shared>, Error> {
-        if let Some(built) = self.finished() {
-            return Ok(built);
+        match self.held()? {
+            Held::Built(shared) => Ok(shared),
+            Held::Stopped(stopped) => Err(Error::new(
+                ErrorCode::NotBuilt,
+                format!(
+                    "a cancel stopped the last build, so this handle holds no graph; {}",
+                    stopped.answers()
+                ),
+            )),
+        }
+    }
+
+    fn held(&self) -> Result<Held, Error> {
+        if let Some(held) = self.finished() {
+            return Ok(held);
         }
         let idle = {
             let builds = lock(&self.builds);
-            if let Some(built) = self.finished() {
-                return Ok(built);
+            if let Some(held) = self.finished() {
+                return Ok(held);
             }
             builds.in_flight.is_empty()
         };
@@ -278,8 +350,8 @@ impl Kartta {
         }
     }
 
-    fn finished(&self) -> Option<Arc<Shared>> {
-        self.built
+    fn finished(&self) -> Option<Held> {
+        self.held
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
@@ -290,7 +362,9 @@ impl Kartta {
 /// with.
 impl Drop for Kartta {
     fn drop(&mut self) {
-        if let Some(shared) = &*self.built.get_mut().unwrap_or_else(PoisonError::into_inner) {
+        if let Some(Held::Built(shared)) =
+            &*self.held.get_mut().unwrap_or_else(PoisonError::into_inner)
+        {
             shared.unfollow();
         }
     }
@@ -306,9 +380,10 @@ fn broken() -> Error {
 }
 
 fn methods() -> Vec<&'static str> {
-    let mut methods: Vec<&'static str> = ["build", "cancel", "grep", "refresh", "version"]
+    let mut methods: Vec<&'static str> = ["build", "cancel", "grep", "refresh", "stats", "version"]
         .into_iter()
         .chain(QUERIES.iter().map(|&(name, _)| name))
+        .chain(FILE_QUERIES.iter().map(|&(name, _)| name))
         .collect();
     methods.sort_unstable();
     methods
@@ -381,10 +456,12 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use kartta::Followed;
+    use kartta::{Extraction, Followed, Language, RawExtraction, Repository, Resolver};
     use serde_json::Value;
 
-    use super::{By, CANCELLED_AHEAD_LIMIT, Calls, CancelParams, Kartta, Shared, lock};
+    use super::{
+        BuildParams, By, CANCELLED_AHEAD_LIMIT, Calls, CancelParams, Kartta, Shared, lock, wire,
+    };
 
     fn handle() -> (tempfile::TempDir, Kartta) {
         let tree = tempfile::tempdir().expect("a temporary directory");
@@ -403,7 +480,7 @@ mod tests {
     #[test]
     fn a_query_waits_while_the_engine_is_written() {
         let (tree, kartta) = built();
-        let engine = kartta.finished().expect("an engine");
+        let engine = kartta.built().expect("an engine");
         let mut written = engine.built.write().expect("the engine is not poisoned");
         let asking = Barrier::new(2);
 
@@ -431,7 +508,7 @@ mod tests {
     #[test]
     fn an_engine_a_panic_left_half_written_answers_internal_naming_build() {
         let (_tree, kartta) = built();
-        let engine = kartta.finished().expect("an engine");
+        let engine = kartta.built().expect("an engine");
         let panicked = panic::catch_unwind(AssertUnwindSafe(|| {
             let _written = engine.built.write().expect("the engine is not poisoned");
             panic!("halfway");
@@ -474,7 +551,7 @@ mod tests {
         let built: Value =
             serde_json::from_slice(&kartta.call("build", br#"{"watch": true}"#)).expect("JSON");
         assert_eq!(built["ok"]["watch"]["following"], true, "{built}");
-        kartta.finished().expect("an engine")
+        kartta.built().expect("an engine")
     }
 
     #[test]
@@ -590,5 +667,250 @@ mod tests {
 
         let (_, bound) = calls.enter(None, Some(1));
         assert!(bound.is_cancelled(), "the binding id was remembered apart");
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum CancelAt {
+        FirstFileRead,
+        ResolverBuilt,
+        Resolving,
+        ResolverPanics,
+    }
+
+    /// A language that cancels the build of id 1 on `.0` once the build comes to `.1`.
+    #[derive(Debug)]
+    struct Cancelling(Arc<Kartta>, CancelAt);
+
+    fn cancel_the_build(kartta: &Kartta) {
+        kartta.cancel(&CancelParams {
+            build: Some(1),
+            ..CancelParams::default()
+        });
+    }
+
+    struct Resolving(Option<Arc<Kartta>>);
+
+    impl Resolver for Resolving {
+        fn resolve(
+            &self,
+            raw: RawExtraction,
+            path: &str,
+            _repository: &dyn Repository,
+        ) -> Extraction {
+            if let Some(kartta) = &self.0 {
+                cancel_the_build(kartta);
+            }
+            raw.into_extraction(path).0
+        }
+    }
+
+    impl Language for Cancelling {
+        fn name(&self) -> &'static str {
+            "cancelling"
+        }
+
+        fn claims(&self, path: &str) -> bool {
+            path.rsplit('.').next() == Some("defs")
+        }
+
+        fn fingerprint(&self) -> &[u8] {
+            b"cancelling 1"
+        }
+
+        fn extract(&self, _source: &[u8]) -> RawExtraction {
+            if matches!(self.1, CancelAt::FirstFileRead) {
+                cancel_the_build(&self.0);
+            }
+            RawExtraction::default()
+        }
+
+        fn resolver(&self, _repository: &dyn Repository) -> Box<dyn Resolver> {
+            assert!(
+                !matches!(self.1, CancelAt::ResolverPanics),
+                "a bad resolver"
+            );
+            if matches!(self.1, CancelAt::ResolverBuilt) {
+                cancel_the_build(&self.0);
+            }
+            let cancelling = matches!(self.1, CancelAt::Resolving);
+            Box::new(Resolving(cancelling.then(|| Arc::clone(&self.0))))
+        }
+    }
+
+    /// A handle on a tree of `a.defs`, `b.defs` and `c/d.defs`, after a one-threaded build of id 1 that cancels itself
+    /// at `at`, and the build's answer.
+    fn cancelled_at(at: CancelAt) -> (tempfile::TempDir, Arc<Kartta>, Value) {
+        let (tree, kartta) = handle();
+        for (path, content) in [
+            ("a.defs", "needle\n"),
+            ("b.defs", "b\n"),
+            ("c/d.defs", "d\n"),
+        ] {
+            let path = tree.path().join(path);
+            fs::create_dir_all(path.parent().expect("a parent")).expect("the directory");
+            fs::write(path, content).expect("the file");
+        }
+        let kartta = Arc::new(kartta);
+        let params: BuildParams =
+            wire::params(br#"{"id": 1, "threads": 1}"#).expect("the params read");
+
+        let built = kartta
+            .build_languages(&params, vec![Box::new(Cancelling(Arc::clone(&kartta), at))])
+            .map_or_else(
+                |error| serde_json::to_value(&error).expect("JSON"),
+                |answer| serde_json::from_slice(&answer).expect("JSON"),
+            );
+
+        (tree, kartta, built)
+    }
+
+    fn asked(kartta: &Kartta, method: &str, params: &str) -> Value {
+        serde_json::from_slice(&kartta.call(method, params.as_bytes())).expect("JSON")
+    }
+
+    #[test]
+    fn a_cancel_in_the_walk_leaves_each_file_query_answering_what_it_reached_and_saying_so() {
+        let (_tree, kartta, built) = cancelled_at(CancelAt::FirstFileRead);
+        let stopped = serde_json::json!({ "entries": 1, "unvisited": 2 });
+
+        assert_eq!(built["code"], "build_cancelled", "{built}");
+        let glob = asked(&kartta, "glob", r#"{"globs": ["**"]}"#);
+        assert_eq!(glob["ok"]["paths"], serde_json::json!(["a.defs"]), "{glob}");
+        assert_eq!(glob["ok"]["stopped_build"], stopped);
+        let list = asked(&kartta, "list", "{}");
+        assert_eq!(list["ok"]["total"], 1, "{list}");
+        assert_eq!(list["ok"]["stopped_build"], stopped);
+        let fuzzy = asked(&kartta, "fuzzy", r#"{"query": "a"}"#);
+        assert_eq!(fuzzy["ok"]["matches"][0]["path"], "a.defs", "{fuzzy}");
+        assert_eq!(fuzzy["ok"]["stopped_build"], stopped);
+        let grep = asked(&kartta, "grep", r#"{"patterns": ["needle"]}"#);
+        assert_eq!(grep["ok"]["lines"], 1, "{grep}");
+        assert_eq!(grep["ok"]["stopped_build"], stopped);
+        let stats = asked(&kartta, "stats", "");
+        assert_eq!(stats["ok"]["entries"], 1, "{stats}");
+        assert_eq!(stats["ok"]["graphs"], serde_json::json!([]));
+        assert_eq!(stats["ok"]["stopped_build"], stopped);
+    }
+
+    #[test]
+    fn a_method_a_stopped_build_cannot_answer_says_what_the_handle_still_answers() {
+        let (_tree, kartta, built) = cancelled_at(CancelAt::FirstFileRead);
+
+        for answer in [
+            asked(&kartta, "callers", r#"{"name": "main"}"#),
+            asked(&kartta, "refresh", ""),
+        ] {
+            assert_eq!(answer["err"]["code"], "not_built", "{answer}");
+            let message = answer["err"]["message"].as_str().expect("a message");
+            assert!(message.contains("glob, list"), "{message}");
+            assert!(
+                message.contains("the 1 entries its walk reached"),
+                "{message}"
+            );
+            assert!(message.contains("turned 2 away"), "{message}");
+        }
+        assert!(
+            built["message"]
+                .as_str()
+                .expect("a message")
+                .contains("the 1 entries its walk reached"),
+            "{built}"
+        );
+    }
+
+    #[test]
+    fn a_path_a_stopped_walk_never_reached_answers_not_found_and_says_the_tree_may_hold_it() {
+        let (_tree, kartta, _) = cancelled_at(CancelAt::FirstFileRead);
+
+        let answer = asked(&kartta, "list", r#"{"path": "c/d.defs"}"#);
+
+        assert_eq!(answer["err"]["code"], "not_found", "{answer}");
+        let message = answer["err"]["message"].as_str().expect("a message");
+        assert!(message.contains("the tree may hold it"), "{message}");
+    }
+
+    #[test]
+    fn a_cancel_past_the_walk_leaves_the_file_queries_the_whole_tree() {
+        let (_tree, kartta, built) = cancelled_at(CancelAt::ResolverBuilt);
+
+        assert_eq!(built["code"], "build_cancelled", "{built}");
+        let glob = asked(&kartta, "glob", r#"{"globs": ["**/*.defs"]}"#);
+        assert_eq!(
+            glob["ok"]["paths"],
+            serde_json::json!(["a.defs", "b.defs", "c/d.defs"]),
+            "{glob}"
+        );
+        assert_eq!(
+            glob["ok"]["stopped_build"],
+            serde_json::json!({ "entries": 4, "unvisited": 0 })
+        );
+        let list = asked(&kartta, "list", r#"{"path": "missing"}"#);
+        let message = list["err"]["message"].as_str().expect("a message");
+        assert!(!message.contains("may hold"), "{message}");
+        assert_eq!(
+            asked(&kartta, "callers", r#"{"name": "main"}"#)["err"]["code"],
+            "not_built"
+        );
+    }
+
+    #[test]
+    fn a_cancel_after_the_last_file_resolved_answers_build_cancelled_and_every_query_answers() {
+        let (_tree, kartta, built) = cancelled_at(CancelAt::Resolving);
+
+        assert_eq!(built["code"], "build_cancelled", "{built}");
+        let glob = asked(&kartta, "glob", r#"{"globs": ["**/*.defs"]}"#);
+        assert!(glob["ok"].get("stopped_build").is_none(), "{glob}");
+        let stats = asked(&kartta, "stats", "");
+        assert!(stats["ok"].get("stopped_build").is_none(), "{stats}");
+        assert_eq!(stats["ok"]["graphs"][0]["files"], 3, "{stats}");
+        assert!(
+            asked(&kartta, "callers", r#"{"name": "main"}"#)
+                .get("ok")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_panic_past_the_walk_loses_the_whole_index_it_held() {
+        let (_tree, kartta, built) = cancelled_at(CancelAt::ResolverPanics);
+
+        assert_eq!(built["code"], "internal", "{built}");
+        let glob = asked(&kartta, "glob", r#"{"globs": ["**"]}"#);
+        assert_eq!(glob["err"]["code"], "not_built", "{glob}");
+    }
+
+    #[test]
+    fn a_build_replaces_what_a_stopped_build_left() {
+        let (_tree, kartta, _) = cancelled_at(CancelAt::FirstFileRead);
+
+        let rebuilt = asked(&kartta, "build", "");
+
+        assert!(rebuilt.get("ok").is_some(), "{rebuilt}");
+        assert!(rebuilt["ok"].get("stopped_build").is_none(), "{rebuilt}");
+        let glob = asked(&kartta, "glob", r#"{"globs": ["**/*.defs"]}"#);
+        assert_eq!(
+            glob["ok"]["paths"].as_array().map(Vec::len),
+            Some(3),
+            "{glob}"
+        );
+        assert!(glob["ok"].get("stopped_build").is_none(), "{glob}");
+    }
+
+    #[test]
+    fn a_failed_build_leaves_nothing_of_what_a_stopped_build_left() {
+        let (tree, kartta, _) = cancelled_at(CancelAt::FirstFileRead);
+        let root = tree.path().to_owned();
+        tree.close().expect("the tree goes");
+
+        let failed = asked(&kartta, "build", "");
+
+        assert_eq!(
+            failed["err"]["code"],
+            "build_failed",
+            "{failed} at {}",
+            root.display()
+        );
+        let glob = asked(&kartta, "glob", r#"{"globs": ["**"]}"#);
+        assert_eq!(glob["err"]["code"], "not_built", "{glob}");
     }
 }

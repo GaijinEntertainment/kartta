@@ -129,9 +129,12 @@ export class Kartta {
 	 * ending its watch. With `watch` set, the index follows the tree until the next build or `close`.
 	 *
 	 * Once `signal` aborts, a build still running stops and rejects with `build_cancelled`, the signal's reason its
-	 * cause; one that finished first answers its stats, and the handle holds what it built. A build that fails or stops
-	 * leaves the handle without an index until the next one finishes. A signal aborted before the call rejects with its
-	 * reason alone and leaves the handle as it was.
+	 * cause; one that finished first answers its stats, and the handle holds what it built. A cancel past the last file
+	 * rejects the same way, and the handle holds the whole engine. A build that fails leaves the handle without an index
+	 * until the next one finishes. One that stops leaves the index of what it reached, and `stats` and the file queries
+	 * answer from it, each naming it in `stopped_build`, until the next one begins; one that reached no entry leaves
+	 * nothing, so they reject with `not_built`. A signal aborted before the call
+	 * rejects with its reason alone and leaves the handle as it was.
 	 */
 	async build(options: BuildOptions = {}, {signal}: {signal?: AbortSignal} = {}): Promise<Stats> {
 		// SAFETY: the dispatch answers `build` with the wire's stats, which the golden files pin.
