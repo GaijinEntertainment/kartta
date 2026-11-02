@@ -1137,6 +1137,127 @@ fn a_rust_type_s_references_say_that_its_uses_as_a_type_go_unrecorded() {
     assert_eq!(rust["type_uses_unrecorded"], true, "{rust}");
 }
 
+/// One file of each language that states a data kind unrecorded, reading and writing a symbol of each kind it states.
+const UNRECORDED_DATA: [(&str, &str); 6] = [
+    (
+        "fields.rs",
+        "pub struct Point { pub x: u32 }\n\
+         pub fn shift(p: &mut Point) -> u32 {\n    p.x += 1;\n    p.x\n}\n",
+    ),
+    (
+        "script.sh",
+        "LOG=/tmp/log\nrun() {\n  echo \"$LOG\" >> \"${LOG}\"\n  LOG=other\n}\n",
+    ),
+    (
+        "data.das",
+        "options gen2\nlet {\n  LIMIT = 10\n}\nvar {\n  counter : int\n}\nstruct Pair {\n  first : int\n}\n\
+         def bump(var p : Pair) : int {\n  counter += LIMIT\n  p.first = counter\n  return p.first\n}\n",
+    ),
+    (
+        "fog.dshl",
+        "shader s { int mode = 1; if (mode == 1) { dont_render; } }\n",
+    ),
+    (
+        "feed.php",
+        "<?php\nconst TOP = 1;\nclass Feed {\n    const MAX = 10;\n    private $count = 0;\n\
+         public function bump() {\n        $this->count += self::MAX + TOP;\n        return Feed::MAX;\n    }\n}\n",
+    ),
+    (
+        "feed.rb",
+        "class Stream\n  CAP = 10\n  def limit\n    CAP + Stream::CAP\n  end\nend\n",
+    ),
+];
+
+#[test]
+fn every_data_kind_a_language_states_unrecorded_flags_its_references() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    for (file, source) in UNRECORDED_DATA {
+        fs::write(tree.path().join(file), source).expect("a source file");
+    }
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    for (graph, name, kind) in [
+        ("rust", "x", "field"),
+        ("bash", "LOG", "var"),
+        ("daslang", "LIMIT", "const"),
+        ("daslang", "counter", "var"),
+        ("daslang", "first", "field"),
+        ("dshl", "mode", "field"),
+        ("php", "TOP", "const"),
+        ("php", "MAX", "const"),
+        ("php", "count", "field"),
+        ("ruby", "CAP", "const"),
+    ] {
+        let answer = ok(
+            &kartta,
+            "references",
+            &json!({ "name": name, "lang": graph }),
+        );
+
+        let found = part(&answer, graph);
+        assert_eq!(found["symbol"]["kind"], kind, "{graph} {name}: {found}");
+        assert_eq!(found["total"], 0, "{graph} {name}: {found}");
+        assert_eq!(
+            found["data_uses_unrecorded"], true,
+            "{graph} {name}: {found}"
+        );
+    }
+}
+
+#[test]
+fn a_rust_field_with_no_recorded_site_is_told_from_an_unused_constant() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("point.rs"),
+        "pub const UNUSED: u32 = 0;\npub struct Point { pub x: u32 }\n\
+         pub fn read(p: &Point) -> u32 {\n    p.x\n}\n",
+    )
+    .expect("point.rs");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let field = ok(&kartta, "references", &json!({ "name": "x" }));
+    let constant = ok(&kartta, "references", &json!({ "name": "UNUSED" }));
+
+    let field = part(&field, "rust");
+    assert_eq!(field["total"], 0, "{field}");
+    assert_eq!(field["data_uses_unrecorded"], true, "{field}");
+    let constant = part(&constant, "rust");
+    assert_eq!(constant["total"], 0, "{constant}");
+    assert_eq!(keys(constant), REFERENCES_KEYS, "{constant}");
+}
+
+#[test]
+fn a_type_of_a_language_that_states_a_data_kind_carries_only_the_type_flag() {
+    let (_tree, kartta) = index_in_rust_and_go();
+
+    let answer = ok(&kartta, "references", &json!({ "name": "Index" }));
+
+    let rust = part(&answer, "rust");
+    assert_eq!(rust["type_uses_unrecorded"], true, "{rust}");
+    assert_eq!(rust.get("data_uses_unrecorded"), None, "{rust}");
+}
+
+#[test]
+fn a_field_of_a_language_that_records_field_uses_carries_no_data_flag() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("point.go"),
+        "package point\n\ntype Point struct{ X int }\n\nfunc Read(p Point) int { return p.X }\n",
+    )
+    .expect("point.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let answer = ok(&kartta, "references", &json!({ "name": "X" }));
+
+    let go = part(&answer, "go");
+    assert_eq!(go["symbol"]["kind"], "field", "{go}");
+    assert_eq!(go["total"], 1, "{go}");
+    assert_eq!(keys(go), REFERENCES_KEYS, "{go}");
+}
+
 #[test]
 fn a_go_type_s_references_and_a_rust_function_s_carry_no_new_key() {
     let (_tree, kartta) = index_in_rust_and_go();
