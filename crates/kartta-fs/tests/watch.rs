@@ -69,14 +69,30 @@ fn refresh_under(index: &mut Index, watcher: &mut Watcher, changes: &[String]) {
     followed.expect("watch what the refresh took in");
 }
 
-fn follow(watcher: &mut Watcher, index: &mut Index) {
+fn follow(watcher: &mut Watcher, index: &mut Index) -> Vec<String> {
+    let mut handed = Vec::new();
     loop {
         let changes = watcher.wait(Duration::from_secs(1)).expect("wait");
         if changes.is_empty() {
-            return;
+            return handed;
         }
         refresh_under(index, watcher, &changes);
+        handed.extend(changes);
     }
+}
+
+// constraint: a drain leaves to a later wait what the system reports after it, as FSEvents reports a change made in a
+// stream's first moments, so a test of a change made during the walk reads on until `wanted` came and the tree is quiet
+fn caught_up(watcher: &mut Watcher, index: &mut Index, wanted: &str) -> Vec<String> {
+    let mut handed = watcher.drain().expect("drain");
+    refresh_under(index, watcher, &handed);
+    if !handed.iter().any(|path| path == wanted) {
+        let late = wait_for(watcher, wanted);
+        refresh_under(index, watcher, &late);
+        handed.extend(late);
+    }
+    handed.extend(follow(watcher, index));
+    handed
 }
 
 /// Writes `writes` into the tree the first time the build asks it about the file at `at`, while the walk is in that
@@ -124,12 +140,8 @@ fn a_change_made_while_the_build_walks_is_handed_over_once_it_is_built() {
     let hook = WritesMidWalk::new(dir.path(), "src/b.rs", &writes);
     let (mut index, mut watcher) = watched_with(dir.path(), &BuildOptions::default(), Some(&hook));
 
-    let handed = watcher.drain().expect("drain");
-    let outcome = index
-        .refresh_paths(handed.iter().map(String::as_str), None, None)
-        .expect("refresh what was handed over");
+    let handed = caught_up(&mut watcher, &mut index, "a.rs");
 
-    assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     assert!(handed.iter().any(|path| path == "a.rs"), "{handed:?}");
     assert_eq!(shown(&index), shown(&build(dir.path())));
 }
@@ -234,8 +246,7 @@ fn a_watched_refresh_hands_over_what_changed_while_it_walked_and_watches_what_it
         .refresh_watched(Some(&hook), None)
         .expect("refresh the tree");
     let mut watcher = watcher.expect("start watching");
-    let handed = watcher.drain().expect("drain");
-    refresh_under(&mut index, &mut watcher, &handed);
+    let handed = caught_up(&mut watcher, &mut index, "early/deep/c.rs");
 
     assert!(outcome.errors.is_empty(), "{:?}", outcome.errors);
     assert!(
