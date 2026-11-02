@@ -651,6 +651,42 @@ fn cancellation_truncates_the_walk_and_reports_it() {
         !outcome.tree.is_empty(),
         "what was classified before the stop is recorded"
     );
+    assert_eq!(
+        outcome.unvisited, 3,
+        "z.txt, and dir/b.txt and dir/nested, which the walk listed on its way out; dir/nested/c.txt it never listed"
+    );
+}
+
+#[test]
+fn a_cancel_at_the_first_entry_turns_the_rest_of_its_listing_away() {
+    let dir = fixture();
+    let token = CancelToken::new();
+    let policy = CancelAfter {
+        token: token.clone(),
+        after: 0,
+        seen: AtomicUsize::new(0),
+    };
+    let mut options = WalkOptions::default();
+    options.cancel_token = Some(token);
+
+    let outcome = on_threads(1, || {
+        walk(dir.path(), &policy, &(), &options).expect("walk")
+    });
+
+    assert_eq!(render(&outcome.tree), ["a.txt File"]);
+    assert_eq!(
+        outcome.unvisited, 3,
+        "dir, empty and z.txt were listed and turned away, and what dir holds was never listed"
+    );
+}
+
+#[test]
+fn a_walk_that_saw_every_entry_counts_nothing_unvisited() {
+    let dir = fixture();
+
+    let outcome = walk(dir.path(), &Everything, &(), &WalkOptions::default()).expect("walk");
+
+    assert_eq!(outcome.unvisited, 0);
 }
 
 #[test]
