@@ -10,7 +10,8 @@
 		"directory": "bindings/node/npm/darwin-arm64"
 	},
 	"files": [
-		"kartta.darwin-arm64.node"
+		"kartta.darwin-arm64.node",
+		"THIRD-PARTY-NOTICES.txt"
 	],
 	"os": [
 		"darwin"
@@ -19,6 +20,9 @@
 		"arm64"
 	],
 	"main": "kartta.darwin-arm64.node",
+	"scripts": {
+		"prepack": "node ../../scripts/stage.ts darwin-arm64"
+	},
 	"engines": {
 		"node": ">=24"
 	}

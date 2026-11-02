@@ -1,0 +1,32 @@
+{
+	"name": "kartta-linux-x64-musl",
+	"version": "0.0.0",
+	"description": "The addon of the kartta package for Linux on x64 with musl",
+	"license": "MIT",
+	"author": "Gaijin Entertainment",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/GaijinEntertainment/kartta.git",
+		"directory": "bindings/node/npm/linux-x64-musl"
+	},
+	"files": [
+		"kartta.linux-x64-musl.node",
+		"THIRD-PARTY-NOTICES.txt"
+	],
+	"os": [
+		"linux"
+	],
+	"cpu": [
+		"x64"
+	],
+	"libc": [
+		"musl"
+	],
+	"main": "kartta.linux-x64-musl.node",
+	"scripts": {
+		"prepack": "node ../../scripts/stage.ts linux-x64-musl"
+	},
+	"engines": {
+		"node": ">=24"
+	}
+}
