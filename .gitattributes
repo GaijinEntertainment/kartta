@@ -11,3 +11,4 @@
 crates/tree-sitter-*/src/parser.c linguist-generated=true
 crates/tree-sitter-*/src/grammar.json linguist-generated=true
 crates/tree-sitter-*/src/node-types.json linguist-generated=true
+notices/THIRD-PARTY-NOTICES.txt linguist-generated=true
