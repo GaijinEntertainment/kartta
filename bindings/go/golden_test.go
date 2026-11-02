@@ -11,7 +11,7 @@ import (
 	"slices"
 	"testing"
 
-	"dev.gaijin.team/go/kartta/kartta"
+	"dev.gaijin.team/go/kartta"
 	"dev.gaijin.team/go/kartta/wire"
 )
 
@@ -84,7 +84,7 @@ func scoresAgree(answer, pinned any) bool {
 }
 
 func Test_golden(t *testing.T) {
-	tests, err := filepath.Abs(filepath.Join("..", "..", "..", "crates", "kartta-ffi", "tests"))
+	tests, err := filepath.Abs(filepath.Join("..", "..", "crates", "kartta-ffi", "tests"))
 	if err != nil {
 		t.Fatal(err)
 	}

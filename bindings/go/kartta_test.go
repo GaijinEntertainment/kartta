@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"dev.gaijin.team/go/kartta/kartta"
+	"dev.gaijin.team/go/kartta"
 	"dev.gaijin.team/go/kartta/wire"
 )
 
