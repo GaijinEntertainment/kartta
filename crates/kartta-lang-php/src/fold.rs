@@ -19,24 +19,58 @@ const UP_MARKER: &str = "\u{1}U";
 // constants in any letter case and lowers a function's name before its lookup, so those names match in any ASCII case,
 // while it compares a named argument's name exactly
 pub(crate) fn fold(node: Node<'_>, source: &[u8]) -> Option<String> {
+    let mut steps = vec![Step::Fold(node)];
+    let mut folded = Vec::new();
+    while let Some(step) = steps.pop() {
+        match step {
+            Step::Fold(node) => match node.kind() {
+                "parenthesized_expression" => steps.push(Step::Fold(node.named_child(0)?)),
+                "binary_expression" => {
+                    let operator = node.child_by_field_name("operator")?;
+                    if &source[operator.byte_range()] != b"." {
+                        return None;
+                    }
+                    steps.push(Step::Join);
+                    steps.push(Step::Fold(node.child_by_field_name("right")?));
+                    steps.push(Step::Fold(node.child_by_field_name("left")?));
+                }
+                "function_call_expression" => {
+                    let (path, levels) = dirname(node, source)?;
+                    steps.push(Step::Climb(levels));
+                    steps.push(Step::Fold(path));
+                }
+                _ => folded.push(leaf(node, source)?),
+            },
+            Step::Join => {
+                let right = folded.pop()?;
+                folded.last_mut()?.push_str(&right);
+            }
+            Step::Climb(levels) => {
+                let path = folded.last_mut()?;
+                for _ in 0..levels.get() {
+                    *path = dirname_once(path);
+                }
+            }
+        }
+    }
+    folded.pop()
+}
+
+/// What [`fold`] does next: fold a node onto the folded values, join the last two, or climb from the last.
+enum Step<'t> {
+    Fold(Node<'t>),
+    Join,
+    Climb(NonZeroU8),
+}
+
+fn leaf(node: Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
-        "parenthesized_expression" => fold(node.named_child(0)?, source),
         "string" | "encapsed_string" => string_literal(node, source),
         "name" => match &source[node.byte_range()] {
             name if name.eq_ignore_ascii_case(b"__DIR__") => Some(DIR_MARKER.to_owned()),
             name if name.eq_ignore_ascii_case(b"__FILE__") => Some(FILE_MARKER.to_owned()),
             _ => None,
         },
-        "binary_expression" => {
-            let operator = node.child_by_field_name("operator")?;
-            if &source[operator.byte_range()] != b"." {
-                return None;
-            }
-            let left = fold(node.child_by_field_name("left")?, source)?;
-            let right = fold(node.child_by_field_name("right")?, source)?;
-            Some(left + &right)
-        }
-        "function_call_expression" => dirname(node, source),
         _ => None,
     }
 }
@@ -92,7 +126,7 @@ fn string_literal(node: Node<'_>, source: &[u8]) -> Option<String> {
 // constraint: PHP's `dirname` is lexical: it strips trailing separators and cuts at the last `/` as written, so the
 // fold cuts itself wherever that `/` follows the last marker, and defers a climb only where the cut would fall inside
 // a marker; `dirname(__FILE__)` is `__DIR__`, and `levels` applies it that many times
-fn dirname(call: Node<'_>, source: &[u8]) -> Option<String> {
+fn dirname<'t>(call: Node<'t>, source: &[u8]) -> Option<(Node<'t>, NonZeroU8)> {
     let function = call.child_by_field_name("function")?;
     // constraint: PHP resolves `\dirname` to the global function in any namespace, and `Foo\dirname` into `Foo`; the
     // fold does not read the namespace `namespace\dirname` depends on, so it folds that to nothing
@@ -107,12 +141,7 @@ fn dirname(call: Node<'_>, source: &[u8]) -> Option<String> {
         None => NonZeroU8::MIN,
     };
 
-    let mut folded = fold(path, source)?;
-    for _ in 0..levels.get() {
-        folded = dirname_once(&folded);
-    }
-
-    Some(folded)
+    Some((path, levels))
 }
 
 // constraint: PHP binds `dirname`'s arguments by position or by the names `path` and `levels`, and refuses a third
