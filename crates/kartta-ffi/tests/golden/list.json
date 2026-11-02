@@ -5,12 +5,12 @@
         {
           "kind": "dir",
           "path": "cpp",
-          "unlisted": 3
+          "unlisted": 4
         },
         {
           "kind": "dir",
           "path": "go",
-          "unlisted": 4
+          "unlisted": 7
         },
         {
           "binary": false,
@@ -21,7 +21,7 @@
       ],
       "excluded": 0,
       "path": "",
-      "total": 12,
+      "total": 16,
       "truncated": true
     }
   },

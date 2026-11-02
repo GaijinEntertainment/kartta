@@ -1,0 +1,38 @@
+{
+  "answer": {
+    "ok": {
+      "from_unmatched": {
+        "kind": "outside_prefix",
+        "listed": [
+          {
+            "definition": {
+              "end_line": 5,
+              "exported": false,
+              "file": "go/main.go",
+              "flags": [
+                "entry"
+              ],
+              "kind": "func",
+              "line": 3,
+              "name": "main",
+              "qualified_name": "main.main",
+              "signature": "func main()"
+            },
+            "graph": "go"
+          }
+        ],
+        "total": 1
+      },
+      "matches": []
+    }
+  },
+  "method": "call_path",
+  "params": {
+    "depth": 4,
+    "from": "main",
+    "from_path_prefix": "cpp/",
+    "max_symbols": 100,
+    "min_confidence": 1,
+    "to": "helper"
+  }
+}

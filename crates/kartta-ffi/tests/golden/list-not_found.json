@@ -1,0 +1,12 @@
+{
+  "answer": {
+    "err": {
+      "code": "not_found",
+      "message": "nothing is indexed at \"no/such/directory\""
+    }
+  },
+  "method": "list",
+  "params": {
+    "path": "no/such/directory"
+  }
+}

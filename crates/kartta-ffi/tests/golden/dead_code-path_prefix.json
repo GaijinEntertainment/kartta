@@ -1,0 +1,78 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "excluded": {
+            "dispatched": 0,
+            "entry": 0,
+            "generated": 0,
+            "kind": 0,
+            "reflected": 0,
+            "test": 0,
+            "uncertain": 0,
+            "unobservable": 0,
+            "vendored": 0
+          },
+          "found": [],
+          "graph": "go",
+          "live": 0,
+          "total": 0
+        },
+        {
+          "excluded": {
+            "dispatched": 0,
+            "entry": 1,
+            "generated": 0,
+            "kind": 0,
+            "reflected": 0,
+            "test": 0,
+            "uncertain": 0,
+            "unobservable": 3,
+            "vendored": 0
+          },
+          "found": [
+            {
+              "definition": {
+                "end_line": 9,
+                "exported": true,
+                "file": "cpp/circle.cpp",
+                "kind": "func",
+                "line": 7,
+                "name": "total",
+                "qualified_name": "total",
+                "signature": "double total(const Circle &circle)"
+              },
+              "spelled": false
+            }
+          ],
+          "graph": "cpp",
+          "live": 2,
+          "total": 3
+        },
+        {
+          "excluded": {
+            "dispatched": 0,
+            "entry": 0,
+            "generated": 0,
+            "kind": 0,
+            "reflected": 0,
+            "test": 0,
+            "uncertain": 0,
+            "unobservable": 0,
+            "vendored": 0
+          },
+          "found": [],
+          "graph": "rust",
+          "live": 0,
+          "total": 0
+        }
+      ]
+    }
+  },
+  "method": "dead_code",
+  "params": {
+    "limit": 1,
+    "path_prefix": "cpp/"
+  }
+}
