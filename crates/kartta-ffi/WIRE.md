@@ -188,13 +188,18 @@ Also what `kartta_open` writes to its error out-parameter.
   or params that are not JSON.
 - `invalid_root`: `kartta_open` could not read the root's metadata, or the root is not a directory.
 - `no_stamps`: The build kept no stamps, so a refresh is refused.
-- `not_a_directory`: `list` names a path that is not a directory.
 - `not_built`: No build has finished, or the last one failed, or a cancel stopped it and the method needs more than its
   index; the message then says what still answers.
-- `not_found`: `list` names a path the index does not hold.
 - `refresh_cancelled`: A cancel stopped the refresh; the engine answers as it did before it.
 - `refresh_failed`: The refresh stopped on a failure; the engine answers as it did before it.
 - `unknown_method`: No method of the name; the message lists the methods.
+
+### ListErrorCode
+
+The codes of `list`, beside those of [`ErrorCode`](#errorcode).
+
+- `not_a_directory`: The path is not a directory.
+- `not_found`: The index does not hold the path.
 
 ## Params
 
@@ -1081,14 +1086,19 @@ A candidate is a regular file the filter selected and the exclusion kept. Each l
 
 ### FailureKind
 
+Each value is the engine's label. From `cancelled` on, a failure stops the call, so an
+[`ErrorCode`](#errorcode) answers it and no entry of `errors` holds it.
+
 - `walk`: The walk failed, for one directory or entry.
 - `ignore`: A `.gitignore` exists but could not be read, so the index holds every entry it would have hidden.
 - `name`: An entry's name is not valid UTF-8, so it was not indexed, and a directory takes its subtree with it.
 - `read`: A file could not be read, so its content is missing; the entry is still indexed.
-- `content_index`: The content index failed.
-- `cancelled`: A cancel stopped the work.
 - `cache`: The content cache failed.
-- `other`: Anything else.
+- `content_index`: The content index failed: the build holds what else it made and no content index.
+- `cancelled`: A cancel stopped the work.
+- `thread_pool`: The index's thread pool could not start.
+- `content_ids_exhausted`: The index has no content ids left to number the files a refresh reads.
+- `outside_tree`: A path given to `refresh` may lead outside the tree.
 
 ### LineKind
 

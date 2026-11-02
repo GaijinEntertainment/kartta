@@ -204,7 +204,8 @@ type BuildErrors struct {
 
 // BuildFailure is one failure a build collected.
 type BuildFailure struct {
-	// Kind is walk, ignore, name, read, content_index, cache or other.
+	// Kind is walk, ignore, name, read, content_index or cache; a failure of any other kind stops the call and answers
+	// its code.
 	Kind string `json:"kind"`
 	// Path is the path that failed, as the system spells it. One in the tree starts with the root as Open was given it.
 	Path string `json:"path,omitempty"`

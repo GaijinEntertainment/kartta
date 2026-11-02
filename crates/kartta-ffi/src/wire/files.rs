@@ -167,17 +167,13 @@ impl<'a> ListView<'a> {
 }
 
 fn list_error(error: &ListError, stopped: Option<StoppedView>) -> Error {
-    let code = match error {
-        ListError::NotADirectory { .. } => ErrorCode::NotADirectory,
-        _ => ErrorCode::NotFound,
-    };
     let cut_short = stopped.is_some_and(|stopped| stopped.unvisited > 0);
     let note = if cut_short {
         "; a cancel stopped the walk short, so the tree may hold it"
     } else {
         ""
     };
-    Error::new(code, format!("{error}{note}"))
+    Error::new(ErrorCode::Listing(error.label()), format!("{error}{note}"))
 }
 
 #[derive(Debug, Serialize)]

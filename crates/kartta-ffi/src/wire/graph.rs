@@ -8,6 +8,7 @@ use kartta::{
     Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SelfCall, SiteCounts,
     Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched, UnmatchedKind, Walk,
 };
+
 use serde::{Serialize, Serializer};
 
 pub(crate) trait Wire {
@@ -115,33 +116,18 @@ mod label {
         nearness: &Nearness,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(match nearness {
-            Nearness::SameDirectory => "same_directory",
-            _ => "elsewhere",
-        })
+        serializer.serialize_str(nearness.label())
     }
 
     pub(super) fn miss<S: Serializer>(miss: &Miss, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(match miss {
-            Miss::ExternalImport => "external_import",
-            Miss::NotExported => "not_exported",
-            Miss::Undefined => "undefined",
-            Miss::NotAdmitted => "not_admitted",
-            Miss::PastBound => "past_bound",
-            _ => "ambiguous",
-        })
+        serializer.serialize_str(miss.label())
     }
 
     pub(super) fn unmatched<S: Serializer>(
         kind: &UnmatchedKind,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(match kind {
-            UnmatchedKind::Several => "several",
-            UnmatchedKind::OffLine => "off_line",
-            UnmatchedKind::OneEdit => "one_edit",
-            _ => "outside_prefix",
-        })
+        serializer.serialize_str(kind.label())
     }
 
     const fn set(flags: SymbolFlags) -> [(&'static str, bool); 4] {
