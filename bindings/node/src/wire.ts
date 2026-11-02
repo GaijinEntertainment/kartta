@@ -239,6 +239,8 @@ export type Stats = {
 	graphs: GraphStats[];
 	/** Absent when the build made no content index. */
 	content_index?: ContentIndexStats;
+	/** Why the build made no content index though it was asked for one; a build tries again, and a refresh does not. */
+	content_index_failure?: string;
 	errors: BuildErrors;
 	watch: Watch;
 };
