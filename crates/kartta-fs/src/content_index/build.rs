@@ -516,7 +516,7 @@ impl Sizes {
 }
 
 const fn varint_len(value: u32) -> usize {
-    (value | 1).bit_width().div_ceil(7) as usize
+    (u32::BITS - (value | 1).leading_zeros()).div_ceil(7) as usize
 }
 
 struct Layout {
