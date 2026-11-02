@@ -182,15 +182,34 @@ pub(super) fn declarator_name<'t>(function: Node<'t>, source: &[u8]) -> Option<N
 }
 
 fn declared_name_of(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
-    let written = written_name(declarator, source);
-    if written.name != declarator {
-        let mut declared = declared_name_of(written.name, source)?;
-        if declared.scope.is_none() {
-            declared.scope = written.stranded_scope.map(|first| text(first, source));
+    let mut declarator = declarator;
+    let mut stranded_scope = None;
+    loop {
+        let written = written_name(declarator, source);
+        if written.name != declarator {
+            stranded_scope = written.stranded_scope.or(stranded_scope);
+            declarator = written.name;
+        } else if matches!(
+            declarator.kind(),
+            "pointer_declarator" | "reference_declarator"
+        ) {
+            let inner = declarator
+                .child_by_field_name("declarator")
+                .filter(|inner| inner.kind() == "function_declarator")?;
+            declarator = declarator_name(inner, source)?;
+        } else {
+            break;
         }
-        return Some(declared);
     }
 
+    let mut declared = written_declared_name(declarator, source)?;
+    if declared.scope.is_none() {
+        declared.scope = stranded_scope.map(|first| text(first, source));
+    }
+    Some(declared)
+}
+
+fn written_declared_name(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName> {
     let declared = match declarator.kind() {
         "identifier" | "field_identifier" | "type_identifier" | "operator_name"
         | "destructor_name" | "template_function" | "template_method" => DeclaredName {
@@ -207,12 +226,6 @@ fn declared_name_of(declarator: Node<'_>, source: &[u8]) -> Option<DeclaredName>
                 .map(|scope| type_base_name(scope, source))
                 .filter(|scope| is_simple_identifier(scope));
             DeclaredName { name, scope }
-        }
-        "pointer_declarator" | "reference_declarator" => {
-            let inner = declarator
-                .child_by_field_name("declarator")
-                .filter(|inner| inner.kind() == "function_declarator")?;
-            return declared_name(inner, source);
         }
         _ => return None,
     };

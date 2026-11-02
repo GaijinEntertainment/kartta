@@ -7,29 +7,31 @@ use super::{child_nodes, exported_symbol};
 use crate::{BRACKET_INCLUDE, QUOTED_INCLUDE};
 
 pub(super) fn function_base_name(node: Node<'_>, source: &[u8]) -> String {
-    if matches!(node.kind(), "template_function" | "template_method")
-        && let Some(name) = node.child_by_field_name("name")
-    {
-        return function_base_name(name, source);
+    let mut node = node;
+    loop {
+        let inner = match node.kind() {
+            "template_function" | "template_method" => node.child_by_field_name("name"),
+            "dependent_name" => node.named_child(0),
+            _ => None,
+        };
+        let Some(inner) = inner else {
+            return sanitize_name(&text(node, source));
+        };
+        node = inner;
     }
-    if node.kind() == "dependent_name"
-        && let Some(name) = node.named_child(0)
-    {
-        return function_base_name(name, source);
-    }
-
-    sanitize_name(&text(node, source))
 }
 
 pub(super) fn type_base_name(node: Node<'_>, source: &[u8]) -> String {
+    let mut node = node;
+    while matches!(node.kind(), "template_type" | "qualified_identifier")
+        && let Some(name) = node.child_by_field_name("name")
+    {
+        node = name;
+    }
     match node.kind() {
         "type_identifier" | "identifier" | "field_identifier" | "namespace_identifier" => {
             text(node, source)
         }
-        "template_type" | "qualified_identifier" => node.child_by_field_name("name").map_or_else(
-            || sanitize_name(&text(node, source)),
-            |name| type_base_name(name, source),
-        ),
         _ => sanitize_name(&text(node, source)),
     }
 }
@@ -65,20 +67,22 @@ pub(super) fn class_symbol(node: Node<'_>, source: &[u8]) -> Option<Symbol> {
 }
 
 fn base_parent_name(base: Node<'_>, source: &[u8]) -> Option<String> {
-    match base.kind() {
-        "type_identifier" => Some(text(base, source)),
-        "template_type" => base
-            .child_by_field_name("name")
-            .map(|name| text(name, source)),
-        "qualified_identifier" => {
-            let name = base_parent_name(base.child_by_field_name("name")?, source)?;
-            Some(base.child_by_field_name("scope").map_or_else(
-                || format!("::{name}"),
-                |scope| format!("{}::{name}", text(scope, source)),
-            ))
+    let mut named = base;
+    let mut scoped = String::new();
+    while named.kind() == "qualified_identifier" {
+        if let Some(scope) = named.child_by_field_name("scope") {
+            scoped.push_str(&String::from_utf8_lossy(&source[scope.byte_range()]));
         }
-        _ => None,
+        scoped.push_str("::");
+        named = named.child_by_field_name("name")?;
     }
+    let name = match named.kind() {
+        "type_identifier" => named,
+        "template_type" => named.child_by_field_name("name")?,
+        _ => return None,
+    };
+    scoped.push_str(&text(name, source));
+    Some(scoped)
 }
 
 /// Whether a class's head names a specialization of a template, `Box<bool>` or `ns::Box<T *>`.
@@ -174,14 +178,16 @@ pub(super) fn template_parameters(template: Node<'_>, source: &[u8]) -> Vec<Stri
 }
 
 fn template_parameter_name<'t>(parameter: Node<'t>, source: &[u8]) -> Option<Node<'t>> {
+    let mut parameter = parameter;
+    while parameter.kind() == "template_template_parameter_declaration" {
+        parameter = child_nodes(parameter)
+            .find(|child| child.kind().ends_with("type_parameter_declaration"))?;
+    }
     match parameter.kind() {
         "type_parameter_declaration" | "variadic_type_parameter_declaration" => {
             child_nodes(parameter).find(|child| child.kind() == "type_identifier")
         }
         "optional_type_parameter_declaration" => parameter.child_by_field_name("name"),
-        "template_template_parameter_declaration" => child_nodes(parameter)
-            .find(|child| child.kind().ends_with("type_parameter_declaration"))
-            .and_then(|declared| template_parameter_name(declared, source)),
         "parameter_declaration"
         | "optional_parameter_declaration"
         | "variadic_parameter_declaration" => {
