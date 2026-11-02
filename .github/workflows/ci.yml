@@ -77,6 +77,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-26]
+        go: ["1.27.2"]
+        # The floor, the go directive of go.mod. setup-go keeps the toolchain from switching, so a directive raised past
+        # this entry fails its first go command, and a symbol or a behavior newer than the floor fails its build or
+        # its tests.
+        include:
+          - os: ubuntu-24.04
+            go: "1.25.0"
+            floor: true
     runs-on: ${{ matrix.os }}
     env:
       CGO_LDFLAGS: -L${{ github.workspace }}/target/debug
@@ -84,17 +92,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      # The Go version is the one go.mod's go directive names; the module has no dependencies to cache.
+      # The module has no dependencies to cache.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: bindings/go/go.mod
+          go-version: ${{ matrix.go }}
           cache: false
       - run: cargo build --locked -p kartta-ffi
       - run: go vet ./...
         working-directory: bindings/go
       - run: go test -race ./...
         working-directory: bindings/go
+      # constraint: this govulncheck needs Go 1.26 to run, and what it judges is the toolchain a build ships with
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+        if: ${{ !matrix.floor }}
         working-directory: bindings/go
 
   # The Node binding, loading the addon the same checkout builds. Its tests replay the golden files through every typed
