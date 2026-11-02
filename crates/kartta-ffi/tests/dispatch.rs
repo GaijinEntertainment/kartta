@@ -237,6 +237,34 @@ fn a_fuzzy_answer_counts_its_matches_unless_the_query_is_empty() {
 }
 
 #[test]
+fn a_segment_left_open_ends_on_the_last_line_a_held_symbol_reaches() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let whole = ok(&kartta, "analyze_segment", &json!({ "file": "run.go" }));
+    assert_eq!(whole["end_line"], 7, "{whole}");
+
+    let past = ok(
+        &kartta,
+        "analyze_segment",
+        &json!({ "file": "run.go", "start_line": 50 }),
+    );
+    assert_eq!(
+        (&past["start_line"], &past["end_line"]),
+        (&json!(50), &json!(50)),
+        "a start past every symbol stays a range: {past}"
+    );
+
+    let asked = ok(
+        &kartta,
+        "analyze_segment",
+        &json!({ "file": "run.go", "start_line": 3, "end_line": 40 }),
+    );
+    assert_eq!(asked["end_line"], 40, "a line the caller names: {asked}");
+}
+
+#[test]
 fn a_graphs_stats_count_its_uses_by_access() {
     let tree = tempfile::tempdir().expect("a temporary directory");
     fs::write(

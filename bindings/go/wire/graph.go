@@ -465,7 +465,8 @@ type SegmentParams struct {
 }
 
 // Segment is the answer of analyze_segment: what a change to a range of a file's lines reaches. Graph and Held are as
-// Outline's.
+// Outline's. Where the params left EndLine at 0, it is the last line a symbol of the file reaches, and never before
+// StartLine.
 type Segment struct {
 	File       string          `json:"file"`
 	Graph      string          `json:"graph,omitempty"`
