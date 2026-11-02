@@ -142,19 +142,25 @@ fn a_file_query_refuses_what_it_cannot_take_with_its_own_code() {
 }
 
 #[test]
-fn a_fuzzy_limit_of_0_takes_the_default() {
+fn a_fuzzy_limit_of_0_sets_no_cap_and_one_left_out_takes_the_default() {
     let tree = tree();
+    for at in 0..60 {
+        fs::write(tree.path().join(format!("gen{at}.go")), "package main\n").expect("a file");
+    }
     let kartta = open(tree.path());
     ok(&kartta, "build", &Value::Null);
 
-    let found = ok(&kartta, "fuzzy", &json!({ "query": "go", "limit": 0 }));
+    let every = ok(&kartta, "fuzzy", &json!({ "query": "go", "limit": 0 }));
+    let default = ok(&kartta, "fuzzy", &json!({ "query": "go" }));
 
     assert_eq!(
-        found["matches"].as_array().map(Vec::len),
-        Some(2),
-        "{found}"
+        every["matches"].as_array().map(Vec::len),
+        Some(62),
+        "{every}"
     );
-    assert_eq!(found["truncated"], false);
+    assert_eq!(every["truncated"], false);
+    assert_eq!(default["matches"].as_array().map(Vec::len), Some(50));
+    assert_eq!(default["truncated"], true);
 }
 
 #[test]
@@ -295,39 +301,204 @@ fn a_build_answers_what_it_indexed_and_what_each_graph_holds() {
 }
 
 #[test]
-fn a_bound_of_0_takes_the_method_s_default() {
+fn a_list_of_0_answers_the_counts_alone() {
+    let tree = tree();
+    fs::write(
+        tree.path().join("dead.go"),
+        "package main\n\nfunc unused() {\n\tmissing()\n}\n",
+    )
+    .expect("dead.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    let lists_nothing = |method: &str, params: &Value, list: &str, count: &str| {
+        let answer = ok(&kartta, method, params);
+        let part = &answer["matches"][0];
+        assert_eq!(part[list], json!([]), "{method}: {answer}");
+        assert_eq!(part[count], 1, "{method}: {answer}");
+    };
+
+    let helper = json!({ "name": "helper", "limit": 0 });
+    lists_nothing("references", &helper, "sites", "total");
+    lists_nothing("definitions", &helper, "found", "total");
+    lists_nothing("sources", &helper, "found", "total");
+    let search = json!({ "query": "helper", "limit": 0 });
+    lists_nothing("search", &search, "hits", "total");
+    let graph = json!({ "lang": "go", "limit": 0 });
+    lists_nothing("dead_code", &graph, "found", "total");
+    lists_nothing("resolution", &graph, "unbound", "unlisted");
+}
+
+#[test]
+fn an_implementations_limit_of_0_answers_the_total_alone() {
+    let (_tree, kartta) = rust_crate();
+
+    let answer = ok(
+        &kartta,
+        "implementations",
+        &json!({ "name": "Paint", "limit": 0 }),
+    );
+
+    assert_eq!(answer["matches"][0]["found"], json!([]), "{answer}");
+    assert_eq!(answer["matches"][0]["total"], 1, "{answer}");
+}
+
+#[test]
+fn a_depth_of_0_follows_nothing_and_counts_what_it_left() {
     let tree = tree();
     let kartta = open(tree.path());
     ok(&kartta, "build", &Value::Null);
-    let zeros = json!({ "name": "helper", "depth": 0, "max_symbols": 0 });
 
-    let callers = ok(&kartta, "callers", &zeros);
-    let definitions = ok(
+    let walk = ok(&kartta, "callers", &json!({ "name": "helper", "depth": 0 }));
+    let path = ok(
         &kartta,
-        "definitions",
-        &json!({ "name": "helper", "limit": 0 }),
+        "call_path",
+        &json!({ "from": "main", "to": "helper", "depth": 0 }),
     );
-    let search = ok(&kartta, "search", &json!({ "query": "helper", "limit": 0 }));
+    let dependents = ok(
+        &kartta,
+        "dependents",
+        &json!({ "file": "run.go", "depth": 0 }),
+    );
     let segment = ok(
         &kartta,
         "analyze_segment",
-        &json!({ "file": "run.go", "start_line": 0 }),
+        &json!({ "file": "run.go", "depth": 0 }),
+    );
+    let change = ok(
+        &kartta,
+        "analyze_change",
+        &json!({ "regions": [{ "file": "run.go" }], "depth": 0 }),
     );
 
+    assert_eq!(walk["matches"][0]["reached"], json!([]), "{walk}");
+    assert_eq!(walk["matches"][0]["unexpanded"], 1, "{walk}");
+    assert_eq!(path["matches"][0]["found"], false, "{path}");
+    assert_eq!(dependents["found"], json!([]), "{dependents}");
+    assert_eq!(dependents["unexpanded"], 1, "{dependents}");
+    assert_eq!(segment["symbols"][0]["blast"]["reach"], 0, "{segment}");
+    assert_eq!(change["footprint"], 0, "{change}");
+}
+
+#[test]
+fn an_implementations_depth_of_0_finds_none() {
+    let (_tree, kartta) = rust_crate();
+
+    let answer = ok(
+        &kartta,
+        "implementations",
+        &json!({ "name": "Paint", "depth": 0 }),
+    );
+
+    assert_eq!(answer["matches"][0]["found"], json!([]), "{answer}");
+    assert_eq!(answer["matches"][0]["unexpanded"], 1, "{answer}");
+}
+
+#[test]
+fn a_symbol_cap_of_0_lifts_the_cap_and_one_left_out_takes_the_default() {
+    let tree = tree();
+    let reached = 600;
+    fs::write(
+        tree.path().join("many.go"),
+        format!(
+            "package main\n\n{}",
+            callers_of("many", "helper()", reached)
+        ),
+    )
+    .expect("many.go");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    let walk = |params: &Value| {
+        let answer = ok(&kartta, "callers", params);
+        (
+            answer["matches"][0]["reached"].as_array().map(Vec::len),
+            answer["matches"][0]["truncated"].clone(),
+        )
+    };
+
+    let lifted = walk(&json!({ "name": "helper", "depth": 1, "max_symbols": 0 }));
+    let default = walk(&json!({ "name": "helper", "depth": 1 }));
+
+    assert_eq!(lifted, (Some(reached + 1), json!(false)));
+    assert_eq!(default, (Some(499), json!(true)));
+}
+
+#[test]
+fn a_grep_byte_cap_of_0_lifts_it_and_one_left_out_takes_the_default() {
+    let tree = tree();
+    let line = format!("needle{}\n", "x".repeat(2048));
+    fs::write(tree.path().join("long.txt"), &line).expect("long.txt");
+    fs::write(
+        tree.path().join("big.txt"),
+        line.repeat(4 << 20 >> 11).into_bytes(),
+    )
+    .expect("big.txt");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+    let glob = |file: &str, caps: Value| {
+        let mut params = json!({ "patterns": ["needle"], "globs": [file], "limit": 1 });
+        params
+            .as_object_mut()
+            .expect("an object")
+            .extend(caps.as_object().expect("an object").clone());
+        ok(&kartta, "grep", &params)
+    };
+
+    let whole = glob("long.txt", json!({ "max_line_bytes": 0 }));
+    let cut = glob("long.txt", json!({}));
+    let read = glob("big.txt", json!({ "max_file_bytes": 0 }));
+    let skipped = glob("big.txt", json!({}));
+
     assert_eq!(
-        callers["matches"][0]["reached"].as_array().map(Vec::len),
-        Some(2)
+        whole["files"][0]["lines"][0].get("cut"),
+        None,
+        "the line comes whole"
     );
-    assert_eq!(
-        definitions["matches"][0]["found"].as_array().map(Vec::len),
-        Some(1)
+    assert!(cut["files"][0]["lines"][0].get("cut").is_some(), "{cut}");
+    assert_eq!(read["oversized"], 0, "the file is read");
+    assert_eq!(read["lines"], 1);
+    assert_eq!(skipped["oversized"], 1, "the default skips it");
+}
+
+#[test]
+fn a_range_end_of_0_reads_as_left_out() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let zeros = ok(
+        &kartta,
+        "analyze_segment",
+        &json!({ "file": "run.go", "start_line": 0, "end_line": 0 }),
     );
-    assert!(
-        search["matches"][0]["hits"]
-            .as_array()
-            .is_some_and(|hits| !hits.is_empty())
-    );
-    assert_eq!(segment["start_line"], 1);
+    let left_out = ok(&kartta, "analyze_segment", &json!({ "file": "run.go" }));
+
+    assert_eq!(zeros, left_out);
+    assert_eq!(zeros["start_line"], 1);
+}
+
+#[test]
+fn a_line_of_0_selects_nothing_and_says_where_the_name_starts() {
+    let tree = tree();
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let answer = ok(&kartta, "callers", &json!({ "name": "helper", "line": 0 }));
+
+    assert_eq!(answer["matches"], json!([]), "{answer}");
+    assert_eq!(answer["unmatched"]["kind"], "off_line", "{answer}");
+}
+
+#[test]
+fn an_id_of_0_names_a_call_and_a_cancel_of_it_stops_no_other() {
+    let tree = tree();
+    let kartta = open(tree.path());
+
+    let cancel = ok(&kartta, "cancel", &json!({ "build": 0 }));
+    let built = code(&kartta, "build", &json!({ "id": 0 }));
+    ok(&kartta, "build", &json!({ "id": 1 }));
+
+    assert_eq!(cancel["stopped"], false);
+    assert_eq!(built, "build_cancelled");
 }
 
 #[test]

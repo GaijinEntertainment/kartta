@@ -124,6 +124,17 @@ test('a query before any build rejects with not_built', async () => {
 	expect(await code(kartta.stats())).toBe('not_built');
 });
 
+test('a limit of 0 answers the total alone, and one left out the default', async () => {
+	const kartta = open();
+	await kartta.build();
+
+	const counted = await kartta.definitions({name: 'f0', limit: 0});
+	const listed = await kartta.definitions({name: 'f0'});
+
+	expect(counted.matches[0]).toMatchObject({found: [], total: 1});
+	expect(listed.matches[0]?.found).toHaveLength(1);
+});
+
 test('a build keeps the graphs of a content index it cannot store and says why', async () => {
 	const root = tree(1);
 	const kartta = opened(root);
