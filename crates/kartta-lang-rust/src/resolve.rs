@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use kartta_lang::path::{base, child, dir, join, shared_segments};
 use kartta_lang::{
-    Extraction, ImportBinding, IncludeRef, RawDirective, RawExtraction, Repository, Resolver,
-    SymbolFlags,
+    Extraction, ImplementsAssertion, ImportBinding, IncludeRef, RawDirective, RawExtraction,
+    Repository, Resolver, SymbolFlags,
 };
 
 use crate::manifest;
@@ -144,6 +144,54 @@ impl Crates {
             target_dir: Some(file),
             last_segment: last.to_owned(),
         })
+    }
+
+    // constraint: a bare name stays for the asserting file to read, and a path gives the file that holds the item it
+    // ends at; a type's path that starts in the tree and runs past the module files, through an inline or a re-exported
+    // module, leaves its last name for the asserting file to read, while a trait's gets no such reading, as a generated
+    // module's trait reads as any namesake; a path into a crate outside the tree says nothing of the tree
+    fn read_assertion(
+        &self,
+        assertion: &mut ImplementsAssertion,
+        caller: &Caller<'_>,
+        repository: &dyn Repository,
+    ) -> bool {
+        if assertion.interface.contains("::") {
+            let Some((file, name)) = self.path_item(&assertion.interface, caller, repository)
+            else {
+                return false;
+            };
+            assertion.interface_file = Some(file);
+            assertion.interface = name;
+        }
+        let Some((head, _)) = assertion.type_name.split_once("::") else {
+            return true;
+        };
+        if let Some((file, name)) = self.path_item(&assertion.type_name, caller, repository) {
+            assertion.type_file = Some(file);
+            assertion.type_name = name;
+            return true;
+        }
+        let starts_in_the_tree = matches!(head, "crate" | "self" | "super")
+            || self.library(head, caller.role.package).is_some();
+        if starts_in_the_tree && let Some(at) = assertion.type_name.rfind("::") {
+            assertion.type_name.drain(..at + "::".len());
+        }
+        starts_in_the_tree
+    }
+
+    fn path_item(
+        &self,
+        path: &str,
+        caller: &Caller<'_>,
+        repository: &dyn Repository,
+    ) -> Option<(String, String)> {
+        let directive = RawDirective {
+            names: vec![path.rsplit("::").next()?.to_owned()],
+            ..RawDirective::new(USE_FORM, path.to_owned(), 1)
+        };
+        let binding = self.crate_binding(&directive, caller, repository)?;
+        Some((binding.target_dir?, binding.last_segment))
     }
 
     fn reach<'s>(
@@ -479,6 +527,8 @@ impl Resolver for Crates {
             }
             extraction.includes.push(IncludeRef { target });
         }
+        (extraction.assertions)
+            .retain_mut(|assertion| self.read_assertion(assertion, &caller, repository));
         read_renamed_types(&mut extraction);
 
         extraction

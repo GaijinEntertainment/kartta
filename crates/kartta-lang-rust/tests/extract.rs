@@ -657,6 +657,46 @@ fn a_trait_impl_whose_scoped_path_names_no_declaration_adds_no_parent() {
 }
 
 #[test]
+fn a_trait_impl_of_a_type_the_file_does_not_declare_asserts_what_each_name_reaches() {
+    let raw = extract(
+        b"use crate::a::Imported;\nuse crate::b::{self, Bound as Renamed};\nuse std::fmt::Display;\nuse dep::*;\n\
+          mod c;\ntrait Own {}\nimpl Own for Imported {}\nimpl b::Tr for Renamed {}\nimpl Own for c::Inner {}\n\
+          impl Own for ::dep::Rooted {}\nimpl Own for Globbed {}\nimpl Display for Imported {}\n\
+          impl Own for std::fs::File {}\nimpl<T> Own for T {}\nimpl Own for u8 {}\n",
+    );
+
+    let assertions: Vec<(&str, &str)> = (raw.assertions.iter())
+        .map(|assertion| (assertion.type_name.as_str(), assertion.interface.as_str()))
+        .collect();
+
+    assert_eq!(
+        assertions,
+        [
+            ("crate::a::Imported", "Own"),
+            ("crate::b::Bound", "crate::b::Tr"),
+            ("self::c::Inner", "Own"),
+            ("dep::Rooted", "Own"),
+            ("Globbed", "Own"),
+        ]
+    );
+}
+
+#[test]
+fn a_trait_impl_reads_a_trait_its_file_declares_without_a_glob() {
+    let raw = extract(b"use crate::a::Imported;\ntrait Own {}\nimpl Own for Imported {}\n");
+
+    assert_eq!(raw.assertions[0].interface, "Own");
+}
+
+#[test]
+fn a_trait_impl_for_the_impl_s_own_parameter_adds_no_parent_to_a_type_of_its_name() {
+    let raw =
+        extract(b"pub struct T;\nimpl<T> Eq for T {}\nimpl<T> Hash for &T {}\nimpl Ord for T {}\n");
+
+    assert_eq!(named(&raw, "T").parents, ["Ord"]);
+}
+
+#[test]
 fn a_trait_impl_goes_to_the_type_of_its_qualified_name_before_one_of_its_bare_name() {
     let raw = extract(
         b"mod a {\n    pub struct Foo;\n    pub struct Bar;\n}\npub struct Foo;\nimpl Eq for Foo {}\n\

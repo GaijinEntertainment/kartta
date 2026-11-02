@@ -75,9 +75,9 @@ impl Emitter<'_> {
 
     // constraint: the pair goes to the type the file declares under that qualified name, or else under that name, which
     // a type imported into an inline module spells; of the types one name matches, the first the file declares wins; a
-    // scoped target that names no declaration of the file, such as `impl Trait for other::Foo` or `crate::Foo`, is
-    // dropped rather than matched by its last segment, because the file cannot tell which type the path reaches, and
-    // so is a type another file declares
+    // target that names no declaration of the file, such as `impl Trait for other::Foo`, is no parent, and its pair
+    // stays pending for the file's `use`s to tell what the target reaches, since matching it by its last segment would
+    // hand the trait to a namesake of the file
     pub(super) fn apply_pending_parents(&mut self) {
         const fn is_type(symbol: &Symbol) -> bool {
             matches!(
@@ -103,12 +103,14 @@ impl Emitter<'_> {
         for (at, symbol) in declared() {
             types.entry(&symbol.name).or_insert(at);
         }
-        let targets: Vec<(usize, String)> = std::mem::take(&mut self.pending_parents)
-            .into_iter()
-            .filter_map(|(type_name, trait_name)| {
-                types.get(type_name.as_str()).map(|&at| (at, trait_name))
-            })
-            .collect();
+        let mut targets: Vec<(usize, String)> = Vec::new();
+        self.pending_parents.retain_mut(|(type_name, trait_name)| {
+            let target = types.get(type_name.as_str());
+            if let Some(&at) = target {
+                targets.push((at, std::mem::take(trait_name)));
+            }
+            target.is_none()
+        });
 
         for (at, trait_name) in targets {
             if !symbols[at].parents.contains(&trait_name) {

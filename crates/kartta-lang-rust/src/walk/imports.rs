@@ -4,7 +4,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use kartta_lang::tree::{line, named_child_nodes, text};
-use kartta_lang::{RawDirective, Symbol, SymbolKind};
+use kartta_lang::{ImplementsAssertion, RawDirective, Symbol, SymbolKind};
 use tree_sitter::Node;
 
 use super::syntax::path_text;
@@ -185,6 +185,7 @@ impl Emitter<'_> {
         if !self.imports.is_empty() || !self.globs.is_empty() {
             self.start_at_declared_modules();
         }
+        self.assert_undeclared_impls();
         if self.imports.is_empty() && self.written_paths.is_empty() {
             return;
         }
@@ -208,6 +209,53 @@ impl Emitter<'_> {
             }
             true
         });
+    }
+
+    // constraint: an impl of a type the file does not declare is an assertion whose two names the resolver reads, each
+    // the path it reaches, or a bare name the file's own scope reads, which a declaration or a glob may answer; a name
+    // that neither reaches is the prelude's, a macro's or the standard library's, so the impl says nothing of the tree;
+    // a path whose last name the file also declares says nothing either, as its name alone would read as the file's own
+    fn assert_undeclared_impls(&mut self) {
+        let pairs = std::mem::take(&mut self.pending_parents);
+        if pairs.is_empty() {
+            return;
+        }
+        let (imported, _) = self.imported_names();
+        let module_files = self.module_files();
+        let declared: HashSet<&str> = (self.raw.symbols.iter())
+            .filter(|symbol| symbol.kind.is_type())
+            .map(|symbol| symbol.name.as_str())
+            .collect();
+        let reached = |written: &str| {
+            let (first, rest) = written.split_once("::").unwrap_or((written, ""));
+            let path = match imported.get(first) {
+                Some(Some((path, _))) if rest.is_empty() => (*path).to_owned(),
+                Some(Some((path, _))) => format!("{path}::{rest}"),
+                Some(None) => return None,
+                None if matches!(first, "crate" | "self" | "super") => written.to_owned(),
+                None if rest.is_empty() => {
+                    let in_scope = declared.contains(written) || !self.globs.is_empty();
+                    return in_scope.then(|| written.to_owned());
+                }
+                None if module_files.contains(first) => format!("self::{written}"),
+                None => written.trim_start_matches("::").to_owned(),
+            };
+            (names_a_module(head(&path)) && !self.starts_inside_the_file(&path)).then_some(path)
+        };
+        let assertions = (pairs.iter())
+            .filter(|(type_name, _)| {
+                !type_name.contains("::") || !declared.contains(last(type_name))
+            })
+            .filter_map(|(type_name, trait_name)| {
+                Some(ImplementsAssertion {
+                    type_name: reached(type_name)?,
+                    interface: reached(trait_name)?,
+                    type_file: None,
+                    interface_file: None,
+                })
+            })
+            .collect();
+        self.raw.assertions = assertions;
     }
 
     // constraint: a path call through `crate` or `super` that then ends at a name the file declares at its top level,

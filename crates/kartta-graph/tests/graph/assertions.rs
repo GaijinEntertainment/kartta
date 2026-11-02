@@ -21,6 +21,8 @@ fn asserting(path: &str, assertions: &[(&str, &str)], imports: &[(&str, &str)]) 
         .map(|&(type_name, interface)| ImplementsAssertion {
             type_name: type_name.to_owned(),
             interface: interface.to_owned(),
+            type_file: None,
+            interface_file: None,
         })
         .collect();
     extraction.bindings = imports

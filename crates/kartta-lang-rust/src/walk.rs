@@ -13,7 +13,7 @@ use self::attributes::{
 use self::blocks::{BlockCall, BlockItem};
 use self::syntax::{
     constructed_type, impl_type_name, is_attributable_item, is_exported, named_child_of_kind,
-    symbol, type_base,
+    symbol, targets_an_item, type_base,
 };
 
 const BANNER: Banner = Banner::new(&["@generated", "DO NOT EDIT"])
@@ -59,8 +59,8 @@ pub(crate) fn raw_walk(tree: &Tree, source: &[u8]) -> RawExtraction {
             if !cursor.goto_parent() {
                 emitter.settle_paths();
                 emitter.keep_declared_receivers();
-                emitter.record_imports();
                 emitter.apply_pending_parents();
+                emitter.record_imports();
                 emitter.bind_block_item_calls();
                 emitter.bind_value_reads();
                 return emitter.raw;
@@ -304,7 +304,9 @@ impl Emitter<'_> {
         };
         let (name, impl_owner) = self.impl_target(written);
 
-        if let Some(trait_node) = node.child_by_field_name("trait") {
+        if let Some(trait_node) = node.child_by_field_name("trait")
+            && targets_an_item(node, self.source)
+        {
             self.queue_parent(&name, text(type_base(trait_node), self.source), impl_owner);
         }
         self.types.push(TypeScope {
