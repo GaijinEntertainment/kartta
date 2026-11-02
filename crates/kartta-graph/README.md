@@ -20,9 +20,10 @@ about. A call binds at the first tier of a cascade that binds it, in this order:
 import binding a receiver names, or that brings a bare call's name in from a module's file, the type a receiver's path
 reaches, a callee written qualified, the caller's base class or the owner a receiver names, then the caller's own file,
 its imports, its package, its includes and the re-export chains through them, and last the caller's own owner, the one
-callable of the name and the callables nearest the caller; [ADR 3.7](/design-docs/adr/3.7-call-resolution.md),
-[ADR 3.171](/design-docs/adr/3.171-receiver-call-binding.md) and
-[ADR 3.172](/design-docs/adr/3.172-bare-call-binding.md) state the tiers. Where a file's extraction lists the packages
+callable of the name and the callables nearest the caller; [ADR 3.7](../../design-docs/adr/3.7-call-resolution.md),
+[ADR 3.171](../../design-docs/adr/3.171-receiver-call-binding.md) and
+[ADR 3.172](../../design-docs/adr/3.172-bare-call-binding.md) state the tiers.
+Where a file's extraction lists the packages
 its package is built with, the tiers that bind by name take a definition of another package only from one of them and
 outside its test code; a call through an owner whose members of the name all lie outside them binds nothing, and a name
 they turned a definition of away binds no one callable and no guess outside the caller's directories. Where includes are
@@ -74,7 +75,8 @@ where no partial specialization may take them, else the first, as of copies of o
 it names none of leave the call ambiguous; where that class declares no member of the name, the call binds the member of
 its bases that the lookup of a bare call in its member finds. There, a call in a member on a field, `lock.acquire()` or
 `lock->acquire()`, binds the same way through the class the field is declared as, where the caller's class, else the
-nearest of its bases that declares the name, declares that field ([ADR 3.47](/design-docs/adr/3.47-cpp-field-calls.md)).
+nearest of its bases that declares the name, declares that field
+([ADR 3.47](../../design-docs/adr/3.47-cpp-field-calls.md)).
 Where a language says so, a member call on a value takes nothing from the callables nearest the caller. A use outside a
 call binds more narrowly: through the import its qualifier names, else a package-level definition of its own file, of a
 dot import, or of its package directory, and where a language's uses reach its imports, of the one included file that
