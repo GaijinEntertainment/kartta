@@ -135,6 +135,7 @@ const CONVENTIONS: Conventions = {
     conventions.value_uses = ValueUses::Imported;
     conventions.own_type_receivers = Some(&["cls", "other", "self"]);
     conventions.receiver_members = ReceiverMembers::InheritedUpToAnyField;
+    conventions.constructor = Some("__init__");
     conventions
 };
 
