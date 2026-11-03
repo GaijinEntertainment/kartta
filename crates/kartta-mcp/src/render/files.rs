@@ -110,10 +110,12 @@ pub(crate) fn globbed(globs: &Selection<'_>, found: &Capped<'_>) -> String {
 }
 
 /// The `grep` answer: a `<file>` block per matched file, in path order, with `N:text` for a match and `N-text` for
-/// context, `--` between regions that do not touch, the unreadable files, and what the search did not cover.
+/// context, `--` between regions that do not touch, the unreadable files, and what the search did not cover. The
+/// patterns echo one a line, which the attribute writes as `\n`: a pattern can hold a comma, and the search refuses
+/// one that holds a line break.
 pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, includes: &Selection<'_>) -> String {
     let element = Element::new("grep")
-        .attr("patterns", patterns.join(", "))
+        .attr("patterns", patterns.join("\n"))
         .attr("candidates", matches.candidates())
         .attr("files", matches.files().len())
         .attr("matches", matches.lines())
