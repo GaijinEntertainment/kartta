@@ -284,8 +284,9 @@ Left empty, a refresh walks the whole tree again.
 - `id` (integer, optional): Names the refresh for a cancel.
 - `binding_id` (integer, optional): Names the refresh for a cancel `by` `binding_id`, apart from `id`.
 - `paths` (array of string or null, optional): The root-relative paths that changed, spelled as the index's answers
-  spell them. Absent or null refreshes the whole tree, and empty walks nothing. An absolute path answers
-  `invalid_params`, and so does one with a `..` component.
+  spell them. Absent or null refreshes the whole tree, and empty walks nothing. A path that starts with `/` or `\`,
+  starts with a drive such as `C:`, or holds a `\` or a `..` name answers `invalid_params`, the message naming which,
+  before `not_built` or `no_stamps` would.
 
 ### WalkParams
 

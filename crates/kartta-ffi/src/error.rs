@@ -11,7 +11,7 @@ pub(crate) enum ErrorCode {
     InvalidRequest,
     /// Params the method does not take, the message naming what: JSON that is neither an object nor `null`, a field
     /// that is unknown, missing or of the wrong type, a value the method refuses (a symbol kind it does not know, a
-    /// malformed name in a build option's set, a refresh path that is absolute or outside the tree), or a graph the
+    /// malformed name in a build option's set, a refresh path that is absolute, starts with a drive, or holds a `\` or a `..` name), or a graph the
     /// build did not make.
     InvalidParams,
     /// No method of the name; the message lists the methods.

@@ -10,7 +10,8 @@ type RefreshParams struct {
 	// it, in place of any the params give.
 	BindingID uint64 `json:"binding_id,omitempty"`
 	// Paths are the root-relative paths that changed, spelled as the index's answers spell them; nil refreshes the
-	// whole tree, and an empty list walks nothing.
+	// whole tree, and an empty list walks nothing. A path that starts with / or \, starts with a drive such as C:, or
+	// holds a \ or a .. name is refused with InvalidParams, the message naming which.
 	Paths []string `json:"paths"`
 }
 
