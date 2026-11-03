@@ -130,7 +130,8 @@ export type RefreshParams = {
 	binding_id?: number;
 	/**
 	 * The root-relative paths that changed, spelled as the index's answers spell them; absent or null refreshes the
-	 * whole tree, and empty walks nothing.
+	 * whole tree, and empty walks nothing. A path that starts with `/` or `\`, starts with a drive such as `C:`, or
+	 * holds a `\` or a `..` name rejects with `invalid_params`, the message naming which.
 	 */
 	paths?: string[] | null;
 };

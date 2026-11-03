@@ -2048,21 +2048,45 @@ fn refresh_before_a_build_answers_not_built() {
 }
 
 #[test]
-fn absolute_or_escaping_paths_answer_invalid_params() {
+fn misspelled_paths_answer_invalid_params_naming_the_fault_before_the_handle_s_state() {
     let tree = tree();
     let kartta = stamped(tree.path());
+    let unstamped = open(tree.path());
+    ok(&unstamped, "build", &Value::Null);
+    let unbuilt = open(tree.path());
     fs::write(tree.path().join("new.go"), "package main\n").expect("new.go");
 
-    for path in ["/etc", "../outside.go", "src/../../outside.go"] {
-        let answer = call(&kartta, "refresh", &json!({ "paths": ["new.go", path] }));
+    for ((path, fault), kartta) in [
+        ("/etc", "is absolute"),
+        ("\\repo\\a.rs", "is absolute"),
+        ("C:\\repo\\a.rs", "starts with the drive C:"),
+        ("C:src\\a.rs", "starts with the drive C:"),
+        ("src\\a.rs", "separates its names with \\"),
+        ("../outside.go", "holds a .. name"),
+        ("src/../../outside.go", "holds a .. name"),
+    ]
+    .into_iter()
+    .flat_map(|case| [(case, &kartta), (case, &unstamped), (case, &unbuilt)])
+    {
+        let answer = call(kartta, "refresh", &json!({ "paths": ["new.go", path] }));
 
         assert_eq!(answer["err"]["code"], "invalid_params", "{path}: {answer}");
-        assert!(mentions(&answer["err"], path), "{answer}");
+        assert!(
+            mentions(
+                &answer["err"],
+                &format!("cannot refresh {path:?}: the path {fault}")
+            ),
+            "{path}: {answer}"
+        );
     }
     assert_eq!(
         globbed(&kartta, &["new.go"]),
         json!([]),
         "nothing was walked"
+    );
+    assert_eq!(
+        ok(&kartta, "refresh", &json!({ "paths": ["new.go"] }))["added"],
+        1
     );
 }
 

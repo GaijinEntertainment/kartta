@@ -7,7 +7,7 @@ use kartta::{BuildError, CancelToken, Index, Language, Stopped};
 use serde::Serialize;
 
 use crate::ABI_VERSION;
-use crate::built::{BROKEN, Built, Held, Shared, StoppedBuild};
+use crate::built::{self, BROKEN, Built, Held, Shared, StoppedBuild};
 use crate::error::{Error, ErrorCode};
 use crate::query::{FILE_QUERIES, QUERIES};
 use crate::wire::files::{GrepParams, GrepView};
@@ -280,7 +280,8 @@ impl Kartta {
     }
 
     fn refresh(&self, params: &RefreshParams) -> Result<Vec<u8>, Error> {
-        let paths = params.paths()?;
+        let paths = params.paths.as_deref();
+        built::misspelled(paths)?;
         let (built, (ticket, token)) = {
             let mut refreshes = lock(&self.refreshes);
             (self.built()?, refreshes.enter(params.id, params.binding_id))
