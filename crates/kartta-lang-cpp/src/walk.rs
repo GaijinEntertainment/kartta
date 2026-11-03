@@ -2822,6 +2822,7 @@ typedef union U { int x; } U;
 class K {
     typedef class N { int y; } N;
 };
+typedef enum E { A } E;
 ",
         );
 
@@ -2841,6 +2842,7 @@ class K {
                 ("U", SymbolKind::Struct),
                 ("K", SymbolKind::Class),
                 ("K::N", SymbolKind::Class),
+                ("E", SymbolKind::Enum),
             ]
         );
     }
@@ -2853,7 +2855,10 @@ typedef struct Tag { int x; } Name;
 typedef struct Same { int x; } *Same;
 struct Forward;
 typedef struct Forward Forward;
-typedef enum E { A } E;
+typedef enum Kind { A } Other;
+typedef enum Pointed { B } *Pointed;
+enum Opaque : int;
+typedef enum Opaque Opaque;
 ",
         );
 
@@ -2863,7 +2868,10 @@ typedef enum E { A } E;
             .filter(|symbol| symbol.kind == SymbolKind::TypeAlias)
             .map(|symbol| symbol.name.as_str())
             .collect();
-        assert_eq!(aliases, ["Name", "Same", "Forward", "E"]);
+        assert_eq!(
+            aliases,
+            ["Name", "Same", "Forward", "Other", "Pointed", "Opaque"]
+        );
     }
 
     #[test]

@@ -4839,14 +4839,7 @@ fn implementations_of_a_cpp_enum_answer_that_nothing_implements_it() {
         [
             r#"<implementations of="Plain" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
             r#"<implementations of="Scoped" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
-            lines(&[
-                r#"<implementations of="Pair" count="0" passed_over="1">"#,
-                "the symbol is indexed but nothing implements or extends it",
-                r#"<root name="Pair" lang="cpp" loc="e.cpp:3"/>"#,
-                r#"<candidate name="Pair" kind="enum" loc="e.cpp:3" lang="cpp" implementors="0"/>"#,
-                "</implementations>",
-            ])
-            .as_str(),
+            r#"<implementations of="Pair" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
             r#"<implementations of="Unheld" count="0">no symbol matches - find_symbols can pin the exact name</implementations>"#,
         ]
     );
