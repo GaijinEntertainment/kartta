@@ -1,38 +1,15 @@
-use std::path::Path;
-
 use kartta::{EngineRefresh, Watch, Widened};
 use serde::{Deserialize, Serialize};
 
 use super::build::{StoredErrors, WatchView};
-use crate::error::{Error, ErrorCode};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct RefreshParams {
     pub(crate) id: Option<u64>,
     pub(crate) binding_id: Option<u64>,
-    paths: Option<Vec<String>>,
-}
-
-impl RefreshParams {
-    /// The root-relative paths that changed, `None` for the whole tree, or `invalid_params` when one is absolute; the
-    /// engine refuses a path with a `..` component itself.
-    pub(crate) fn paths(&self) -> Result<Option<&[String]>, Error> {
-        if let Some(path) = self
-            .paths
-            .iter()
-            .flatten()
-            .find(|path| path.starts_with('/') || Path::new(path).is_absolute())
-        {
-            return Err(Error::new(
-                ErrorCode::InvalidParams,
-                format!(
-                    "cannot refresh {path:?}: a path is relative to the root, as the index's answers spell it"
-                ),
-            ));
-        }
-        Ok(self.paths.as_deref())
-    }
+    /// The root-relative paths that changed, `None` for the whole tree.
+    pub(crate) paths: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]

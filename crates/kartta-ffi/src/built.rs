@@ -3,7 +3,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 
 use kartta::{
     BuildError, BuildOptions, CancelToken, Engine, EngineRefresh, Followed, Follower, Graph, Index,
-    Language, Stopped, Unmatched, Watch,
+    Language, PathFault, Stopped, Unmatched, Watch,
 };
 use serde::Serialize;
 
@@ -225,6 +225,40 @@ impl<'b, T> Matches<'b, T> {
     }
 }
 
+/// The engine's refusal of the first of `paths` it refuses by its spelling, as the wire answers it.
+///
+/// A refresh asks this before it reads the handle's state, so a wrong path answers `invalid_params` before `not_built`
+/// or `no_stamps` would, neither of which reaches the engine's own refusal.
+pub(crate) fn misspelled(paths: Option<&[String]>) -> Result<(), Error> {
+    let refused = paths.into_iter().flatten().find_map(|path| {
+        Some(BuildError::Misspelled {
+            path: path.clone(),
+            fault: PathFault::of(path)?,
+        })
+    });
+    refused.map_or(Ok(()), |refused| Err(refresh_error(refused)))
+}
+
+/// The wire's answer for a refresh that `error` stopped, which leaves the engine as it was.
+fn refresh_error(error: BuildError) -> Error {
+    match error {
+        BuildError::Cancelled => Error::new(
+            ErrorCode::RefreshCancelled,
+            "a cancel stopped the refresh; the engine answers as it did before it",
+        ),
+        BuildError::Misspelled { .. } => Error::new(
+            ErrorCode::InvalidParams,
+            format!(
+                "{error}; pass it from the root, with / between names, as the answers spell a path"
+            ),
+        ),
+        error => Error::new(
+            ErrorCode::RefreshFailed,
+            format!("{error}; the engine answers as it did before the refresh"),
+        ),
+    }
+}
+
 impl Built {
     /// Brings the engine up to the tree at the root-relative `paths`, or across the whole tree for `None`, until
     /// `cancel` stops the walk, answers what the refresh did, and takes its failures into the stored ones.
@@ -242,19 +276,7 @@ impl Built {
                 .engine
                 .refresh_paths(paths.iter().map(String::as_str), Some(cancel)),
         };
-        let refresh = refreshed.map_err(|error| match error {
-            BuildError::Cancelled => Error::new(
-                ErrorCode::RefreshCancelled,
-                "a cancel stopped the refresh; the engine answers as it did before it",
-            ),
-            BuildError::Misspelled { .. } => {
-                Error::new(ErrorCode::InvalidParams, error.to_string())
-            }
-            error => Error::new(
-                ErrorCode::RefreshFailed,
-                format!("{error}; the engine answers as it did before the refresh"),
-            ),
-        })?;
+        let refresh = refreshed.map_err(refresh_error)?;
         let failed = StoredErrors::new(self.engine.index().root(), refresh.errors());
         let answer = wire::ok(&RefreshAnswer::new(&refresh, &failed, self.watch.as_ref()));
         self.errors.replace(&refresh.index.walked, failed);
