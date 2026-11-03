@@ -27,7 +27,7 @@ use crate::params::{
     FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
     IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams, RefreshParams,
 };
-use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, misspelled, relative};
+use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, relative};
 use crate::render::{
     self, CallersAsk, Found, Graphless, NameDefinitions, PathAsk, Read, SUGGESTIONS, Selection,
     Suggestion, Unmatched, UnusedAsk,
@@ -398,11 +398,6 @@ impl Server {
     )]
     async fn refresh(&self, Parameters(p): Parameters<RefreshParams>) -> Result<String, String> {
         let paths = p.paths.unwrap_or_default();
-        if let Some(fault) = paths.iter().find_map(|path| misspelled(path)) {
-            return Err(format!(
-                "{fault} - pass paths relative to the repository root, with / between names, as find_files prints them"
-            ));
-        }
         let served = self.slot.current()?;
         tokio::task::spawn_blocking(move || {
             served

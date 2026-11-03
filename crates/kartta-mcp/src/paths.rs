@@ -2,7 +2,7 @@
 //! names. A path the index does not hold is a wrong call, answered with what is wrong with its spelling and the paths
 //! the index holds nearest to it.
 
-use kartta_fs::{EntryKind, Index, ListOptions};
+use kartta_fs::{EntryKind, Index, ListOptions, PathFault};
 
 use crate::llmxml::List;
 
@@ -24,28 +24,6 @@ pub(crate) enum Wanted {
 /// `path` without its leading `./`: the index spells a path from the root, where `./a` names what `a` names.
 pub(crate) fn relative(path: &str) -> &str {
     path.trim_start_matches("./")
-}
-
-/// What keeps `path` from naming a part of the tree, which the index spells from the root with `/` between names: a
-/// leading `/` or `\`, a drive such as `C:`, a `\` between names, or a `..` name. `None` when it has none of them.
-pub(crate) fn misspelled(path: &str) -> Option<String> {
-    if path.starts_with(['/', '\\']) {
-        return Some(format!("{path:?} is absolute"));
-    }
-    if let [drive, b':', ..] = path.as_bytes()
-        && drive.is_ascii_alphabetic()
-    {
-        return Some(format!(
-            "{path:?} starts with the drive {}:",
-            char::from(*drive)
-        ));
-    }
-    if path.contains('\\') {
-        return Some(format!("{path:?} separates its names with \\"));
-    }
-    path.split('/')
-        .any(|name| name == "..")
-        .then(|| format!("{path:?} holds a .. name, which may leave the root"))
 }
 
 /// The file argument `path` without its leading `./`, or the tool error for a path at which the index holds no file.
@@ -95,7 +73,7 @@ pub(crate) fn held_prefix<'p>(index: &Index, prefix: &'p str) -> Result<&'p str,
 /// The tool error for `path`, which the index does not hold as `wanted` asks: what is wrong with its spelling, or that
 /// nothing is indexed there, and the paths of that kind the index holds nearest to it.
 pub(crate) fn unheld(index: &Index, path: &str, wanted: Wanted) -> String {
-    let fault = misspelled(path).map_or_else(
+    let fault = PathFault::of(path).map_or_else(
         || {
             let missed = if wanted == Wanted::Prefix {
                 format!("no indexed path starts with {path:?}")
@@ -106,7 +84,8 @@ pub(crate) fn unheld(index: &Index, path: &str, wanted: Wanted) -> String {
         },
         |fault| {
             format!(
-                "{fault} - pass the path from the repository root, with / between names, as find_files prints it"
+                "{path:?} {fault} - pass the path from the repository root, with / between names, as find_files \
+                 prints it"
             )
         },
     );
@@ -245,27 +224,5 @@ mod tests {
         assert_eq!(relative("pkg/./a.go"), "pkg/./a.go");
         assert_eq!(relative(".hidden/a"), ".hidden/a");
         assert_eq!(relative("."), ".");
-    }
-
-    #[test]
-    fn a_misspelling_is_named_by_its_first_fault() {
-        assert_eq!(misspelled("pkg/a.go"), None);
-        assert_eq!(misspelled("pkg/..a.go"), None);
-        assert_eq!(
-            misspelled("/r/pkg").as_deref(),
-            Some(r#""/r/pkg" is absolute"#)
-        );
-        assert_eq!(
-            misspelled("C:\\r").as_deref(),
-            Some(r#""C:\\r" starts with the drive C:"#)
-        );
-        assert_eq!(
-            misspelled("pkg\\a.go").as_deref(),
-            Some(r#""pkg\\a.go" separates its names with \"#)
-        );
-        assert_eq!(
-            misspelled("../a.go").as_deref(),
-            Some(r#""../a.go" holds a .. name, which may leave the root"#)
-        );
     }
 }
