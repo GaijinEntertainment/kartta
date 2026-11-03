@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 usage: scripts/ffi-archive.sh <target>   build the static library a release ships into <target directory>/<target>/dist
 
-On every target but Windows, the library defines the C ABI alone (ADR 4.58).
+On every target but the MSVC one, the library defines the C ABI alone (ADR 4.58).
 USAGE
 }
 
@@ -41,6 +41,28 @@ case $target in
   *-apple-darwin)
     # shellcheck disable=SC2046,SC2086 # one flag per export
     cc -r -nostdlib $(printf ' -Wl,-u,%s' $exports) -Wl,-exported_symbol,'_kartta_*' "$archive" -o "$object"
+    ;;
+  *-windows-gnu)
+    # constraint: a partial link merges the import sections of every DLL into one, which binds a function to another
+    # DLL, so the import members stay out of it and beside the object
+    objdump -h "$archive" | awk -v imports="$built/imports" -v others="$built/others" '
+      function flush() { if (member != "") print member >(idata ? imports : others) }
+      / file format / { flush(); member = $1; sub(/:$/, "", member); idata = 0 }
+      $2 ~ /^\.idata/ { idata = 1 }
+      END { flush() }'
+    cp "$archive" "$built/rest.a"
+    ar d "$built/rest.a" "@$built/imports"
+    # shellcheck disable=SC2046,SC2086 # one flag per export
+    ld -r $(printf ' -u %s' $exports) "$built/rest.a" -o "$object"
+    # constraint: a partial link keeps the sections a final link drops: the grammars' exports, which name local
+    # symbols now, and LLVM's bitcode, which an image would map outside itself
+    objcopy --wildcard --keep-global-symbol 'kartta_*' -R .drectve -R .llvmbc -R .llvmcmd "$object"
+    cp "$archive" "$built/imports.a"
+    ar d "$built/imports.a" "@$built/others"
+    ar rs "$built/imports.a" "$object"
+    rm "$archive" "$object" "$built/rest.a" "$built/imports" "$built/others"
+    mv "$built/imports.a" "$archive"
+    exit 0
     ;;
   *)
     # shellcheck disable=SC2046,SC2086 # one flag per export
