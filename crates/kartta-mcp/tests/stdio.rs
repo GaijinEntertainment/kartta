@@ -396,6 +396,23 @@ fn list_dir_counts_what_it_did_not_enter() {
          <entry path=\"vendor/lib\" kind=\"dir\" unlisted=\"1\"/>\n\
          </dir>"
     );
+    assert_eq!(
+        client.answer(
+            "list_dir",
+            &json!({"path": "vendor", "max_depth": 2, "excludes": ["vendor/lib"]})
+        ),
+        "<dir path=\"vendor\" entries=\"1\" total=\"2\">\n\
+         <entry path=\"vendor/lib\" kind=\"dir\" unlisted=\"1\"/>\n\
+         </dir>",
+        "a name with the directories above it is matched as written"
+    );
+    let globbed = client.call("list_dir", &json!({"excludes": ["vendor", "**/lib"]}));
+    assert!(globbed.is_error);
+    assert_eq!(
+        globbed.text,
+        "excludes: \"**/lib\" holds the glob character * - list_dir excludes are directory names, matched literally \
+         at any depth, such as \"vendor\" or \"pkg/deep\""
+    );
     assert!(
         client
             .call("list_dir", &json!({"path": "nowhere"}))

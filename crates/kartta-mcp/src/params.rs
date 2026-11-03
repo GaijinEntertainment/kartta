@@ -346,7 +346,8 @@ pub(crate) struct ListDirParams {
     /// are rejected. The answer carries truncated="true" when the cap cut it.
     #[serde(default)]
     pub(crate) max_entries: Option<NonZeroUsize>,
-    /// Directory NAMES (bare names like "vendor" - not paths) whose contents are not descended into; the directory
+    /// Directory NAMES matched literally at any depth ("vendor", or "pkg/deep" for a deep under a pkg), never globs: a
+    /// name holding * ? [ ] { } fails the call. A matched directory's contents are not descended into; the directory
     /// entry itself still appears, with unlisted= counting what it holds. OMITTED defaults to vendored and generated
     /// trees (vendor, node_modules, dist, build, __pycache__). Pass [] to descend everywhere, or your own list to
     /// replace the default. The directory named in 'path' is always listed in full.
