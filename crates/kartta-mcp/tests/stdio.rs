@@ -616,11 +616,19 @@ fn index_stats_names_why_a_build_failed() {
 
     let shown = rooted(&stats, &missing);
     assert!(
-        shown.starts_with(
-            "<index root=\"<root>\" status=\"failed\">cannot index <root>: cannot read directory <root>: "
-        )
+        shown
+            .starts_with("<index root=\"<root>\" status=\"failed\">cannot read directory <root>: ")
             && shown.ends_with(" - call index_repo again</index>"),
         "{stats}"
+    );
+    let refused = client.call("find_symbols", &json!({"query": "x"}));
+    let shown = rooted(&refused.text, &missing);
+    assert!(
+        refused.is_error
+            && shown.starts_with("indexing <root> failed: cannot read directory <root>: ")
+            && shown.ends_with(" - call index_repo again"),
+        "{}",
+        refused.text
     );
 }
 
@@ -636,7 +644,7 @@ fn a_launch_build_that_fails_warns_on_stderr() {
         .expect("the server warns");
     assert!(
         warning.starts_with(&format!(
-            "kartta-mcp: the launch build ended without an index: cannot index {}: ",
+            "kartta-mcp: the launch build of {0} ended without an index: cannot read directory {0}: ",
             missing.display()
         )),
         "{warning}"
