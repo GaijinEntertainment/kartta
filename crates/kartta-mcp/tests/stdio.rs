@@ -34,6 +34,27 @@ fn a_grep_index_that_cannot_be_kept_costs_only_itself_and_stays_named_through_a_
 }
 
 #[test]
+fn a_server_told_nothing_shares_a_cache_under_the_user_s_and_narrows_grep_by_an_index() {
+    let tree = go_module();
+    let home = tempfile::tempdir().expect("a temporary directory");
+    let mut client = Client::defaulted_in(home.path());
+    let cache = if cfg!(target_os = "macos") {
+        home.path().join("Library").join("Caches").join("kartta")
+    } else if cfg!(windows) {
+        home.path().join("kartta")
+    } else {
+        home.path().join(".cache").join("kartta")
+    };
+
+    client.index(tree.path());
+    let found = client.answer("grep", &json!({"patterns": ["Greet"]}));
+    let published = std::fs::read_dir(&cache).map_or(0, Iterator::count);
+
+    assert!(found.contains("ruled_out=\"2\""), "{found}");
+    assert!(published > 0, "nothing in {}", cache.display());
+}
+
+#[test]
 fn the_server_lists_its_tools() {
     let mut client = Client::start(&[]);
 

@@ -41,6 +41,20 @@ impl Client {
         Self::launch(command)
     }
 
+    /// Starts an unwatched server that sets neither the cache nor the content index, with `home` as the user's home and
+    /// local application data directory, and completes the MCP handshake.
+    pub(crate) fn defaulted_in(home: &Path) -> Self {
+        let mut command = Self::command(&[], "off");
+        command
+            .env_remove("KARTTA_CACHE_DIR")
+            .env_remove("KARTTA_GREP_INDEX")
+            .env_remove("KARTTA_GREP_INDEX_DIR")
+            .env_remove("XDG_CACHE_HOME")
+            .env("HOME", home)
+            .env("LOCALAPPDATA", home);
+        Self::launch(command)
+    }
+
     /// Starts the server with `arguments` and its stderr piped, completes the MCP handshake, and returns each line the
     /// server writes to stderr as it arrives.
     pub(crate) fn with_stderr(arguments: &[&Path]) -> (Self, mpsc::Receiver<String>) {
@@ -63,8 +77,8 @@ impl Client {
         command
             .args(arguments)
             .env_remove("KARTTA_ROOT")
-            .env_remove("KARTTA_GREP_INDEX")
-            .env_remove("KARTTA_CACHE_DIR")
+            .env("KARTTA_GREP_INDEX", "")
+            .env("KARTTA_CACHE_DIR", "")
             .env("KARTTA_WATCH", watch)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

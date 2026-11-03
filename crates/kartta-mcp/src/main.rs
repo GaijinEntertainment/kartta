@@ -22,10 +22,14 @@ that repository at launch; without either, the index_repo tool builds one.
 
 Environment:
   KARTTA_ROOT            the repository to index at launch
-  KARTTA_CACHE_DIR       a directory builds share per-file data through
+  KARTTA_CACHE_DIR       a directory builds share per-file data through, so a build after the first reads what the
+                         files it finds unchanged computed before; it costs disk, about 590 MiB for a 170k-file
+                         checkout (default: kartta under the user's cache directory; empty: none)
   KARTTA_CACHE_ENTRY_TTL_SECS
                          the age in seconds past which a cache entry expires (unset, empty or 0: a week)
-  KARTTA_GREP_INDEX      memory, file or mmap: build a trigram index that narrows grep
+  KARTTA_GREP_INDEX      memory, file or mmap: where the trigram index that narrows grep lives; it costs a read of
+                         every text file per build, and about 117 MiB of scratch for a 170k-file checkout
+                         (default: mmap; empty: none, and grep reads every file)
   KARTTA_GREP_INDEX_DIR  where a file or mmap trigram index lives (default: the temporary directory)
   KARTTA_THREADS         how many threads builds and queries run on (default: every core)
   KARTTA_WATCH           off, 0, false or no: take in edits only through the refresh tool (default: follow the tree)";
