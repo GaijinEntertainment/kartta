@@ -3,9 +3,9 @@ use std::ops::RangeInclusive;
 
 use kartta::{
     Access, Blast, CallPath, Candidate, Change, Conventions, CutLine, Dead, DeadCode, Definition,
-    Definitions, Dependent, Dependents, DirCount, DirectCalls, Engine, EntryKind, Excluded,
-    FileScope, Graph, Hit, Hotspot, Implementations, Implementor, LanguageFiles, Miss, Misses,
-    Nearness, ReachBand, Reached, Reference, References, Resolution, Search, Seed, Segment,
+    Definitions, Dependent, Dependents, DirCount, DirectCalls, Engine, EngineChange, EntryKind,
+    Excluded, FileScope, Graph, Hit, Hotspot, Implementations, Implementor, LanguageFiles, Miss,
+    Misses, Nearness, ReachBand, Reached, Reference, References, Resolution, Search, Seed, Segment,
     SegmentSymbol, SelfCall, SiteCounts, Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound,
     Unmatched, UnmatchedKind, Walk,
 };
@@ -633,6 +633,44 @@ struct BlastDef {
     turned_away: usize,
     unexpanded: usize,
     below_confidence: usize,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ChangeView<'e> {
+    #[serde(flatten)]
+    change: Wired<Change<'e>>,
+    missing_regions: usize,
+    unclaimed_regions: usize,
+    declined: Vec<DeclinedRegionsView<'e>>,
+}
+
+/// The regions of held files that one language leaves out of its graph for one reason.
+#[derive(Serialize)]
+struct DeclinedRegionsView<'e> {
+    #[serde(flatten)]
+    declined: DeclinedView<'e>,
+    regions: usize,
+}
+
+impl<'e> ChangeView<'e> {
+    pub(crate) fn new(answer: EngineChange<'e>) -> Self {
+        Self {
+            missing_regions: answer.missing_regions,
+            unclaimed_regions: answer.unclaimed_regions,
+            declined: answer
+                .declined
+                .iter()
+                .map(|declined| DeclinedRegionsView {
+                    declined: DeclinedView {
+                        language: declined.language,
+                        reason: declined.reason,
+                    },
+                    regions: declined.regions,
+                })
+                .collect(),
+            change: Wired(answer.change),
+        }
+    }
 }
 
 #[derive(Serialize)]

@@ -993,7 +993,12 @@ export type Region = {
 	end_line?: number;
 };
 
-/** What a change to regions across files reaches. */
+/**
+ * What a change to regions across files reaches. `unheld_regions` counts the regions whose file no graph holds; of
+ * them, `missing_regions` counts those whose path the index does not hold, `unclaimed_regions` those of held files no
+ * language claims or declines, and `declined` those of held files a language leaves out of its graph. The rest are
+ * regions of held files the graph claiming them holds no record of.
+ */
 export type Change = {
 	changed_symbols: number;
 	changed_files: number;
@@ -1006,6 +1011,14 @@ export type Change = {
 	total_hotspots: number;
 	seeds: Seed[];
 	truncated_seeds: number;
+	missing_regions: number;
+	unclaimed_regions: number;
+	declined: DeclinedRegions[];
+};
+
+/** The regions of held files that one language leaves out of its graph for one reason. */
+export type DeclinedRegions = Declined & {
+	regions: number;
 };
 
 /** A symbol several changed symbols reach. */

@@ -1,0 +1,83 @@
+{
+  "answer": {
+    "ok": {
+      "changed_files": 1,
+      "changed_symbols": 1,
+      "declined": [
+        {
+          "language": "go",
+          "reason": "no Go build reads a file whose name starts with _ or .",
+          "regions": 1
+        }
+      ],
+      "footprint": 2,
+      "footprint_files": 2,
+      "hotspots": [],
+      "missing_regions": 1,
+      "regions_outside_symbols": 0,
+      "seeds": [
+        {
+          "band": "low",
+          "below_confidence": 0,
+          "caller_count": 1,
+          "consumer_dirs": [],
+          "consumers": [
+            {
+              "confidence": 80,
+              "depth": 1,
+              "line": 5,
+              "symbol": {
+                "end_line": 6,
+                "exported": false,
+                "file": "go/run.go",
+                "kind": "func",
+                "line": 4,
+                "name": "run",
+                "qualified_name": "main.run",
+                "signature": "func run()"
+              }
+            }
+          ],
+          "reach": 2,
+          "symbol": {
+            "end_line": 8,
+            "exported": false,
+            "file": "go/run.go",
+            "kind": "func",
+            "line": 8,
+            "name": "helper",
+            "qualified_name": "main.helper",
+            "signature": "func helper()"
+          },
+          "truncated": false,
+          "turned_away": 0,
+          "unexpanded": 0
+        }
+      ],
+      "total_hotspots": 0,
+      "transitive_sum": 2,
+      "truncated_seeds": 0,
+      "unclaimed_regions": 1,
+      "unheld_regions": 3
+    }
+  },
+  "method": "analyze_change",
+  "params": {
+    "regions": [
+      {
+        "file": "go/_skip.go"
+      },
+      {
+        "file": "notes.txt"
+      },
+      {
+        "file": "go/gone.go"
+      },
+      {
+        "end_line": 8,
+        "file": "go/run.go",
+        "start_line": 8
+      }
+    ]
+  }
+}
