@@ -32,9 +32,8 @@ pub(super) fn alias_declarator_name(mut node: Node<'_>) -> Option<Node<'_>> {
     }
 }
 
-/// Whether the type a typedef writes defines the class tag `name` spells, as C's `typedef struct S { } S;`: the
-/// definition already holds the name, so an alias would be a second type of it. An enum is no such definition, because
-/// no parent can name one and its alias is the type `find_implementations` selects.
+/// Whether the type a typedef writes defines the class or enum tag `name` spells, as C's `typedef struct S { } S;` or
+/// `typedef enum E { } E;`: the definition already holds the name, so an alias would be a second type of it.
 pub(super) fn defines_class_tag(
     written: Option<Node<'_>>,
     name: Node<'_>,
@@ -46,7 +45,7 @@ pub(super) fn defines_class_tag(
         && written.is_some_and(|written| {
             matches!(
                 written.kind(),
-                "class_specifier" | "struct_specifier" | "union_specifier"
+                "class_specifier" | "struct_specifier" | "union_specifier" | "enum_specifier"
             ) && written.child_by_field_name("body").is_some()
                 && written.child_by_field_name("name").is_some_and(spells_name)
         })
