@@ -464,9 +464,9 @@ pub(crate) struct FindReferencesParams {
     /// rejected; omit the argument to use "any". below_confidence= on a match counts the sites the floor dropped.
     #[serde(default)]
     pub(crate) min_confidence: ConfidenceFloor,
-    /// Keep only the uses that read the symbol ("read") or that set it ("write"), e.g. "write" for "who sets
-    /// Config.Timeout?"; an update (+=, ++) is both, and calls are dropped. Omit to keep every site. The counts on the
-    /// match still count every site.
+    /// Keep only the uses that read the symbol ("read"), that set it ("write") or that name it as a type ("type"),
+    /// e.g. "write" for "who sets Config.Timeout?"; an update (+=, ++) is a read and a write, a use as a type is also
+    /// a read, and calls are dropped. Omit to keep every site. The counts on the match still count every site.
     #[serde(default)]
     pub(crate) access: Option<AccessFilter>,
 }
@@ -475,10 +475,12 @@ pub(crate) struct FindReferencesParams {
 #[derive(Debug, Clone, Copy, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum AccessFilter {
-    /// The uses that read the symbol: reads and updates.
+    /// The uses that read the symbol: reads, updates and uses as a type.
     Read,
     /// The uses that set the symbol: writes and updates.
     Write,
+    /// The uses that name the symbol as a type.
+    Type,
 }
 
 impl AccessFilter {
@@ -486,6 +488,7 @@ impl AccessFilter {
         match self {
             Self::Read => Access::Read,
             Self::Write => Access::Write,
+            Self::Type => Access::Type,
         }
     }
 }

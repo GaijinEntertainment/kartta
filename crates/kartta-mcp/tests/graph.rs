@@ -1935,6 +1935,59 @@ fn find_references_labels_a_member_read_through_a_type_a_read_and_not_a_use_as_a
 }
 
 #[test]
+fn find_references_keeps_the_uses_as_a_type_alone_or_among_the_reads() {
+    let answers = answers_over(
+        &[(
+            "palette.py",
+            "class Palette:\n    default = 1\n\n\ndef pick(palette: Palette):\n    return Palette.default\n",
+        )],
+        &[
+            (
+                "find_references",
+                json!({"name": "Palette", "access": "type"}),
+            ),
+            (
+                "find_references",
+                json!({"name": "Palette", "access": "read"}),
+            ),
+        ],
+    );
+    let site = |line: u32, kind: &str, at: u32| {
+        format!(
+            r#"<ref name="pick" qn="palette.pick" line="{line}" role="consumer" site="{kind}" at="{at}"/>"#
+        )
+    };
+    let counts = r#"files="1" types="1" reads="1">"#;
+    let head = r#"<match lang="python" of="Palette" qn="palette.Palette" loc="palette.py:1" kind="class" "#;
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="Palette" matches="1">"#,
+                &format!(r#"{head}count="1" {counts}"#),
+                r#"<file path="palette.py" sites="1">"#,
+                &site(5, "type", 5),
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Palette" matches="1">"#,
+                &format!(r#"{head}count="2" {counts}"#),
+                r#"<file path="palette.py" sites="2">"#,
+                &site(5, "type", 5),
+                &site(5, "read", 6),
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "type keeps the annotation alone, and read keeps it beside the read through the class"
+    );
+}
+
+#[test]
 fn find_references_names_the_language_that_records_no_read_or_write_of_the_symbol_s_kind() {
     let answers = answers_over(
         &[

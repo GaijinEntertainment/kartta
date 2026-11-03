@@ -1002,7 +1002,9 @@ impl Server {
                        a type, EventType.Created, reading the type; write; or update for += and ++), at= the lines \
                        where it touches the symbol, \
                        and a confidence=likely / guess mark on a weakly resolved site. A caller is one site, at one of \
-                       its calls; every other use is one site per line and kind. Languages record uses other than \
+                       its calls; every other use is one site per line and kind. access=\"type\" keeps the uses as a \
+                       type alone, and access=\"read\" keeps them too, beside the reads and updates. \
+                       Languages record uses other than \
                        calls to different extents, and a match names its language where that language records none \
                        of its symbol's uses: no use as a type of a type, as Rust records none, and no read or write \
                        of a field, a variable or a constant, as Rust records none of a field; ambiguous= counts the \
