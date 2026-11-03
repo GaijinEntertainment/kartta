@@ -75,6 +75,10 @@ fn edge(tag: &'static str, reached: &Reached<'_>) -> Element {
         .attr("loc", loc(symbol.file, symbol.line))
         .attr("role", edge_role(symbol.flags))
         .optional("confidence", confidence(reached.confidence))
+        .optional(
+            "through",
+            reached.through.map(|parent| parent.qualified_name),
+        )
 }
 
 /// The `find_call_path` answer: one `<match>` per family graph both names select a symbol in. With none, each end

@@ -507,6 +507,65 @@ impl Types<'_> {
         }
     }
 
+    /// The types `ty` implements, extends or includes, transitively, each once and `ty` not among them, nearest first:
+    /// those its written parents name, read as [`Graph::implementations`] reads a parent, and those an assertion in the
+    /// file at `asserting` names for it, as a Rust impl apart from its type does.
+    pub(crate) fn ancestors(&self, ty: SymbolAt, asserting: u32) -> Vec<SymbolAt> {
+        let parents_of = |at: SymbolAt| self.named_by_parents(at).into_iter().flatten();
+        let mut walked = vec![ty];
+        let mut level: Vec<SymbolAt> = parents_of(ty).collect();
+        level.extend(self.asserted_for(asserting, ty));
+        while !level.is_empty() {
+            level.retain(|at| !walked.contains(at));
+            level.sort_unstable();
+            level.dedup();
+            walked.extend_from_slice(&level);
+            level = level.iter().flat_map(|&at| parents_of(at)).collect();
+        }
+        walked.remove(0);
+        walked
+    }
+
+    /// The types each parent `child` writes names, in the order it writes them, each read from `child`'s file as a
+    /// parent of it: empty for a parent that names no type the graph holds.
+    pub(crate) fn named_by_parents(&self, child: SymbolAt) -> Vec<Vec<SymbolAt>> {
+        let parents = self.graph.file(child.file).parents_of(child.index);
+        parents
+            .iter()
+            .map(|parent| {
+                let Some(name) = self.graph.listing_key(parent.written) else {
+                    return Vec::new();
+                };
+                let types: Vec<SymbolAt> = (self.graph.named(name).iter().copied())
+                    .filter(|&at| at != child && self.is_type_at(at))
+                    .collect();
+                let mut named = self.named_by(
+                    child,
+                    parent,
+                    Namesakes {
+                        name,
+                        types: &types,
+                    },
+                );
+                named.retain(|&at| at != child);
+                named
+            })
+            .collect()
+    }
+
+    /// The interfaces the assertions of the file at `slot` name for `ty`.
+    fn asserted_for(&self, slot: u32, ty: SymbolAt) -> Vec<SymbolAt> {
+        let assertions = self.graph.file(slot).assertions.iter();
+        assertions
+            .filter(|assertion| {
+                self.asserted_name(slot, (assertion.type_name, assertion.type_file)) == Some(ty)
+            })
+            .filter_map(|assertion| {
+                self.asserted_name(slot, (assertion.interface, assertion.interface_file))
+            })
+            .collect()
+    }
+
     /// The types `written` names from `file`, read as a parent that file writes.
     pub(crate) fn named_in_file(&self, file: u32, written: Str) -> Vec<SymbolAt> {
         self.of_last_segment(written)

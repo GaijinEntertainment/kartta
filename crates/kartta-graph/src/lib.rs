@@ -51,6 +51,7 @@ mod change;
 pub mod confidence;
 mod dead;
 mod dependents;
+mod dispatch;
 mod graph;
 mod implementations;
 mod members;
