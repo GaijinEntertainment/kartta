@@ -97,7 +97,7 @@ pub(crate) struct IndexStatsParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct RefreshParams {
     /// Repo-relative paths with forward slashes of the files or directories that changed, as find_files prints them,
-    /// never absolute, with a drive such as C: or with a backslash; a directory covers everything below it, and a
+    /// never absolute, with a drive such as C:, a backslash or a .. name; a directory covers everything below it, and a
     /// deleted or renamed file is named by its old path as well as its new one. Omit to check the whole tree.
     #[serde(default)]
     pub(crate) paths: Option<Vec<String>>,

@@ -161,6 +161,7 @@ fn a_refresh_refuses_a_path_spelled_the_windows_way_and_names_what_is_wrong() {
     let drive = client.call("refresh", &json!({"paths": ["C:\\repo\\pkg\\service.go"]}));
     let rooted = client.call("refresh", &json!({"paths": ["\\repo\\pkg\\service.go"]}));
     let backslash = client.call("refresh", &json!({"paths": ["pkg\\service.go"]}));
+    let climbing = client.call("refresh", &json!({"paths": ["../app/pkg/service.go"]}));
     let refused = defines(&mut client, "Added");
     let slash = client.answer("refresh", &json!({"paths": ["pkg/service.go"]}));
 
@@ -174,6 +175,10 @@ fn a_refresh_refuses_a_path_spelled_the_windows_way_and_names_what_is_wrong() {
         (
             &backslash,
             r#""pkg\\service.go" separates its names with \"#,
+        ),
+        (
+            &climbing,
+            r#""../app/pkg/service.go" holds a .. name, which may leave the root"#,
         ),
     ] {
         assert!(refusal.is_error, "{refusal:?}");
