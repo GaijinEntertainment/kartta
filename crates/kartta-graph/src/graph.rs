@@ -1298,10 +1298,15 @@ pub const fn is_referent(kind: SymbolKind) -> bool {
     !matches!(kind, SymbolKind::EnumVariant)
 }
 
-/// Whether [`Graph::implementations`] selects a symbol of `kind`: a class, a struct, an interface, a trait, a namespace
-/// or a type alias.
+/// Whether [`Graph::implementations`] selects a symbol of `kind`: a class, a struct, an interface, a trait, an enum, a
+/// namespace or a type alias.
 #[must_use]
 pub const fn is_parent(kind: SymbolKind) -> bool {
+    names_as_parent(kind) || matches!(kind, SymbolKind::Enum)
+}
+
+/// Whether a parent can name a symbol of `kind`: every kind [`is_parent`] admits but an enum.
+pub(crate) const fn names_as_parent(kind: SymbolKind) -> bool {
     derives(kind) || matches!(kind, SymbolKind::Namespace | SymbolKind::TypeAlias)
 }
 
