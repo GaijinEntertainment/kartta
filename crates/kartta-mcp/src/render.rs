@@ -483,8 +483,8 @@ pub(crate) fn unready(unready: &Unready) -> String {
             .attr("status", "building")
             .attr("elapsed_secs", elapsed.as_secs())
             .inline(
-                "still building - every other tool answers once it is ready, and index_repo with this root waits \
-                 for it",
+                "still building - every other tool answers once it is ready, and index_repo with this root, \
+                 languages and index_ignored waits for it",
             ),
         Unready::Failed { root, error } => element
             .attr("root", root)
