@@ -310,8 +310,9 @@ impl Server {
                        gitignore=\"ignored\" means none applied (index_ignored). A root inside a repository whose top \
                        is above it reads gitignore=\"in-tree: the root is inside the repository at <top>, whose \
                        .gitignore files above the root were not read\": the index can hold files those hide. While a \
-                       build runs it answers status=\"building\" with \
-                       the seconds so far. Returns the same <index> envelope index_repo produced. With \
+                       build runs it answers status=\"building\" with the seconds so far, before any build \
+                       status=\"empty\", and after a build that failed status=\"failed\" with its root and error. \
+                       Otherwise it returns the same <index> envelope index_repo produced. With \
                        coverage=true it also resolves every call site and adds one <coverage/> record per language: \
                        sites, bound (split into certain / likely / guess, the confidence marks of the call tools), \
                        edges (distinct caller-callee pairs), and why the other sites bound no definition, each only \
@@ -328,10 +329,11 @@ impl Server {
         &self,
         Parameters(p): Parameters<IndexStatsParams>,
     ) -> Result<String, String> {
-        if let Some((root, elapsed)) = self.slot.building() {
-            return Ok(render::building(&root, elapsed));
-        }
-        self.answer(move |indexed| {
+        let served = match self.slot.served() {
+            Ok(served) => served,
+            Err(unready) => return Ok(render::unready(&unready)),
+        };
+        answer_from(served, move |indexed| {
             let coverage = if p.coverage {
                 indexed.engine.resolution(0)
             } else {

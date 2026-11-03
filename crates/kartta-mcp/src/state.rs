@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
@@ -275,6 +276,33 @@ enum State {
     },
 }
 
+/// What a slot that holds no index to answer from holds instead.
+#[derive(Debug)]
+pub(crate) enum Unready {
+    Empty,
+    Building { root: String, elapsed: Duration },
+    Failed { root: String, error: String },
+}
+
+/// The error a query answers while the slot is unready.
+impl fmt::Display for Unready {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => formatter.write_str("no repository indexed: call index_repo first"),
+            Self::Building { root, elapsed } => write!(
+                formatter,
+                "the index of {root} is still building ({}s so far) - index_stats answers once it is ready, and \
+                 index_repo with the same root waits for it",
+                elapsed.as_secs()
+            ),
+            Self::Failed { root, error } => write!(
+                formatter,
+                "indexing {root} failed: {error} - call index_repo again"
+            ),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Build {
     id: u64,
@@ -364,30 +392,23 @@ impl Slot {
 
     /// The engine to answer a query from, or the error that says why there is none.
     pub(crate) fn current(&self) -> Result<Arc<Served>, String> {
-        match &*self.lock() {
-            State::Ready(served) => Ok(Arc::clone(served)),
-            State::Empty => Err("no repository indexed: call index_repo first".to_owned()),
-            State::Building(build) => Err(format!(
-                "the index of {} is still building ({}s so far) - index_stats answers once it is ready, and \
-                 index_repo with the same root waits for it",
-                build.request.root.display(),
-                build.started.elapsed().as_secs()
-            )),
-            State::Failed { root, error } => Err(format!(
-                "indexing {root} failed: {error} - call index_repo again"
-            )),
-        }
+        self.served().map_err(|unready| unready.to_string())
     }
 
-    /// The root a build under way indexes and how long it has run, or `None` when no build runs.
-    pub(crate) fn building(&self) -> Option<(String, Duration)> {
-        let State::Building(build) = &*self.lock() else {
-            return None;
-        };
-        Some((
-            build.request.root.display().to_string(),
-            build.started.elapsed(),
-        ))
+    /// The engine to answer a query from, or what the slot holds instead.
+    pub(crate) fn served(&self) -> Result<Arc<Served>, Unready> {
+        match &*self.lock() {
+            State::Ready(served) => Ok(Arc::clone(served)),
+            State::Empty => Err(Unready::Empty),
+            State::Building(build) => Err(Unready::Building {
+                root: build.request.root.display().to_string(),
+                elapsed: build.started.elapsed(),
+            }),
+            State::Failed { root, error } => Err(Unready::Failed {
+                root: root.clone(),
+                error: error.clone(),
+            }),
+        }
     }
 
     /// Settles the slot on the outcome of build `id`, unless a later build replaced it, and answers whether it did.

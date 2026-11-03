@@ -376,6 +376,34 @@ fn a_root_that_is_not_an_absolute_readable_directory_is_refused_and_the_index_st
 }
 
 #[test]
+fn index_stats_answers_an_envelope_over_nothing_indexed() {
+    let mut client = Client::start(&[]);
+
+    assert_eq!(
+        client.answer("index_stats", &json!({})),
+        "<index status=\"empty\">nothing is indexed - call index_repo with the repository's absolute root</index>"
+    );
+}
+
+#[test]
+fn index_stats_names_why_a_build_failed() {
+    let tree = common::tree(&[]);
+    let missing = tree.path().join("missing");
+    let mut client = Client::start(&[&missing]);
+
+    let stats = client.wait_for_index();
+
+    let shown = rooted(&stats, &missing);
+    assert!(
+        shown.starts_with(
+            "<index root=\"<root>\" status=\"failed\">cannot index <root>: cannot read directory <root>: "
+        )
+            && shown.ends_with(" - call index_repo again</index>"),
+        "{stats}"
+    );
+}
+
+#[test]
 fn a_root_given_at_launch_builds_without_index_repo() {
     let tree = go_module();
     let mut client = Client::start(&[tree.path()]);
