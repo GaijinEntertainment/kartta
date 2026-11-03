@@ -325,6 +325,27 @@ fn a_file_answer_tells_a_missing_path_an_unclaimed_file_and_a_declined_one_apart
 }
 
 #[test]
+fn a_file_answer_tells_a_directory_from_a_held_file() {
+    let tree = tree();
+    for dir in ["pkg", "_dir.go"] {
+        fs::create_dir(tree.path().join(dir)).expect(dir);
+        fs::write(tree.path().join(dir).join("notes.txt"), "notes\n").expect("notes.txt");
+    }
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    for method in ["outline", "dependents", "analyze_segment"] {
+        for dir in ["pkg", "_dir.go"] {
+            assert_eq!(
+                ok(&kartta, method, &json!({ "file": dir })),
+                json!({ "file": dir, "held": false, "directory": true }),
+                "{method} of a directory, which no graph claims and no language leaves out"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_graphs_stats_count_its_uses_by_access() {
     let tree = tempfile::tempdir().expect("a temporary directory");
     fs::write(
