@@ -1262,7 +1262,11 @@ impl Server {
                        with shown= of=. A change that overlaps no symbol answers changed_symbols=0 with a note in \
                        place of the lists. Each \
                        count of what was left out appears only when it is not zero: unheld_regions= the regions in \
-                       files no code graph holds, regions_outside_symbols= those overlapping no symbol, \
+                       files no code graph holds, of them missing_regions= those whose path the index does not hold \
+                       and unclaimed_regions= those in held files no language claims or declines, with a \
+                       <declined language= regions=> naming why for each language that leaves such files out of its \
+                       graph, \
+                       regions_outside_symbols= those overlapping no symbol, \
                        truncated_walks= the changed symbols whose walk the 500-symbol cap stopped (truncated=true and \
                        turned_away= on the seed), unexpanded= on a seed the callers whose own callers its walk did not \
                        follow, at the 3-hop bound or left by the cap, so its reach counts none beyond them, and \
@@ -1289,7 +1293,7 @@ impl Server {
                 .map(|changed| Region::new(&changed.path, changed.lines.clone()))
                 .collect();
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
-            let change = indexed.engine.analyze_change(&regions, limits).change;
+            let change = indexed.engine.analyze_change(&regions, limits);
             Ok(render::change(regions.len(), &change, limit))
         })
         .await

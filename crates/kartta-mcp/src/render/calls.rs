@@ -3,8 +3,8 @@ use std::iter;
 use std::ops::Range;
 
 use kartta::{
-    CallPath, Candidate, Change, Conventions, Definition, DirectCalls, Hotspot, ReachBand, Reached,
-    Reference, References, Seed, Segment, Selector, SelfCall, SymbolKind, TypeUses, Walk,
+    CallPath, Candidate, Conventions, Definition, DirectCalls, EngineChange, Hotspot, ReachBand,
+    Reached, Reference, References, Seed, Segment, Selector, SelfCall, SymbolKind, TypeUses, Walk,
 };
 
 use super::{
@@ -537,8 +537,13 @@ pub(crate) fn impact(
 }
 
 /// The `impact_of_change` answer: what the change reaches in all, then the changed symbols, widest reach first, and
-/// the symbols where their reaches meet, each list cut to `limit` and saying so as `shown` of `of`.
-pub(crate) fn change(regions: usize, change: &Change<'_>, limit: usize) -> String {
+/// the symbols where their reaches meet, each list cut to `limit` and saying so as `shown` of `of`, then each language
+/// that leaves a region's file out of its graph, with its reason.
+pub(crate) fn change(regions: usize, answer: &EngineChange<'_>, limit: usize) -> String {
+    const NO_SYMBOLS: &str = "no symbols in these regions - they cover only file-scope code (imports, comments) or \
+                              files no code graph holds (counted in unheld_regions); zero symbols is not proof the \
+                              change is safe, and find_importers lists the files that include a changed file";
+    let change = &answer.change;
     let element = Element::new("change")
         .attr("regions", regions)
         .attr("changed_symbols", change.changed_symbols)
@@ -547,13 +552,23 @@ pub(crate) fn change(regions: usize, change: &Change<'_>, limit: usize) -> Strin
         .attr("footprint_files", change.footprint_files)
         .count("truncated_walks", change.truncated_seeds)
         .count("unheld_regions", change.unheld_regions)
+        .count("missing_regions", answer.missing_regions)
+        .count("unclaimed_regions", answer.unclaimed_regions)
         .count("regions_outside_symbols", change.regions_outside_symbols);
+    let declined = answer.declined.iter().map(|declined| {
+        Element::new("declined")
+            .attr("language", declined.language)
+            .attr("regions", declined.regions)
+            .inline(&format!(
+                "the {} language leaves these regions' files out of its graph: {} - read or grep them",
+                declined.language, declined.reason
+            ))
+    });
     if change.changed_symbols == 0 {
-        return element.inline(
-            "no symbols in these regions - they cover only file-scope code (imports, comments) or files no code graph \
-             holds (counted in unheld_regions); zero symbols is not proof the change is safe, and find_importers lists \
-             the files that include a changed file",
-        );
+        if answer.declined.is_empty() {
+            return element.inline(NO_SYMBOLS);
+        }
+        return element.children(iter::once(NO_SYMBOLS.to_owned()).chain(declined));
     }
     let seeds = Element::new("seeds")
         .attr("shown", change.seeds.len().min(limit))
@@ -565,7 +580,7 @@ pub(crate) fn change(regions: usize, change: &Change<'_>, limit: usize) -> Strin
             .attr("of", change.total_hotspots)
             .children(change.hotspots.iter().take(limit).map(hotspot))
     });
-    element.children(iter::once(seeds).chain(hotspots))
+    element.children(iter::once(seeds).chain(hotspots).chain(declined))
 }
 
 /// A changed symbol: how far a change to it reaches, what its walk left out, and its direct callers, or a field's, a

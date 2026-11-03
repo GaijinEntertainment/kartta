@@ -249,7 +249,7 @@ pub(crate) struct ImpactOfChangeParams {
     /// line on each side of the deletion, and a deleted file (+++ /dev/null) is a whole-file region of its --- a/ path.
     /// The + side is the tree with the change applied, so index that tree; a deleted file answers only while the index
     /// still holds it. A path git writes quoted (a control or non-ASCII character) is not decoded and counts in
-    /// unheld_regions - pass that file as a region. A diff holding no hunk is a tool error, and so is a hunk that does
+    /// unheld_regions and missing_regions - pass that file as a region. A diff holding no hunk is a tool error, and so is a hunk that does
     /// not read, the error naming its line.
     #[serde(default)]
     pub(crate) diff: Option<String>,
