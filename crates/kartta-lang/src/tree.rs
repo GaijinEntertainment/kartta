@@ -1,6 +1,8 @@
 //! Parsing and walking a tree-sitter tree, for a language that extracts through tree-sitter.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
+use std::ops::Range;
 
 use tree_sitter::{Language, Node, Parser, Tree};
 
@@ -132,8 +134,8 @@ pub fn text(node: Node<'_>, source: &[u8]) -> String {
     String::from_utf8_lossy(&source[node.byte_range()]).into_owned()
 }
 
-/// The declaration's text up to its `body` field, or to its end without one, a trailing `;` dropped: the signature
-/// of a symbol. `None` when nothing is left.
+/// The declaration's text up to its `body` field, or to its end without one, its comments and a trailing `;`
+/// dropped: the signature of a symbol. `None` when nothing is left.
 #[must_use]
 pub fn signature(node: Node<'_>, source: &[u8]) -> Option<String> {
     signature_from(node.start_byte(), node, source)
@@ -146,10 +148,68 @@ pub fn signature_from(start: usize, node: Node<'_>, source: &[u8]) -> Option<Str
     let end = node
         .child_by_field_name("body")
         .map_or_else(|| node.end_byte(), |body| body.start_byte());
-    let text = String::from_utf8_lossy(&source[start..end]);
+    let text = uncommented(node, start..end, source);
     let text = text.trim_end().trim_end_matches(';').trim_end();
 
     (!text.is_empty()).then(|| text.to_owned())
+}
+
+/// The text of `source[range]`, decoded lossily, without the comments the tree holds in it up to `node`'s end.
+///
+/// The spaces and tabs before a comment go with it, and a space stays where it parted two words, so `float /*dt*/)`
+/// keeps `float)` and `int/*w*/x` keeps `int x`. A comment is an extra node, which the grammar lets stand between any
+/// two tokens, whose kind ends in `comment`; another extra, such as a heredoc body, stays.
+#[must_use]
+pub fn uncommented<'s>(node: Node<'_>, range: Range<usize>, source: &'s [u8]) -> Cow<'s, str> {
+    // constraint: the walk below costs 1.2% of a whole tree's extraction, and every shipped grammar's comment token
+    // starts with `//`, `/*`, `#`, `--` (Lua, and JavaScript's `<!--` and `-->`) or `=begin` (Ruby), so text that holds
+    // none of them holds no comment; a language whose comments open otherwise adds its opener here
+    let bytes = &source[range.clone()];
+    if !bytes.contains(&b'#')
+        && !bytes
+            .windows(2)
+            .any(|pair| matches!(pair, b"//" | b"/*" | b"--" | b"=b"))
+    {
+        return String::from_utf8_lossy(bytes);
+    }
+    let mut covering = node;
+    while covering.start_byte() > range.start {
+        let Some(parent) = covering.parent() else {
+            break;
+        };
+        covering = parent;
+    }
+
+    let word = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_' || !byte.is_ascii();
+    let mut kept: Option<String> = None;
+    let mut at = range.start;
+    preorder(covering, |inner| {
+        if inner.end_byte() <= range.start || inner.start_byte() >= range.end {
+            return false;
+        }
+        let comment = inner.is_extra() && inner.kind().ends_with("comment");
+        if comment {
+            let text = kept.get_or_insert_with(|| String::with_capacity(range.len()));
+            text.push_str(&String::from_utf8_lossy(
+                &source[at..inner.start_byte().max(at)],
+            ));
+            text.truncate(text.trim_end_matches([' ', '\t']).len());
+            at = inner.end_byte().min(range.end);
+            if text.bytes().next_back().is_some_and(word)
+                && source[at..range.end]
+                    .first()
+                    .is_some_and(|&byte| word(byte))
+            {
+                text.push(' ');
+            }
+        }
+        !comment
+    });
+    let Some(mut text) = kept else {
+        return String::from_utf8_lossy(&source[range]);
+    };
+    text.push_str(&String::from_utf8_lossy(&source[at..range.end]));
+    Cow::Owned(text)
 }
 
 /// `node`'s children, in order.

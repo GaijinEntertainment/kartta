@@ -1877,3 +1877,19 @@ end
         [SymbolKind::Constant]
     );
 }
+
+#[test]
+fn a_signature_leaves_out_its_comments() {
+    let raw = extract(
+        b"def walk(a, # the first\n  b)\n  a\nend\n\ndef pair(a,\n=begin\nthe second\n=end\n  b)\n  b\nend\n",
+    );
+
+    assert_eq!(
+        symbol(&raw.symbols, "walk").signature.as_deref(),
+        Some("def walk(a,\n  b)")
+    );
+    assert_eq!(
+        symbol(&raw.symbols, "pair").signature.as_deref(),
+        Some("def pair(a,\n\n  b)")
+    );
+}

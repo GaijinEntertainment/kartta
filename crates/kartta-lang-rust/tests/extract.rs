@@ -520,6 +520,28 @@ fn a_signature_is_the_declaration_without_its_body() {
 }
 
 #[test]
+fn a_signature_leaves_out_its_comments() {
+    let raw = extract(
+        b"pub fn run() // runs it\n{\n}\n\n\
+          pub fn walk(\n    a: u8, // the first\n    b: u8,\n) {\n}\n\n\
+          pub fn pair(a: u8, /* the second */ b: u8) {}\n",
+    );
+
+    assert_eq!(
+        named(&raw, "run").signature.as_deref(),
+        Some("pub fn run()")
+    );
+    assert_eq!(
+        named(&raw, "walk").signature.as_deref(),
+        Some("pub fn walk(\n    a: u8,\n    b: u8,\n)")
+    );
+    assert_eq!(
+        named(&raw, "pair").signature.as_deref(),
+        Some("pub fn pair(a: u8, b: u8)")
+    );
+}
+
+#[test]
 fn an_associated_type_is_an_alias_owned_by_its_type() {
     let raw = extract(SAMPLE);
     let item = qualified(&raw, "Service::Item");
