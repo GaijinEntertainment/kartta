@@ -2071,10 +2071,18 @@ fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
             "impact_of_edit",
             json!({"file": "README.md", "start_line": 1}),
         ),
+        (
+            "impact_of_edit",
+            json!({"file": "pkg/service.go", "start_line": 12, "end_line": null}),
+        ),
     ]);
 
     assert_eq!(
-        answers,
+        answers[3], answers[0],
+        "a null end_line reads as the end of the file"
+    );
+    assert_eq!(
+        answers[..3],
         [
             lines(&[
                 r#"<impact of="pkg/service.go" start_line="12" end_line="end" symbols="1">"#,
@@ -4350,11 +4358,19 @@ fn a_wrong_call_answers_a_tool_error() {
             "impact_of_edit",
             json!({"file": "pkg/service.go", "start_line": 5, "end_line": 2}),
         ),
+        (
+            "impact_of_edit",
+            json!({"file": "pkg/service.go", "start_line": 1, "end_line": 0}),
+        ),
         ("find_symbols", json!({"query": "x", "languages": ["nut"]})),
         ("impact_of_change", json!({})),
         (
             "impact_of_change",
             json!({"regions": [{"file": "pkg/service.go", "start_line": 5, "end_line": 2}]}),
+        ),
+        (
+            "impact_of_change",
+            json!({"regions": [{"file": "pkg/service.go", "start_line": 1, "end_line": 0}]}),
         ),
         ("impact_of_change", json!({"diff": "not a diff"})),
         (

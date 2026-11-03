@@ -1131,28 +1131,21 @@ impl Server {
         &self,
         Parameters(p): Parameters<ImpactOfEditParams>,
     ) -> Result<String, String> {
-        if p.start_line == 0 {
-            return Err("start_line is 1-based - it must be >= 1".to_owned());
-        }
-        if p.end_line != 0 && p.end_line < p.start_line {
+        let start_line = p.start_line.get();
+        let end_line = p.end_line.map_or(u32::MAX, NonZeroU32::get);
+        if end_line < start_line {
             return Err(format!(
-                "end_line {} is before start_line {}",
-                p.end_line, p.start_line
+                "end_line {end_line} is before start_line {start_line}"
             ));
         }
         self.answer(move |indexed| {
-            let end_line = if p.end_line == 0 {
-                u32::MAX
-            } else {
-                p.end_line
-            };
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
             let segment = indexed.engine.graph_of(&p.file).and_then(|(_, graph)| {
-                graph.analyze_segment(&p.file, p.start_line..=end_line, limits)
+                graph.analyze_segment(&p.file, start_line..=end_line, limits)
             });
             Ok(render::impact(
                 &p.file,
-                (p.start_line, end_line),
+                (start_line, end_line),
                 segment.as_ref(),
             ))
         })
