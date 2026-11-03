@@ -219,6 +219,19 @@ export default (n: number) => n;
 }
 
 #[test]
+fn a_signature_leaves_out_its_comments() {
+    let extraction = extracted(
+        "src/sig.ts",
+        "export const f = /* the handler */ (a: number) => a;\n",
+    );
+
+    assert_eq!(
+        symbol(&extraction, "f").signature.as_deref(),
+        Some("f = (a: number) =>")
+    );
+}
+
+#[test]
 fn ts_namespaces_emit_and_qualify_members() {
     let extraction = extracted(
         "src/ns.ts",

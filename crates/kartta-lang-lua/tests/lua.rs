@@ -824,3 +824,13 @@ fn line_comments_and_a_long_comment_above_a_function_document_it() {
 fn code_that_ends_with_the_long_comment_s_closer_documents_nothing() {
     assert_eq!(doc_line("after"), 12);
 }
+
+#[test]
+fn a_signature_leaves_out_its_comments() {
+    let raw = extract(b"function walk(a, -- the first\n  b)\n  return a\nend\n");
+
+    assert_eq!(
+        symbol(&raw.symbols, "walk").signature.as_deref(),
+        Some("function walk(a,\n  b)")
+    );
+}

@@ -308,8 +308,8 @@ pub struct Symbol {
     pub kind: SymbolKind,
     /// Whether the definition is visible outside its module, by the language's rules.
     pub exported: bool,
-    /// The declaration's source text up to its body, as written, or `None` where the language keeps none for this
-    /// kind.
+    /// The declaration's source text up to its body, as written but without its comments, or `None` where the
+    /// language keeps none for this kind.
     pub signature: Option<String>,
     /// The types of the values the definition yields, each a type path as
     /// [`Receivers::TypePaths`](crate::Receivers::TypePaths) spells one, read in the scope of the definition's file

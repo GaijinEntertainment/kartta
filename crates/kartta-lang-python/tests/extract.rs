@@ -1320,3 +1320,13 @@ def after():
     assert_eq!(doc_line(source, "parse"), 3);
     assert_eq!(doc_line(source, "after"), 12);
 }
+
+#[test]
+fn a_signature_leaves_out_its_comments() {
+    let raw = extract(b"def walk(a,  # the first\n         b):\n    pass\n");
+
+    assert_eq!(
+        named(&raw, "walk").signature.as_deref(),
+        Some("def walk(a,\n         b):")
+    );
+}
