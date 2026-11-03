@@ -6,7 +6,7 @@ use kartta::{
 };
 
 use super::{
-    Asked, CallersAsk, Unmatched, candidate, empty_languages_note, flat, graphless, kind, loc,
+    Asked, CallersAsk, Graphless, Unmatched, candidate, empty_languages_note, flat, kind, loc,
     named, noted, one_edit, role, span, unresolved,
 };
 use crate::llmxml::Element;
@@ -259,15 +259,15 @@ pub(crate) fn implementations(
 }
 
 /// The `find_importers` answer: a `<file/>` per file that includes the file, nearest first, `depth` marking one that
-/// includes it through another. `family` names the graph that claims a file no graph answers for.
+/// includes it through another. `graphless` says why a file no graph answers for has none.
 pub(crate) fn importers(
     file: &str,
-    family: Option<&str>,
+    graphless: Graphless<'_>,
     dependents: Option<&Dependents<'_>>,
 ) -> String {
     let element = Element::new("importers").attr("of", file);
     let Some(dependents) = dependents else {
-        return element.attr("count", 0).inline(&graphless(family));
+        return element.attr("count", 0).inline(&graphless.note());
     };
     element
         .attr("count", dependents.found.len())
@@ -282,15 +282,15 @@ pub(crate) fn importers(
 }
 
 /// The `file_outline` answer: a `<symbol/>` per definition of the file in source order, `in` naming the definition that
-/// holds one without an owner. `family` names the graph that claims a file no graph answers for.
+/// holds one without an owner. `graphless` says why a file no graph answers for has none.
 pub(crate) fn outline(
     file: &str,
-    family: Option<&str>,
+    graphless: Graphless<'_>,
     outline: Option<&[Definition<'_>]>,
 ) -> String {
     let element = Element::new("outline").attr("of", file);
     match outline {
-        None => element.attr("symbols", 0).inline(&graphless(family)),
+        None => element.attr("symbols", 0).inline(&graphless.note()),
         Some([]) => element.attr("symbols", 0).inline(
             "no definitions recorded - the graph holds this file but lists none: its language declined it, its parse \
              failed, or it declares none; index_stats reports whether the language has files without symbols",
