@@ -210,16 +210,37 @@ fn glob_files_lists_in_path_order_and_says_when_the_cap_cut_it() {
     );
     assert_eq!(
         client.answer("glob_files", &json!({"globs": ["*.rs"]})),
-        "no files match *.rs"
+        "no files match \"*.rs\""
     );
     assert_eq!(
         client.answer(
             "glob_files",
             &json!({"globs": ["*.md"], "excludes": ["README.md"]})
         ),
-        "no files match *.md outside the excludes (excludes removed: 1)"
+        "no files match \"*.md\" outside the excludes (excludes removed: 1)"
     );
     assert!(client.call("glob_files", &json!({"globs": []})).is_error);
+}
+
+#[test]
+fn an_empty_glob_answer_tells_one_glob_from_two() {
+    let tree = go_module();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["x, y"]})),
+        "no files match \"x, y\""
+    );
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["x", "y"]})),
+        "no files match \"x\", \"y\""
+    );
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["x\ny", "\"x\", \"y\""]})),
+        "no files match \"x\\ny\", \"\\\"x\\\", \\\"y\\\"\"",
+        "a glob may hold a line break or a quote, which the echo escapes"
+    );
 }
 
 #[test]
@@ -239,13 +260,13 @@ fn an_empty_file_answer_names_the_globs_that_name_a_directory() {
 
     assert_eq!(
         client.answer("glob_files", &json!({"globs": ["pkg"]})),
-        format!("no files match pkg - {one}")
+        format!("no files match \"pkg\" - {one}")
     );
     assert_eq!(
         client.answer("glob_files", &json!({"globs": ["cmd/app/", "pkg"]})),
         format!(
-            "no files match cmd/app/, pkg - {DIRECTORY_FIX} \"cmd/app/**\" in place of \"cmd/app/\", \"pkg/**\" in \
-             place of \"pkg\""
+            "no files match \"cmd/app/\", \"pkg\" - {DIRECTORY_FIX} \"cmd/app/**\" in place of \"cmd/app/\", \
+             \"pkg/**\" in place of \"pkg\""
         )
     );
     assert_eq!(
@@ -253,19 +274,28 @@ fn an_empty_file_answer_names_the_globs_that_name_a_directory() {
             "glob_files",
             &json!({"globs": ["pkg", "*.md"], "excludes": ["README.md"]})
         ),
-        format!("no files match pkg, *.md outside the excludes (excludes removed: 1) - {one}")
+        format!(
+            "no files match \"pkg\", \"*.md\" outside the excludes (excludes removed: 1) - {one}"
+        )
     );
     assert_eq!(
         client.answer(
             "glob_files",
             &json!({"globs": ["pk?", "go.mod/", "nowhere", "/"]})
         ),
-        "no files match pk?, go.mod/, nowhere, /",
+        "no files match \"pk?\", \"go.mod/\", \"nowhere\", \"/\"",
         "a glob character, a file and a path the index lacks name no directory"
     );
     assert_eq!(
         client.answer("glob_files", &json!({"globs": literal})),
-        format!("no files match {}", literal.join(", ")),
+        format!(
+            "no files match {}",
+            literal
+                .iter()
+                .map(|glob| format!("{glob:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         "a glob that holds a glob character or an escape means another path than the directory spelled as it"
     );
     assert_eq!(
@@ -316,7 +346,7 @@ fn a_listed_answer_and_a_name_below_the_root_name_the_glob_that_names_a_director
     );
     assert_eq!(
         client.answer("glob_files", &json!({"globs": ["app"]})),
-        format!("no files match app - {DIRECTORY_FIX} \"cmd/app/**\" in place of \"app\""),
+        format!("no files match \"app\" - {DIRECTORY_FIX} \"cmd/app/**\" in place of \"app\""),
         "a name the root does not hold names the one directory below it named so"
     );
     assert_eq!(

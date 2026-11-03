@@ -130,12 +130,19 @@ pub(crate) fn paths(
 
 /// The `glob_files` answer: the paths one per line, in path order, and a last line saying so when the cap cut them,
 /// since paths in path order look the same whether or not more follow, and a last line counting the matches the
-/// excludes removed.
+/// excludes removed. An answer that lists nothing echoes each glob quoted and escaped, `, ` between them: a glob can
+/// hold a comma, and a line break too, since a name can.
 pub(crate) fn globbed(globs: &Selection<'_>, found: &Capped<'_>) -> String {
     let excluded = found.excluded();
     let shown = found.items().len();
     if shown == 0 {
-        let joined = globs.globs.join(", ");
+        let mut joined = String::new();
+        for glob in globs.globs {
+            if !joined.is_empty() {
+                joined.push_str(", ");
+            }
+            let _ = write!(joined, "{glob:?}");
+        }
         let directories = dashed(globs.directories());
         return if excluded == 0 {
             format!("no files match {joined}{directories}")
