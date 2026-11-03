@@ -69,14 +69,14 @@
           "bound": [
             {
               "confidence": 85,
-              "sites": 1
+              "sites": 2
             },
             {
               "confidence": 70,
               "sites": 1
             }
           ],
-          "edges": 2,
+          "edges": 3,
           "graph": "cpp",
           "misses": {
             "ambiguous": 0,
@@ -86,7 +86,7 @@
             "through_a_receiver": 0,
             "undefined": 0
           },
-          "sites": 2,
+          "sites": 3,
           "unbound": [],
           "unlisted": 0
         },

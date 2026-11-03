@@ -1,0 +1,77 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "band": "low",
+          "below_confidence": 0,
+          "graph": "cpp",
+          "passed_over": 0,
+          "reached": [
+            {
+              "confidence": 85,
+              "depth": 1,
+              "line": 8,
+              "symbol": {
+                "end_line": 9,
+                "exported": true,
+                "file": "cpp/circle.cpp",
+                "kind": "func",
+                "line": 7,
+                "name": "total",
+                "qualified_name": "total",
+                "signature": "double total(const Circle &circle)"
+              }
+            },
+            {
+              "confidence": 85,
+              "depth": 1,
+              "line": 4,
+              "symbol": {
+                "end_line": 5,
+                "exported": true,
+                "file": "cpp/measure.cpp",
+                "kind": "func",
+                "line": 3,
+                "name": "measure",
+                "qualified_name": "measure",
+                "signature": "double measure(const Shape &shape)"
+              },
+              "through": {
+                "end_line": 5,
+                "exported": true,
+                "file": "cpp/shape.h",
+                "kind": "method",
+                "line": 5,
+                "name": "area",
+                "owner": "Shape",
+                "qualified_name": "Shape::area",
+                "signature": "virtual double area() const = 0"
+              }
+            }
+          ],
+          "root": {
+            "end_line": 5,
+            "exported": true,
+            "file": "cpp/circle.cpp",
+            "kind": "method",
+            "line": 3,
+            "name": "area",
+            "owner": "Circle",
+            "qualified_name": "Circle::area",
+            "signature": "double Circle::area() const"
+          },
+          "truncated": false,
+          "turned_away": 0,
+          "unexpanded": 0,
+          "unresolved": 0
+        }
+      ]
+    }
+  },
+  "method": "callers",
+  "params": {
+    "lang": "cpp",
+    "name": "Circle::area"
+  }
+}

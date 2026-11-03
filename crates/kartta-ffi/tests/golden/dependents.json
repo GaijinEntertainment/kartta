@@ -8,6 +8,10 @@
           "file": "cpp/circle.h"
         },
         {
+          "depth": 1,
+          "file": "cpp/measure.cpp"
+        },
+        {
           "depth": 2,
           "file": "cpp/circle.cpp"
         }

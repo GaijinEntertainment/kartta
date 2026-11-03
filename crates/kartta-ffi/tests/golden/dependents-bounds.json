@@ -10,8 +10,8 @@
       ],
       "graph": "cpp",
       "held": true,
-      "truncated": false,
-      "turned_away": 0,
+      "truncated": true,
+      "turned_away": 1,
       "unexpanded": 1
     }
   },
