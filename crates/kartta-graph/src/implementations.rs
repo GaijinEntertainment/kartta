@@ -4,7 +4,8 @@ use hashbrown::{HashMap, HashSet};
 use kartta_lang::{SymbolKind, ValueUses};
 
 use crate::graph::{
-    Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_parent, last_segment,
+    Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_parent,
+    last_segment, names_as_parent,
 };
 use crate::resolve::Cascade;
 use crate::stored::{Parent, StoredAssertion, SymbolAt};
@@ -48,7 +49,7 @@ impl Graph {
     /// A compile-time assertion that a type implements an interface, as Go's `var _ I = T{}` or Rust's `impl I for T`
     /// in a file that does not declare `T`, makes the interface a parent of the type it names, read from the asserting
     /// file, or from the file a Rust path reaches, and each name adds nothing where it reaches no one type.
-    /// A name selects among classes, structs, interfaces, traits, namespaces and type aliases as [`Graph::definitions`]
+    /// A name selects among the kinds [`is_parent`] admits as [`Graph::definitions`]
     /// does: the type whose qualified name it is, else the type of that bare name, and where several share it, the one
     /// the most distinct types name as a direct parent, the first in path order on a tie; else, for a name with a
     /// separator, the type whose qualified name ends with it, and none where several do; a path prefix and a line narrow
@@ -175,11 +176,11 @@ impl<'g> Types<'g> {
 
 impl Types<'_> {
     fn is_type_at(&self, at: SymbolAt) -> bool {
-        is_parent(self.graph.sym(at).kind)
+        names_as_parent(self.graph.sym(at).kind)
     }
 
     fn is_selectable(&self, at: SymbolAt, selector: Selector<'_>) -> bool {
-        self.is_type_at(at) && self.graph.is_within(at, selector)
+        is_parent(self.graph.sym(at).kind) && self.graph.is_within(at, selector)
     }
 
     fn select(&self, selector: Selector<'_>) -> Option<Selected> {
@@ -377,7 +378,7 @@ impl Types<'_> {
             return self.in_packages(child.file, written, asked);
         }
         if conventions.owner_chain_separator.is_some() {
-            if let Some(owner) = self.cascade.base_owner(child, as_written, is_parent) {
+            if let Some(owner) = self.cascade.base_owner(child, as_written, names_as_parent) {
                 return self.owners_reached(child.file, owner, asked);
             }
             if !written.contains(QUALIFIER_SEPARATORS) {

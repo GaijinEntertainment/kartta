@@ -4820,6 +4820,88 @@ fn a_c_typedef_of_a_struct_to_its_own_name_answers_as_the_struct_alone() {
 }
 
 #[test]
+fn implementations_of_a_cpp_enum_answer_that_nothing_implements_it() {
+    let answers = answers_over(
+        &[(
+            "e.cpp",
+            "enum Plain { A };\nenum class Scoped { B };\ntypedef enum Pair { C } Pair;\nstruct Child : Plain {};\n",
+        )],
+        &[
+            ("find_implementations", json!({"name": "Plain"})),
+            ("find_implementations", json!({"name": "Scoped"})),
+            ("find_implementations", json!({"name": "Pair"})),
+            ("find_implementations", json!({"name": "Unheld"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            r#"<implementations of="Plain" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
+            r#"<implementations of="Scoped" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
+            lines(&[
+                r#"<implementations of="Pair" count="0" passed_over="1">"#,
+                "the symbol is indexed but nothing implements or extends it",
+                r#"<root name="Pair" lang="cpp" loc="e.cpp:3"/>"#,
+                r#"<candidate name="Pair" kind="enum" loc="e.cpp:3" lang="cpp" implementors="0"/>"#,
+                "</implementations>",
+            ])
+            .as_str(),
+            r#"<implementations of="Unheld" count="0">no symbol matches - find_symbols can pin the exact name</implementations>"#,
+        ]
+    );
+}
+
+#[test]
+fn an_impl_of_an_outside_trait_does_not_implement_an_enum_of_its_name() {
+    let answers = answers_over(
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"r\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+            ),
+            ("src/lib.rs", "pub mod policy;\nmod surface;\n"),
+            ("src/policy.rs", "pub enum Visit {\n    Keep,\n}\n"),
+            (
+                "src/surface.rs",
+                "use syn::visit::Visit;\n\nstruct Surface;\n\nimpl<'ast> Visit<'ast> for Surface {}\n",
+            ),
+        ],
+        &[("find_implementations", json!({"name": "Visit"}))],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            r#"<implementations of="Visit" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#
+        ]
+    );
+}
+
+#[test]
+fn a_cpp_base_names_a_class_past_a_nearer_enum_of_its_name() {
+    let answers = answers_over(
+        &[(
+            "b.cpp",
+            "struct Base {};\nnamespace ns {\nenum Base { A };\nstruct Child : Base {};\n}\n",
+        )],
+        &[(
+            "find_implementations",
+            json!({"name": "Base", "path_prefix": "b.cpp", "line": 1}),
+        )],
+    );
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<implementations of="Base" count="1">"#,
+            r#"<type name="Child" qn="ns::Child" lang="cpp" loc="b.cpp:4"/>"#,
+            "</implementations>",
+        ])]
+    );
+}
+
+#[test]
 fn implementations_of_a_shared_name_list_the_other_type_and_a_path_prefix_picks_it() {
     let answers = answers_over(
         &[
