@@ -296,14 +296,15 @@ impl Server {
         })
         .await
         .map_err(|error| format!("the root check stopped before it answered: {error}"))??;
+        let index_ignored = p.index_ignored.unwrap_or_default();
         let request = Request {
             root,
             languages: CATALOG.to_build(p.languages.as_deref()),
-            index_ignored: p.index_ignored,
+            index_ignored,
         };
         let mut outcome = self
             .slot
-            .start(request, self.config.build_options(p.index_ignored));
+            .start(request, self.config.build_options(index_ignored));
         let built = outcome
             .wait_for(Option::is_some)
             .await
@@ -351,7 +352,7 @@ impl Server {
             Err(unready) => return Ok(render::unready(&unready)),
         };
         answer_from(served, move |indexed| {
-            let coverage = if p.coverage {
+            let coverage = if p.coverage.unwrap_or_default() {
                 indexed.engine.resolution(0)
             } else {
                 Vec::new()
@@ -380,7 +381,8 @@ impl Server {
                        could not read. Requires index_repo first."
     )]
     async fn refresh(&self, Parameters(p): Parameters<RefreshParams>) -> Result<String, String> {
-        if let Some(fault) = p.paths.iter().find_map(|path| misspelled(path)) {
+        let paths = p.paths.unwrap_or_default();
+        if let Some(fault) = paths.iter().find_map(|path| misspelled(path)) {
             return Err(format!(
                 "{fault} - pass paths relative to the repository root, with / between names, as find_files prints them"
             ));
@@ -388,7 +390,7 @@ impl Server {
         let served = self.slot.current()?;
         tokio::task::spawn_blocking(move || {
             served
-                .refresh(p.paths.iter().map(String::as_str))
+                .refresh(paths.iter().map(String::as_str))
                 .map(|refreshed| render::refresh(&refreshed))
         })
         .await
@@ -420,11 +422,11 @@ impl Server {
                 "pattern is required - to list files by glob alone, use glob_files".to_owned(),
             );
         }
-        let includes = globs(&p.includes)?;
-        let excludes = globs(&p.excludes)?;
+        let includes = globs(p.includes.as_deref().unwrap_or_default())?;
+        let excludes = globs(p.excludes.as_deref().unwrap_or_default())?;
         self.answer(move |indexed| {
             let index = indexed.engine.index();
-            let mut options = FuzzyOptions::default().limit(p.max_results);
+            let mut options = FuzzyOptions::default().limit(p.max_results.unwrap_or_default());
             if let Some(includes) = &includes {
                 options = options.filter(includes);
             }
@@ -462,10 +464,10 @@ impl Server {
             );
         }
         let filter = Filter::new(&p.globs).map_err(|error| error.to_string())?;
-        let excludes = globs(&p.excludes)?;
+        let excludes = globs(p.excludes.as_deref().unwrap_or_default())?;
         self.answer(move |indexed| {
             let index = indexed.engine.index();
-            let mut options = GlobOptions::default().limit(p.max_results);
+            let mut options = GlobOptions::default().limit(p.max_results.unwrap_or_default());
             if let Some(excludes) = &excludes {
                 options = options.exclude(excludes);
             }
@@ -519,10 +521,10 @@ impl Server {
             Case::Sensitive
         };
         let patterns = Patterns::new(&p.patterns, case).map_err(|error| error.to_string())?;
-        let includes = globs(&p.includes)?;
+        let includes = globs(p.includes.as_deref().unwrap_or_default())?;
         let excludes = match &p.excludes {
             Some(excludes) => globs(excludes)?,
-            None if p.includes.is_empty() => {
+            None if includes.is_none() => {
                 Some(Filter::new(GREP_EXCLUDES).map_err(|error| error.to_string())?)
             }
             None => None,
@@ -531,7 +533,7 @@ impl Server {
             self.answer(move |indexed| {
                 let index = indexed.engine.index();
                 let mut options = GrepOptions::default()
-                    .context(p.context_lines)
+                    .context(p.context_lines.unwrap_or_default())
                     .limit(p.max_results.map_or(GREP_MATCHES, NonZeroUsize::get))
                     .max_line_bytes(GREP_LINE_BYTES)
                     .max_file_bytes(GREP_FILE_BYTES)
@@ -584,13 +586,13 @@ impl Server {
         } else {
             None
         };
-        if p.path.starts_with('/') {
+        let path = p.path.unwrap_or_default();
+        if path.starts_with('/') {
             return Err(format!(
-                "{:?} is absolute - pass a repo-relative directory path as printed by find_files; \".\" lists the root",
-                p.path
+                "{path:?} is absolute - pass a repo-relative directory path as printed by find_files; \".\" lists the root"
             ));
         }
-        let dir = match p.path.trim_end_matches('/') {
+        let dir = match path.trim_end_matches('/') {
             "." => String::new(),
             path => path.to_owned(),
         };
@@ -979,7 +981,7 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let hops = p.hops.map_or(PATH_HOPS, NonZeroU32::get);
-            let floor = p.min_confidence.floor();
+            let floor = p.min_confidence.unwrap_or_default().floor();
             let limits = Limits::new(hops)
                 .with_min_confidence(floor)
                 .with_max_symbols(PATH_MAX_SYMBOLS);
@@ -1067,7 +1069,7 @@ impl Server {
     ) -> Result<String, String> {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
-            let floor = p.min_confidence.floor();
+            let floor = p.min_confidence.unwrap_or_default().floor();
             let searched = selected(indexed, p.languages.as_deref());
             let written = Selector::new(&p.name, p.path_prefix.as_deref())
                 .with_line(p.line.map(NonZeroU32::get));
@@ -1186,7 +1188,7 @@ impl Server {
         Parameters(p): Parameters<ImpactOfChangeParams>,
     ) -> Result<String, String> {
         let limit = p.limit.map_or(CHANGE_LISTED, NonZeroUsize::get);
-        let changed = changed_regions(p.regions, p.diff.as_deref())?;
+        let changed = changed_regions(p.regions.unwrap_or_default(), p.diff.as_deref())?;
         self.answer(move |indexed| {
             let regions: Vec<Region<'_>> = changed
                 .iter()
@@ -1298,7 +1300,7 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limits = Limits::new(p.hops.map_or(CALLER_HOPS, NonZeroU32::get))
-                .with_min_confidence(p.min_confidence.floor())
+                .with_min_confidence(p.min_confidence.unwrap_or_default().floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let written = Selector::new(&p.name, p.path_prefix.as_deref())
@@ -1365,7 +1367,7 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limits = Limits::new(p.hops.map_or(CALLEE_HOPS, NonZeroU32::get))
-                .with_min_confidence(p.min_confidence.floor())
+                .with_min_confidence(p.min_confidence.unwrap_or_default().floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let written = Selector::new(&p.name, p.path_prefix.as_deref())

@@ -79,7 +79,7 @@ pub(crate) struct IndexRepoParams {
     /// false, which applies every .gitignore inside the tree, and none in a directory above the root, and is almost
     /// always what you want: their size reflects what the machine has built, not what the repository contains.
     #[serde(default)]
-    pub(crate) index_ignored: bool,
+    pub(crate) index_ignored: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -90,7 +90,7 @@ pub(crate) struct IndexStatsParams {
     /// repository, about half a second on a large one, each time it is asked. Omitted or false answers at once
     /// without it.
     #[serde(default)]
-    pub(crate) coverage: bool,
+    pub(crate) coverage: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -100,7 +100,7 @@ pub(crate) struct RefreshParams {
     /// never absolute, with a drive such as C: or with a backslash; a directory covers everything below it, and a
     /// deleted or renamed file is named by its old path as well as its new one. Omit to check the whole tree.
     #[serde(default)]
-    pub(crate) paths: Vec<String>,
+    pub(crate) paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -114,15 +114,14 @@ pub(crate) struct FindFilesParams {
     /// Glob patterns; a path matching ANY of them stays in the candidate set, e.g. ["**/*.go", "lib/**"]. A glob
     /// without "/" matches across directories ("*.go" matches at any depth). Omit to search every indexed file.
     #[serde(default)]
-    pub(crate) includes: Vec<String>,
+    pub(crate) includes: Option<Vec<String>>,
     /// Glob patterns; a path matching ANY of them is dropped, and a matching directory with everything beneath it,
     /// e.g. ["**/vendor", "*_test.go"]. Omit to exclude nothing.
     #[serde(default)]
-    pub(crate) excludes: Vec<String>,
-    /// Maximum number of paths to return; 0 or omitted returns every match. Null is rejected; omit the argument for
-    /// every match.
+    pub(crate) excludes: Option<Vec<String>>,
+    /// Maximum number of paths to return; 0, omitted or null returns every match.
     #[serde(default)]
-    pub(crate) max_results: usize,
+    pub(crate) max_results: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -162,13 +161,13 @@ pub(crate) struct FindCallersParams {
     #[schemars(range(max = u32::MAX))]
     pub(crate) hops: Option<NonZeroU32>,
     /// Drop call edges the resolver is less sure about than this floor. "any" (the default) keeps every edge
-    /// including name-only guesses. Null is rejected; omit the argument to use "any". "likely" keeps edges backed by
+    /// including name-only guesses. "likely" keeps edges backed by
     /// module structure (same package, include, unique name, same directory) and better; "certain" keeps only
     /// structurally resolved edges (qualified, receiver, import, or same-file matches). Weak edges in answers are
     /// marked with the same vocabulary (confidence="likely"/"guess" on <ref/> records), and below_confidence= on a
     /// match counts the callers the floor dropped.
     #[serde(default)]
-    pub(crate) min_confidence: ConfidenceFloor,
+    pub(crate) min_confidence: Option<ConfidenceFloor>,
     /// Keep only the callers of this role: "consumer", "test", "entry", or "generated" - the role= value a <ref/>
     /// carries. Each <match> then counts its callers per role (consumers, tests, entries, generated), and count still
     /// counts every caller. The walk is the same with or without it, so a caller of another role still leads to the
@@ -213,13 +212,13 @@ pub(crate) struct FindCalleesParams {
     #[schemars(range(max = u32::MAX))]
     pub(crate) hops: Option<NonZeroU32>,
     /// Drop call edges the resolver is less sure about than this floor. "any" (the default) keeps every edge
-    /// including name-only guesses. Null is rejected; omit the argument to use "any". "likely" keeps edges backed by
+    /// including name-only guesses. "likely" keeps edges backed by
     /// module structure (same package, include, unique name, same directory) and better; "certain" keeps only
     /// structurally resolved edges (qualified, receiver, import, or same-file matches). Weak edges in answers are
     /// marked with the same vocabulary (confidence="likely"/"guess" on <ref/> records), and below_confidence= on a
     /// match counts the callees the floor dropped.
     #[serde(default)]
-    pub(crate) min_confidence: ConfidenceFloor,
+    pub(crate) min_confidence: Option<ConfidenceFloor>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -244,7 +243,7 @@ pub(crate) struct ImpactOfChangeParams {
     /// {"file": "pkg/b.go"}]. A region naming only its file covers the whole file - a file the change adds or
     /// rewrites. A symbol counts as changed when its definition overlaps a region at all. Pass regions, diff, or both.
     #[serde(default)]
-    pub(crate) regions: Vec<ChangedRegion>,
+    pub(crate) regions: Option<Vec<ChangedRegion>>,
     /// A unified diff exactly as git diff prints it (git diff -U0 keeps it short), hunk bodies included: each hunk's
     /// lines on its + side become a region of the file its +++ b/ header names, a hunk that only deletes covers the
     /// line on each side of the deletion, and a deleted file (+++ /dev/null) is a whole-file region of its --- a/ path.
@@ -290,11 +289,11 @@ pub(crate) struct GlobFilesParams {
     /// Glob patterns; a path matching ANY of them is dropped, and a matching directory with everything beneath it,
     /// e.g. ["**/vendor"]. Omit to exclude nothing.
     #[serde(default)]
-    pub(crate) excludes: Vec<String>,
-    /// Maximum number of paths to return; 0 or omitted returns every match. Null is rejected; omit the argument for
-    /// every match. A list the cap cut ends with a line saying so.
+    pub(crate) excludes: Option<Vec<String>>,
+    /// Maximum number of paths to return; 0, omitted or null returns every match. A list the cap cut ends with a line
+    /// saying so.
     #[serde(default)]
-    pub(crate) max_results: usize,
+    pub(crate) max_results: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -308,7 +307,7 @@ pub(crate) struct GrepParams {
     /// Glob patterns; a path matching ANY of them stays in the candidate set. Scope to a subtree with "dir/**" or to a
     /// single file with its exact path; "*.go" (no slash) matches at any depth. Omit to search every indexed file.
     #[serde(default)]
-    pub(crate) includes: Vec<String>,
+    pub(crate) includes: Option<Vec<String>>,
     /// Glob patterns; a matching path is dropped, and a matching directory with everything beneath it. OMITTED on an
     /// UNSCOPED search (no includes) defaults to vendored and generated trees (**/vendor, **/node_modules, **/dist,
     /// **/__pycache__); when 'includes' is set, omitted means no excludes - the scope is searched exactly as given.
@@ -320,9 +319,9 @@ pub(crate) struct GrepParams {
     #[serde(default)]
     pub(crate) case_insensitive: Option<bool>,
     /// Lines of context around each match, like grep -C. Omitted = 0 (matches only). Context lines do not count
-    /// toward max_results. Null is rejected; omit the argument for matches only.
+    /// toward max_results.
     #[serde(default)]
-    pub(crate) context_lines: usize,
+    pub(crate) context_lines: Option<usize>,
     /// Positive cap on match lines across all files, spent in file-path order. Omitted or null = 100. Zero and
     /// negatives are rejected. Once the cap fills, the search reads on until one more match shows the cap cut the
     /// answer, which then carries truncated="true"; unsearched= counts the files the answer does not cover from then
@@ -337,7 +336,7 @@ pub(crate) struct ListDirParams {
     /// Repo-relative directory path with forward slashes, e.g. "src/web" - the directory part of any path returned by
     /// find_files or glob_files. "" or "." (or omitting it) lists the repository root.
     #[serde(default)]
-    pub(crate) path: String,
+    pub(crate) path: Option<String>,
     /// Positive number of directory levels to list. Omitted or null = 1: immediate children only. 2 adds their
     /// children. Zero and negatives are rejected. A directory the listing did not enter carries unlisted= with the
     /// count of entries beneath it.
@@ -424,11 +423,11 @@ pub(crate) struct FindCallPathParams {
     #[schemars(range(max = u32::MAX))]
     pub(crate) hops: Option<NonZeroU32>,
     /// Drop call edges the resolver is less sure about than this floor, on every hop. "any" (the default) keeps every
-    /// edge including name-only guesses. Null is rejected; omit the argument to use "any". "likely" keeps edges backed
+    /// edge including name-only guesses. "likely" keeps edges backed
     /// by module structure and better; "certain" keeps only structurally resolved edges. Weak hops in answers are
     /// marked confidence="likely" / "guess".
     #[serde(default)]
-    pub(crate) min_confidence: ConfidenceFloor,
+    pub(crate) min_confidence: Option<ConfidenceFloor>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -460,10 +459,10 @@ pub(crate) struct FindReferencesParams {
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Drop sites the resolver is less sure about than this floor: "any" (the default) keeps every site, "likely"
-    /// keeps sites backed by module structure and better, "certain" keeps only structurally resolved sites. Null is
-    /// rejected; omit the argument to use "any". below_confidence= on a match counts the sites the floor dropped.
+    /// keeps sites backed by module structure and better, "certain" keeps only structurally resolved sites.
+    /// below_confidence= on a match counts the sites the floor dropped.
     #[serde(default)]
-    pub(crate) min_confidence: ConfidenceFloor,
+    pub(crate) min_confidence: Option<ConfidenceFloor>,
     /// Keep only the uses that read the symbol ("read"), that set it ("write") or that name it as a type ("type"),
     /// e.g. "write" for "who sets Config.Timeout?"; an update (+=, ++) is a read and a write, a use as a type is also
     /// a read, and calls are dropped. Omit to keep every site. The counts on the match still count every site.

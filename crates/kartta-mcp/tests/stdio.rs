@@ -10,7 +10,7 @@ mod common;
 
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
 use common::{Client, go_module, rooted};
 
@@ -70,6 +70,84 @@ fn the_server_lists_its_tools() {
             "refresh"
         ]
     );
+}
+
+/// Whether a property's JSON schema admits null: a `null` type, or a branch of an `anyOf` that does.
+fn admits_null(shape: &Value) -> bool {
+    shape["type"] == "null"
+        || shape["type"]
+            .as_array()
+            .is_some_and(|types| types.contains(&json!("null")))
+        || shape["anyOf"]
+            .as_array()
+            .is_some_and(|shapes| shapes.iter().any(admits_null))
+}
+
+#[test]
+fn every_optional_argument_reads_null_as_omitted() {
+    let tree = go_module();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    let required = json!({
+        "root": tree.path(),
+        "pattern": "serv",
+        "globs": ["**"],
+        "patterns": ["Greet"],
+        "query": "Greet",
+        "name": "Greet",
+        "names": ["Greet"],
+        "from": "main",
+        "to": "Greet",
+        "file": "pkg/service.go",
+        "start_line": 1,
+    });
+
+    let listed = client.request("tools/list", &json!({}));
+    for tool in listed["tools"].as_array().expect("a tool list") {
+        let name = tool["name"].as_str().expect("a named tool");
+        let schema = &tool["inputSchema"];
+        let needed = schema["required"].as_array().cloned().unwrap_or_default();
+        let mut omitted = Map::new();
+        let mut nulled = Map::new();
+        for (property, shape) in schema["properties"].as_object().expect("the properties") {
+            if needed.contains(&json!(property)) {
+                omitted.insert(property.clone(), required[property].clone());
+                nulled.insert(property.clone(), required[property].clone());
+            } else {
+                assert!(
+                    admits_null(shape),
+                    "{name}'s {property} schema admits no null: {shape}"
+                );
+                nulled.insert(property.clone(), Value::Null);
+            }
+        }
+
+        let without = client.call(name, &Value::Object(omitted));
+        let with = client.call(name, &Value::Object(nulled));
+
+        assert!(
+            !with.text.starts_with("failed to deserialize"),
+            "{name}: {}",
+            with.text
+        );
+        assert_eq!(
+            with.is_error, without.is_error,
+            "{name}: {} against {}",
+            with.text, without.text
+        );
+        assert_eq!(untimed(&with.text), untimed(&without.text), "{name}");
+    }
+}
+
+/// `text` without its `elapsed_ms` attribute, the one part of a refresh answer two calls never share.
+fn untimed(text: &str) -> String {
+    match text.split_once(" elapsed_ms=\"") {
+        Some((head, tail)) => format!(
+            "{head}{}",
+            tail.split_once('"').map_or("", |(_, rest)| rest)
+        ),
+        None => text.to_owned(),
+    }
 }
 
 #[test]
