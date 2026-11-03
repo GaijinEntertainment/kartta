@@ -25,6 +25,7 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
 | `x86_64-unknown-linux-musl` | `cc main.c -L. -lkartta_ffi` |
 | `x86_64-unknown-linux-musl` | `cc -static main.c -L. -lkartta_ffi` |
 | `x86_64-pc-windows-msvc` | `cl -MD main.c kartta_ffi.lib kernel32.lib ntdll.lib userenv.lib ws2_32.lib dbghelp.lib` |
+| `x86_64-pc-windows-gnu` | `gcc main.c -L. -lkartta_ffi -lntdll -luserenv -lws2_32 -ldbghelp` |
 
 ## Calling
 
