@@ -94,5 +94,6 @@ pub const PARENT_DIR: u8 = 30;
 /// The one callable of the name nearest the caller binds here too, at any step, where the call's arguments turned
 /// another definition of the name away. An attribute write on a value binds here whatever tier found it, where the
 /// language marks one by [`kartta_lang::Conventions::setter_suffix`], and so does a member of the caller's owner on a
-/// field of a listed receiver, where the language's [`kartta_lang::Conventions::unlisted_receivers`] say so.
+/// field of a listed receiver, where the language's [`kartta_lang::Conventions::unlisted_receivers`] say so. A file
+/// whose top level names a member, which keeps no receiver for the name, lists among the member's references here.
 pub const FIRST_PARTY: u8 = 15;

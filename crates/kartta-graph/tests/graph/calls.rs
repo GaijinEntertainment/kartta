@@ -5715,6 +5715,131 @@ fn callers_of_a_field_list_no_file_whose_top_level_names_it() {
     );
 }
 
+/// A constant `LIMIT` in `lib/limit.h`, and the top level of `src/main.cpp`, which includes it, of `src/other.cpp`,
+/// which does not, and of the header itself, each reading it; `run` in the header reads it too.
+fn constant_read_at_file_scope() -> Graph {
+    let at_file_scope = |path: &str, symbols: Vec<Symbol>| {
+        let mut file = file(path, symbols, Vec::new());
+        file.uses = vec![bare_use(FILE_SCOPE, "LIMIT", 4)];
+        file
+    };
+    let mut main = at_file_scope("src/main.cpp", Vec::new());
+    main.includes
+        .push(IncludeRef::new("lib/limit.h".to_owned()));
+    let mut header = at_file_scope(
+        "lib/limit.h",
+        vec![
+            Symbol::new("LIMIT", SymbolKind::Constant, 1, 1),
+            function("run", 6),
+        ],
+    );
+    header.uses.push(bare_use(SymbolId(1), "LIMIT", 7));
+    graph_of(
+        cpp(),
+        &[main, at_file_scope("src/other.cpp", Vec::new()), header],
+    )
+}
+
+#[test]
+fn references_list_the_files_whose_top_level_names_a_constant_by_how_each_sees_it() {
+    let graph = constant_read_at_file_scope();
+    let references = |query: SiteQuery| {
+        graph
+            .references("LIMIT", query)
+            .expect("the name selects the constant")
+    };
+    let file_scope = |found: &kartta_graph::References<'_>| -> Vec<(String, u8)> {
+        (found.file_scope.iter())
+            .map(|caller| (caller.file.to_owned(), caller.confidence))
+            .collect()
+    };
+
+    let every = references(SiteQuery::new(usize::MAX));
+    let floored = references(SiteQuery::new(usize::MAX).with_min_confidence(75));
+    let past_every = references(SiteQuery::new(usize::MAX).with_min_confidence(85));
+
+    assert_eq!(
+        file_scope(&every),
+        [
+            ("lib/limit.h".to_owned(), 80),
+            ("src/main.cpp".to_owned(), 70)
+        ],
+        "its own file and the file that includes it, and not src/other.cpp, which sees no LIMIT"
+    );
+    assert_eq!(
+        (every.total, every.below_confidence),
+        (1, 0),
+        "run's read is the one site, and a file is none"
+    );
+    assert_eq!(
+        (file_scope(&floored), floored.below_confidence),
+        (vec![("lib/limit.h".to_owned(), 80)], 1),
+        "the floor drops the include and counts it"
+    );
+    assert_eq!(
+        (
+            file_scope(&past_every),
+            past_every.total,
+            past_every.below_confidence
+        ),
+        (Vec::new(), 0, 3),
+        "a floor above the own file drops run's read and both files, and counts each"
+    );
+}
+
+#[test]
+fn references_list_the_file_scope_whatever_the_limit_and_the_access() {
+    let graph = constant_read_at_file_scope();
+    let listed = |query: SiteQuery| {
+        graph
+            .references("LIMIT", query)
+            .expect("the name selects the constant")
+            .file_scope
+            .len()
+    };
+
+    assert_eq!(
+        [
+            listed(SiteQuery::new(0)),
+            listed(SiteQuery::new(usize::MAX).with_access(kartta_lang::Access::Write)),
+        ],
+        [2, 2],
+        "the graph keeps neither a line nor an access for a file-scope use, so no site bound reaches it"
+    );
+}
+
+#[test]
+fn references_of_a_member_list_the_files_whose_top_level_names_it_as_a_guess() {
+    let mut config = file(
+        "app/config.ts",
+        vec![
+            Symbol::new("Config", SymbolKind::Class, 1, 3),
+            member("Config", "limit", SymbolKind::Field, 2),
+        ],
+        Vec::new(),
+    );
+    config.uses = vec![bare_use(FILE_SCOPE, "limit", 6)];
+    let mut main = file("app/main.ts", Vec::new(), Vec::new());
+    main.uses = vec![bare_use(FILE_SCOPE, "limit", 2)];
+    main.includes
+        .push(IncludeRef::new("app/config.ts".to_owned()));
+    let graph = graph(&[config, main]);
+
+    let references = graph
+        .references("Config::limit", SiteQuery::new(usize::MAX))
+        .expect("the field is defined");
+
+    let listed: Vec<(&str, u8)> = (references.file_scope.iter())
+        .map(|caller| (caller.file, caller.confidence))
+        .collect();
+    assert_eq!(
+        listed,
+        [("app/config.ts", 15), ("app/main.ts", 15)],
+        "a file keeps no receiver for the name, so neither the member's own file nor one including it reaches it but \
+         as a guess"
+    );
+}
+
 fn ambiguous_callers(graph: &Graph, name: &str, depth: u32) -> (Vec<String>, usize) {
     let walk = graph
         .callers(name, Limits::new(depth))

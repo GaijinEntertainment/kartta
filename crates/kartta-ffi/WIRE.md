@@ -689,7 +689,9 @@ The fields of [`Walk`](#walk), and:
 
 - `file` (string, always): A file whose top level, outside every definition, calls or uses the name.
 - `confidence` (integer, always): How the file sees the symbol: 80 in the same file, 75 in its package, 70 through an
-  include.
+  include; 85 where the top level reads the name through the body that types the value, as Ruby's pasted bodies do. In
+  a `references` part a member's file that sees it the first three ways is 15, a guess, as such a name keeps no
+  receiver.
 
 ### SelfCall
 
@@ -738,11 +740,14 @@ The fields of [`References`](#references), and:
 - `candidates` (array of [`Candidate`](#candidate), optional): The most used of those, the most first.
 - `sites` (array of [`Reference`](#reference), always): The sites.
 - `total` (integer, always): The sites that pass the confidence floor and the access kept, before the limit.
-- `below_confidence` (integer, always): The sites under the confidence floor.
+- `below_confidence` (integer, always): The sites under the confidence floor, and the files of `file_scope` under it.
 - `counts` ([`SiteCounts`](#sitecounts), always): The sites that pass the confidence floor, by kind, whatever access is
   kept.
 - `ambiguous` (integer, always): The calls of the symbol's name that bound no definition because several definitions of
   the name may be meant, and the uses of a member's name on a value whose type the graph could not follow.
+- `file_scope` (array of [`FileScope`](#filescope), optional): The files whose top level calls or uses the symbol's name
+  and sees the symbol, in path order. They are no sites: the graph keeps no line for them and not how they touch the
+  symbol, so neither `limit` nor `access` bounds them. Absent when none.
 
 ### Reference
 
