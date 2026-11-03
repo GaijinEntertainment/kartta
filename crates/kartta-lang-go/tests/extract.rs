@@ -156,6 +156,19 @@ fn go_claims_no_file_whose_name_the_go_command_skips() {
 }
 
 #[test]
+fn go_says_why_it_leaves_out_a_go_file_it_does_not_claim() {
+    let go = Go::new();
+    let skipped = Some("no Go build reads a file whose name starts with _ or .");
+
+    assert_eq!(go.declines("lua/_state.go"), skipped);
+    assert_eq!(go.declines("lua/.state.GO"), skipped);
+    assert_eq!(go.declines("lua/state.go"), None);
+    assert_eq!(go.declines("_lua/state.go"), None);
+    assert_eq!(go.declines("lua/_state.txt"), None);
+    assert_eq!(go.declines(".go.mod"), None);
+}
+
+#[test]
 fn a_bare_call_never_reaches_a_member_and_a_value_is_callable() {
     let conventions = Go::new().conventions();
 
