@@ -411,3 +411,35 @@ fn a_held_name_with_a_backslash_answers_as_any_held_name() {
     );
     assert!(unused.contains(r#"<symbol name="Odd""#), "{unused}");
 }
+
+#[test]
+fn a_held_file_no_graph_answers_for_says_why() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        ("pkg/blob.go", "\0\0\0"),
+        ("README.md", "# app\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let unclaimed =
+        "no indexed language claims this file, so no code graph holds it - read or grep it";
+    let unheld = "the go graph claims this file and holds no record of it, one of the files index_stats counts in \
+                  unheld - read or grep it";
+    for (file, note) in [("README.md", unclaimed), ("pkg/blob.go", unheld)] {
+        assert_eq!(
+            [
+                client.answer("file_outline", &json!({"file": file})),
+                client.answer("find_importers", &json!({"file": file})),
+                client.answer("impact_of_edit", &json!({"file": file, "start_line": 1})),
+            ],
+            [
+                format!(r#"<outline of="{file}" symbols="0">{note}</outline>"#),
+                format!(r#"<importers of="{file}" count="0">{note}</importers>"#),
+                format!(
+                    r#"<impact of="{file}" start_line="1" end_line="end" symbols="0">{note}</impact>"#
+                ),
+            ]
+        );
+    }
+}

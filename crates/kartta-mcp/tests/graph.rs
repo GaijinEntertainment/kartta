@@ -17,8 +17,8 @@ use serde_json::{Value, json};
 
 use common::{Client, go_module, rooted, tree};
 
-const NOT_HELD: &str = "not in a code graph - an unrecognized extension, a language not indexed, or a path the \
-                        index does not hold: pass a repo-relative path as printed by find_files";
+const NOT_HELD: &str =
+    "no indexed language claims this file, so no code graph holds it - read or grep it";
 
 fn answers(calls: &[(&str, Value)]) -> Vec<String> {
     let tree = go_module();
@@ -199,18 +199,13 @@ fn file_outline_find_importers_and_find_implementations_answer_for_the_module() 
                 ),
                 "</outline>",
             ]),
-            format!(r#"<outline of="README.md" symbols="0">{NOT_HELD}, or read or grep the file</outline>"#),
+            format!(r#"<outline of="README.md" symbols="0">{NOT_HELD}</outline>"#),
             lines(&[
                 r#"<importers of="pkg/service.go" count="1">"#,
                 r#"<file path="cmd/app/main.go"/>"#,
                 "</importers>",
             ]),
-            concat!(
-                r#"<importers of="README.md" count="0">not in a code graph (an unrecognized extension, a "#,
-                "language not indexed, or a path the index does not hold) - pass a repo-relative path as printed by \
-                 find_files</importers>",
-            )
-            .to_owned(),
+            format!(r#"<importers of="README.md" count="0">{NOT_HELD}</importers>"#),
             concat!(
                 r#"<implementations of="Service" count="0">the symbol is indexed but nothing implements or "#,
                 "extends it</implementations>",

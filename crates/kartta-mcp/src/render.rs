@@ -48,6 +48,20 @@ fn span(definition: &Definition<'_>) -> String {
     }
 }
 
+/// Why no code graph answers for a file the index holds: no language claims it, or the graph of `family`, which
+/// claims it, holds no record of it.
+fn graphless(family: Option<&str>) -> String {
+    family.map_or_else(
+        || "no indexed language claims this file, so no code graph holds it - read or grep it".to_owned(),
+        |family| {
+            format!(
+                "the {family} graph claims this file and holds no record of it, one of the files index_stats counts \
+                 in unheld - read or grep it"
+            )
+        },
+    )
+}
+
 fn file_element(path: &str) -> String {
     Element::new("file").attr("path", path).close()
 }
