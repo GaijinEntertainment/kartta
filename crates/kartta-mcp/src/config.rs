@@ -9,7 +9,8 @@ use kartta_fs::{ContentIndexStorage, IgnoreSources};
 /// it built.
 ///
 /// Each build field defaults to the engine's own default: no shared cache, no content index, and the ambient thread
-/// pool. [`Config::watch`] defaults to following the tree.
+/// pool. [`Config::watch`] defaults to following the tree. [`Config::from_env`] takes the server's defaults instead,
+/// which add a shared cache under the user's cache directory and a mapped content index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Config {
@@ -48,12 +49,14 @@ impl Config {
     ///
     /// | Variable | Field |
     /// | --- | --- |
-    /// | `KARTTA_CACHE_DIR` | [`Config::content_cache`], when not empty |
+    /// | `KARTTA_CACHE_DIR` | [`Config::content_cache`]; unset is `kartta` in the user's cache directory, empty none |
     /// | `KARTTA_CACHE_ENTRY_TTL_SECS` | [`Config::content_cache_ttl`]: a count of seconds; empty or `0` is a week |
-    /// | `KARTTA_GREP_INDEX` | [`Config::content_index`]: `memory`, `file` or `mmap`, in any case; empty builds none |
+    /// | `KARTTA_GREP_INDEX` | [`Config::content_index`]: `memory`, `file` or `mmap`; unset `mmap`, empty none |
     /// | `KARTTA_GREP_INDEX_DIR` | where a `file` or `mmap` index lives; empty or unset is the temporary directory |
     /// | `KARTTA_THREADS` | [`Config::threads`]: a positive count |
-    /// | `KARTTA_WATCH` | [`Config::watch`]: `off`, `0`, `false` or `no`, in any case, turns it off |
+    /// | `KARTTA_WATCH` | [`Config::watch`]: `off`, `0`, `false` or `no` turns it off |
+    ///
+    /// The words of `KARTTA_GREP_INDEX` and `KARTTA_WATCH` read in any case.
     #[must_use]
     pub fn from_env() -> (Self, Vec<String>) {
         Self::from_vars(|name| std::env::var(name).ok())
@@ -61,28 +64,28 @@ impl Config {
 
     fn from_vars(var: impl Fn(&str) -> Option<String>) -> (Self, Vec<String>) {
         let mut warnings = Vec::new();
-        let content_cache = var("KARTTA_CACHE_DIR")
-            .filter(|dir| !dir.is_empty())
-            .map(PathBuf::from);
+        let content_cache = match var("KARTTA_CACHE_DIR") {
+            Some(dir) if dir.is_empty() => None,
+            Some(dir) => Some(PathBuf::from(dir)),
+            None => user_cache_dir(&var, &mut warnings),
+        };
         let content_cache_ttl = cache_ttl(var("KARTTA_CACHE_ENTRY_TTL_SECS"), &mut warnings);
         let index_dir = || {
             var("KARTTA_GREP_INDEX_DIR")
                 .filter(|dir| !dir.is_empty())
                 .map_or_else(std::env::temp_dir, PathBuf::from)
         };
-        let storage = var("KARTTA_GREP_INDEX")
-            .map(|raw| raw.trim().to_ascii_lowercase())
-            .unwrap_or_default();
-        let content_index = match storage.as_str() {
-            "" => None,
-            "memory" => Some(ContentIndexStorage::Memory),
-            "file" => Some(ContentIndexStorage::File { dir: index_dir() }),
-            "mmap" => Some(ContentIndexStorage::Mapped { dir: index_dir() }),
-            _ => {
+        let storage = var("KARTTA_GREP_INDEX").map(|raw| raw.trim().to_ascii_lowercase());
+        let content_index = match storage.as_deref() {
+            Some("") => None,
+            Some("memory") => Some(ContentIndexStorage::Memory),
+            Some("file") => Some(ContentIndexStorage::File { dir: index_dir() }),
+            None | Some("mmap") => Some(ContentIndexStorage::Mapped { dir: index_dir() }),
+            Some(storage) => {
                 warnings.push(format!(
-                    "KARTTA_GREP_INDEX={storage:?} is none of memory, file and mmap; building no content index"
+                    "KARTTA_GREP_INDEX={storage:?} is none of memory, file and mmap; building a mapped content index"
                 ));
-                None
+                Some(ContentIndexStorage::Mapped { dir: index_dir() })
             }
         };
         let threads = var("KARTTA_THREADS").and_then(|raw| {
@@ -132,6 +135,35 @@ impl Config {
     }
 }
 
+/// `kartta` under the user's cache directory: `$HOME/Library/Caches` on macOS, `%LOCALAPPDATA%` on Windows, and
+/// elsewhere `$XDG_CACHE_HOME`, or `$HOME/.cache` where that is unset, empty or relative, as the XDG Base Directory
+/// Specification 0.8 reads it. A relative base is no directory at all, since the server's working directory is its
+/// client's choice, and a warning says so.
+fn user_cache_dir(
+    var: &impl Fn(&str) -> Option<String>,
+    warnings: &mut Vec<String>,
+) -> Option<PathBuf> {
+    let absolute = |name: &str| var(name).map(PathBuf::from).filter(|dir| dir.is_absolute());
+    let base = if cfg!(target_os = "macos") {
+        absolute("HOME").map(|home| home.join("Library").join("Caches"))
+    } else if cfg!(windows) {
+        absolute("LOCALAPPDATA")
+    } else {
+        absolute("XDG_CACHE_HOME").or_else(|| absolute("HOME").map(|home| home.join(".cache")))
+    };
+    if base.is_none() {
+        let named = if cfg!(windows) {
+            "LOCALAPPDATA"
+        } else {
+            "HOME"
+        };
+        warnings.push(format!(
+            "{named} is unset or not absolute, so there is no user cache directory; building without a content cache"
+        ));
+    }
+    base.map(|base| base.join("kartta"))
+}
+
 fn cache_ttl(raw: Option<String>, warnings: &mut Vec<String>) -> Duration {
     let Some(raw) = raw.filter(|raw| !raw.trim().is_empty()) else {
         return Duration::ZERO;
@@ -159,9 +191,75 @@ mod tests {
         })
     }
 
+    /// Reads `vars` with the cache and the content index turned off, which leaves every field at the engine's default.
+    fn read_off(vars: &[(&str, &str)]) -> (Config, Vec<String>) {
+        read(&[vars, &OFF].concat())
+    }
+
+    const OFF: [(&str, &str); 2] = [("KARTTA_CACHE_DIR", ""), ("KARTTA_GREP_INDEX", "")];
+
+    const USER_DIRS: [(&str, &str); 3] = [
+        ("HOME", "/home/u"),
+        ("XDG_CACHE_HOME", "/xdg"),
+        ("LOCALAPPDATA", r"C:\Users\u\AppData\Local"),
+    ];
+
     #[test]
-    fn an_unset_environment_takes_every_default() {
-        assert_eq!(read(&[]), (Config::default(), Vec::new()));
+    fn an_unset_cache_dir_is_kartta_under_the_user_cache_directory() {
+        let user_cache = if cfg!(target_os = "macos") {
+            "/home/u/Library/Caches/kartta"
+        } else if cfg!(windows) {
+            r"C:\Users\u\AppData\Local\kartta"
+        } else {
+            "/xdg/kartta"
+        };
+
+        let (config, warnings) = read(&USER_DIRS);
+
+        assert_eq!(warnings, Vec::<String>::new());
+        assert_eq!(config.content_cache, Some(PathBuf::from(user_cache)));
+    }
+
+    #[test]
+    fn an_unset_grep_index_is_mapped_in_the_temporary_directory() {
+        let (config, warnings) = read(&USER_DIRS);
+
+        assert_eq!(warnings, Vec::<String>::new());
+        assert_eq!(
+            config.content_index,
+            Some(ContentIndexStorage::Mapped {
+                dir: std::env::temp_dir()
+            })
+        );
+    }
+
+    #[test]
+    fn an_empty_cache_dir_and_grep_index_take_the_engine_defaults() {
+        assert_eq!(
+            read(&[&USER_DIRS[..], &OFF].concat()),
+            (Config::default(), Vec::new())
+        );
+    }
+
+    #[cfg(not(any(target_os = "macos", windows)))]
+    #[test]
+    fn a_relative_xdg_cache_home_falls_back_to_the_home_cache() {
+        let (config, warnings) = read(&[("HOME", "/home/u"), ("XDG_CACHE_HOME", "xdg")]);
+
+        assert_eq!(warnings, Vec::<String>::new());
+        assert_eq!(
+            config.content_cache,
+            Some(PathBuf::from("/home/u/.cache/kartta"))
+        );
+    }
+
+    #[test]
+    fn no_user_cache_directory_warns_and_builds_without_a_cache() {
+        let (config, warnings) = read(&[("KARTTA_GREP_INDEX", "")]);
+
+        assert_eq!(config, Config::default());
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("no user cache directory"));
     }
 
     #[test]
@@ -199,7 +297,15 @@ mod tests {
             ("KARTTA_CACHE_ENTRY_TTL_SECS", "a week"),
         ]);
 
-        assert_eq!(config, Config::default());
+        assert_eq!(
+            config,
+            Config {
+                content_index: Some(ContentIndexStorage::Mapped {
+                    dir: std::env::temp_dir()
+                }),
+                ..Config::default()
+            }
+        );
         assert_eq!(warnings.len(), 3, "{warnings:?}");
         assert!(warnings[0].contains("KARTTA_CACHE_ENTRY_TTL_SECS=\"a week\""));
         assert!(warnings[1].contains("KARTTA_GREP_INDEX=\"disk\""));
@@ -209,7 +315,7 @@ mod tests {
     #[test]
     fn a_cache_time_to_live_of_zero_is_the_default_week() {
         assert_eq!(
-            read(&[("KARTTA_CACHE_ENTRY_TTL_SECS", "0")]),
+            read_off(&[("KARTTA_CACHE_ENTRY_TTL_SECS", "0")]),
             (Config::default(), Vec::new())
         );
     }
@@ -218,7 +324,7 @@ mod tests {
     fn kartta_watch_turns_the_watch_off_by_any_of_its_four_words() {
         for off in ["off", "0", "FALSE", " No "] {
             assert_eq!(
-                read(&[("KARTTA_WATCH", off)]),
+                read_off(&[("KARTTA_WATCH", off)]),
                 (
                     Config {
                         watch: false,
@@ -231,7 +337,7 @@ mod tests {
         }
         for on in ["on", "1", "True", "yes", ""] {
             assert_eq!(
-                read(&[("KARTTA_WATCH", on)]),
+                read_off(&[("KARTTA_WATCH", on)]),
                 (Config::default(), Vec::new()),
                 "{on:?}"
             );
@@ -240,7 +346,7 @@ mod tests {
 
     #[test]
     fn an_unknown_kartta_watch_warns_and_follows_the_tree() {
-        let (config, warnings) = read(&[("KARTTA_WATCH", "sometimes")]);
+        let (config, warnings) = read_off(&[("KARTTA_WATCH", "sometimes")]);
 
         assert!(config.watch);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
