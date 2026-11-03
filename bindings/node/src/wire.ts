@@ -859,14 +859,28 @@ export type OutlineParams = {
 };
 
 /**
- * The definitions of one file. `graph` is the graph of the language that claims the file, absent when none does; when
- * that graph does not hold the file, `held` is false and the rest is empty.
+ * What an answer about one file says of the file. `graph` is the graph of the language that claims the file, absent
+ * when none does or when `missing` is true; when that graph does not hold the file, `held` is false and the answer
+ * holds these fields alone. `missing` is true when the index holds no such path, and `declined` names the language that
+ * leaves the held file out of its graph; a held file with neither `graph` nor `declined` is one no language claims.
  */
-export type Outline = {
+export type FileState = {
 	file: string;
 	graph?: string;
 	held: boolean;
-	symbols: Definition[];
+	missing?: boolean;
+	declined?: Declined;
+};
+
+/** The language that leaves a held file of its kind out of its graph, and the reason it states. */
+export type Declined = {
+	language: string;
+	reason: string;
+};
+
+/** The definitions of one file, as {@link FileState} says; `symbols` is absent when `held` is false. */
+export type Outline = FileState & {
+	symbols?: Definition[];
 };
 
 /** The params of `dependents`. */
@@ -878,15 +892,15 @@ export type DependentsParams = {
 	max_files?: number;
 };
 
-/** The files that include a file, directly or through others. `graph` and `held` are as {@link Outline}'s. */
-export type Dependents = {
-	file: string;
-	graph?: string;
-	held: boolean;
-	found: Array<{file: string; depth: number}>;
-	truncated: boolean;
-	turned_away: number;
-	unexpanded: number;
+/**
+ * The files that include a file, directly or through others, as {@link FileState} says; the fields past it are absent
+ * when `held` is false.
+ */
+export type Dependents = FileState & {
+	found?: Array<{file: string; depth: number}>;
+	truncated?: boolean;
+	turned_away?: number;
+	unexpanded?: number;
 };
 
 /** The params of `analyze_segment`. */
@@ -903,17 +917,17 @@ export type SegmentParams = {
 	max_symbols?: number;
 };
 
-/** What a change to a range of a file's lines reaches. `graph` and `held` are as {@link Outline}'s. */
-export type Segment = {
-	file: string;
-	graph?: string;
-	held: boolean;
-	start_line: number;
+/**
+ * What a change to a range of a file's lines reaches, as {@link FileState} says; the fields past it are absent when
+ * `held` is false.
+ */
+export type Segment = FileState & {
+	start_line?: number;
 	/** Where the params left it open, the last line a symbol of the file reaches, and never before `start_line`. */
-	end_line: number;
-	symbols: SegmentSymbol[];
-	includes: string[];
-	included_by: string[];
+	end_line?: number;
+	symbols?: SegmentSymbol[];
+	includes?: string[];
+	included_by?: string[];
 };
 
 /** A symbol the segment overlaps, its direct calls each way, and the callers it reaches. */
