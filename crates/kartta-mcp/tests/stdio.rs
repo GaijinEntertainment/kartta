@@ -223,6 +223,81 @@ fn glob_files_lists_in_path_order_and_says_when_the_cap_cut_it() {
 }
 
 #[test]
+fn an_empty_file_answer_names_the_globs_that_name_a_directory() {
+    let tree = go_module();
+    let mut literal = vec!["p[k]"];
+    if cfg!(unix) {
+        literal.push("a\\b");
+    }
+    for dir in &literal {
+        std::fs::create_dir_all(tree.path().join(dir)).expect("the directory is created");
+        std::fs::write(tree.path().join(dir).join("x.txt"), "x\n").expect("the file is written");
+    }
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    let one = "a glob matches files alone, so the directory \"pkg\" selects nothing: pass \"pkg/**\" for the files \
+               beneath it";
+
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["pkg"]})),
+        format!("no files match pkg - {one}")
+    );
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["cmd/app/", "pkg"]})),
+        "no files match cmd/app/, pkg - a glob matches files alone, so the directories \"cmd/app\", \"pkg\" select \
+         nothing: pass \"cmd/app/**\", \"pkg/**\" for the files beneath them"
+    );
+    assert_eq!(
+        client.answer(
+            "glob_files",
+            &json!({"globs": ["pkg", "*.md"], "excludes": ["README.md"]})
+        ),
+        format!("no files match pkg, *.md outside the excludes (excludes removed: 1) - {one}")
+    );
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["pkg", "*.md"]})),
+        "README.md",
+        "an answer that lists a file names no directory"
+    );
+    assert_eq!(
+        client.answer(
+            "glob_files",
+            &json!({"globs": ["pk?", "go.mod/", "nowhere", "/"]})
+        ),
+        "no files match pk?, go.mod/, nowhere, /",
+        "a glob character, a file and a path the index lacks name no directory"
+    );
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": literal})),
+        format!("no files match {}", literal.join(", ")),
+        "a glob that holds a glob character or an escape means another path than the directory spelled as it"
+    );
+    assert_eq!(
+        client.answer("grep", &json!({"patterns": ["x"], "includes": ["pkg"]})),
+        format!(
+            "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\">the include/exclude globs selected no \
+             files - {one}</grep>"
+        )
+    );
+    assert_eq!(
+        client.answer(
+            "grep",
+            &json!({"patterns": ["zzz"], "includes": ["pkg/", "*.go"]})
+        ),
+        format!(
+            "<grep patterns=\"zzz\" candidates=\"2\" files=\"0\" matches=\"0\">no line matches - {one}</grep>"
+        )
+    );
+    assert_eq!(
+        client.answer(
+            "find_files",
+            &json!({"pattern": "serv", "includes": ["pkg"]})
+        ),
+        format!("no files match \"serv\" - {one}")
+    );
+}
+
+#[test]
 fn grep_answers_lines_with_context_and_counts_what_it_did_not_cover() {
     let tree = go_module();
     std::fs::create_dir_all(tree.path().join("vendor/lib")).expect("the directory is created");
@@ -364,6 +439,15 @@ fn grep_says_when_its_globs_selected_symlinks_alone() {
         client.answer("grep", &json!({"patterns": ["x"], "includes": ["link.go"]})),
         "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\" symlinks=\"1\">the include/exclude globs \
          selected symlinks alone, which are never read through - include their targets</grep>"
+    );
+    assert_eq!(
+        client.answer(
+            "grep",
+            &json!({"patterns": ["x"], "includes": ["link.go", "cmd"]})
+        ),
+        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\" symlinks=\"1\">the include/exclude globs \
+         selected symlinks alone, which are never read through - include their targets - a glob matches files alone, \
+         so the directory \"cmd\" selects nothing: pass \"cmd/**\" for the files beneath it</grep>"
     );
 }
 

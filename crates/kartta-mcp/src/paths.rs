@@ -9,6 +9,10 @@ use crate::llmxml::List;
 /// How many near paths the error for a path the index does not hold names.
 const NEAR: usize = 5;
 
+/// The characters the query glob dialect reads as a wildcard, a class or an alternation, so a glob that holds none of
+/// them, nor the `\` escape, names one path.
+pub(crate) const GLOB_CHARACTERS: [char; 6] = ['*', '?', '[', ']', '{', '}'];
+
 /// What a path argument names: a file, a directory, or the start of the paths it selects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Wanted {
