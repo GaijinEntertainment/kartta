@@ -34,6 +34,14 @@ pub trait Language: Send + Sync + fmt::Debug {
     /// Whether the file at `path`, root-relative with forward slashes, is this language's.
     fn claims(&self, path: &str) -> bool;
 
+    /// Why the language leaves out of its graph the file at `path`, a file of its kind that it does not
+    /// [claim](Language::claims), as a clause an answer can quote: Go's `no Go build reads a file whose name starts with
+    /// _ or .`. `None`, the default, for every other file.
+    fn declines(&self, path: &str) -> Option<&str> {
+        let _ = path;
+        None
+    }
+
     /// Identifies what [`Language::extract`] computes from the same bytes: it changes whenever the grammar or the
     /// language's extraction does, and a cache keeps the extractions of each fingerprint apart. The code of this crate,
     /// which shapes the result too, is identified by [`FINGERPRINT`](crate::FINGERPRINT), which a cache folds in
