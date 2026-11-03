@@ -9,7 +9,8 @@ use kartta::{
     SymbolKind, UnmatchedKind, ask_reading, is_parent, is_referent, selects_as_callers,
 };
 use kartta_fs::{
-    Case, Filter, FuzzyOptions, GlobOptions, GrepOptions, ListError, ListOptions, Patterns,
+    Case, EntryKind, Filter, FuzzyOptions, GlobOptions, GrepOptions, Index, ListError, ListOptions,
+    Patterns,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -603,12 +604,6 @@ impl Server {
         let names = p
             .excludes
             .unwrap_or_else(|| LIST_COLLAPSED.map(str::to_owned).to_vec());
-        let collapse = globs(
-            &names
-                .iter()
-                .map(|name| collapsed(name))
-                .collect::<Result<Vec<_>, _>>()?,
-        )?;
         let dotfiles = if p.skip_dotfiles.unwrap_or(false) {
             Some(Filter::new(["**/.*"]).map_err(|error| error.to_string())?)
         } else {
@@ -622,6 +617,8 @@ impl Server {
             dir => dir.to_owned(),
         };
         self.answer(move |indexed| {
+            let index = indexed.engine.index();
+            let collapse = globs(&collapsed(index, &names)?)?;
             let mut options = ListOptions::default()
                 .depth(p.max_depth.map_or(LIST_DEPTH, NonZeroUsize::get))
                 .limit(p.max_entries.map_or(LIST_ENTRIES, NonZeroUsize::get));
@@ -631,7 +628,6 @@ impl Server {
             if let Some(dotfiles) = &dotfiles {
                 options = options.exclude(dotfiles);
             }
-            let index = indexed.engine.index();
             let listing = index
                 .list(&dir, &options)
                 .map_err(|error| match error {
@@ -1597,19 +1593,67 @@ fn prefix_of<'p>(
         .map_err(|error| format!("{parameter}: {error}"))
 }
 
-/// The glob that matches the `list_dir` exclude `name` literally at any depth, or the tool error for a name that holds
-/// a glob character: such a name would match no directory as written, and excluding nothing says nothing.
-fn collapsed(name: &str) -> Result<String, String> {
-    if let Some(character) = name
-        .chars()
-        .find(|character| GLOB_CHARACTERS.contains(character))
-    {
+/// The globs that match the `list_dir` excludes `names` literally at any depth, or the tool error for the first name
+/// that holds a glob character or a `\` and names no directory the index holds: such a name reads as a glob or as a
+/// Windows path, and an exclude that excludes nothing says nothing.
+fn collapsed(index: &Index, names: &[String]) -> Result<Vec<String>, String> {
+    let marked = names
+        .iter()
+        .filter_map(|name| {
+            name.chars()
+                .find(|&character| escaped(character))
+                .map(|character| (name.as_str(), character))
+        })
+        .collect();
+    if let Some((name, character)) = unheld_dir(index, marked) {
+        let fault = if character == '\\' {
+            "holds a \\".to_owned()
+        } else {
+            format!("holds the glob character {character}")
+        };
         return Err(format!(
-            "excludes: {name:?} holds the glob character {character} - list_dir excludes are directory names, matched \
-             literally at any depth, such as \"vendor\" or \"pkg/deep\""
+            "excludes: {name:?} {fault} and names no indexed directory - list_dir excludes are directory names, \
+             matched literally at any depth, such as \"vendor\" or \"pkg/deep\""
         ));
     }
-    Ok(format!("**/{}", name.replace('\\', r"\\")))
+    Ok(names.iter().map(|name| literal(name)).collect())
+}
+
+/// Whether the query glob dialect reads `character` as other than itself.
+fn escaped(character: char) -> bool {
+    character == '\\' || GLOB_CHARACTERS.contains(&character)
+}
+
+/// The glob that matches `name` literally at any depth, each character the dialect reads otherwise escaped.
+fn literal(name: &str) -> String {
+    let mut glob = String::from("**/");
+    for character in name.chars() {
+        if escaped(character) {
+            glob.push('\\');
+        }
+        glob.push(character);
+    }
+    glob
+}
+
+/// The first of `names` that no directory the index holds bears, its path being the name or ending in a `/` and the
+/// name, with the character it was paired with: at most one pass over the index's paths for all of them.
+fn unheld_dir<'n>(index: &Index, mut names: Vec<(&'n str, char)>) -> Option<(&'n str, char)> {
+    let mut paths = index.paths();
+    for at in 0..index.len() {
+        if names.is_empty() {
+            return None;
+        }
+        if index.kind_at(at) == EntryKind::Dir {
+            let path = paths.get(at);
+            names.retain(|&(name, _)| {
+                !path
+                    .strip_suffix(name)
+                    .is_some_and(|above| above.is_empty() || above.ends_with('/'))
+            });
+        }
+    }
+    names.first().copied()
 }
 
 #[cfg(test)]
@@ -1617,27 +1661,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_collapsed_name_matches_only_itself_at_any_depth() {
-        let filter = Filter::new([collapsed("a!,c").unwrap()]).unwrap();
+    fn a_literal_name_matches_only_itself_at_any_depth() {
+        let filter = Filter::new([literal("a!,c")]).unwrap();
 
         assert!(filter.matches("x/y/a!,c"));
         assert!(!filter.matches("x/a,c"));
     }
 
+    #[test]
+    fn a_literal_name_matches_each_glob_character_as_itself() {
+        for name in ["de*p", "de?p", "de[e]p", "dee]p", "{deep}", "dee}p"] {
+            let filter = Filter::new([literal(name)]).unwrap();
+
+            assert!(filter.matches(&format!("x/{name}")), "{name}");
+            assert!(!filter.matches("x/deep"), "{name}");
+        }
+    }
+
+    /// Windows cannot spell a name that holds a `\`, so the case exists only where a filename may hold one.
     #[cfg(unix)]
     #[test]
-    fn a_collapsed_name_matches_the_backslash_a_unix_name_holds() {
-        let filter = Filter::new([collapsed(r"a\b").unwrap()]).unwrap();
+    fn a_literal_name_matches_the_backslash_a_unix_name_holds() {
+        let filter = Filter::new([literal(r"a\b")]).unwrap();
 
         assert!(filter.matches(r"x/y/a\b"));
         assert!(!filter.matches("x/ab"));
-    }
-
-    #[test]
-    fn a_name_holding_any_glob_character_is_refused() {
-        for name in ["de*p", "de?p", "de[e]p", "dee]p", "{deep}", "dee}p"] {
-            assert!(collapsed(name).is_err(), "{name}");
-        }
     }
 
     async fn until_cancelled(cancel: CancelToken) -> &'static str {
