@@ -210,6 +210,10 @@ pub struct Candidate<'g> {
 impl Graph {
     /// An empty graph for files whose calls resolve under `conventions`.
     #[must_use]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the graph keeps the conventions it is built with, so one copy is made once per graph either way"
+    )]
     pub fn new(conventions: Conventions) -> Self {
         Self {
             conventions,

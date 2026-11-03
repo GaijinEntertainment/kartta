@@ -283,8 +283,9 @@ pub struct Conventions {
     /// holds, else the one the nearest class above that base holds, and nothing where the graph holds neither, so never
     /// a member of the caller's own class. Empty where a language writes none.
     pub base_receivers: &'static [&'static str],
-    /// The method a construction runs where a class declares it under one name, as PHP's `__construct`. A call of it on
-    /// a receiver written from the root binds what that class's table holds, and nothing where the table holds none, so
+    /// The method a construction runs where a class declares it under one name, as PHP's `__construct` and Python's
+    /// `__init__`; a call bound to another class's runs that class's own, never an override of it. A call of it on a
+    /// receiver written from the root binds what that class's table holds, and nothing where the table holds none, so
     /// never another class's. A construction records it right after a call of the class's last name on the class
     /// written from the root; on a class the graph does not hold, that call alone counts among the calls that bound
     /// nothing. `None` where a language has no such name.
@@ -311,6 +312,9 @@ pub struct Conventions {
     pub calls_apart: CallsApart,
     /// What a call reaches where the tier that binds it holds several definitions of one qualified name equal.
     pub twins: Twins,
+    /// Which interfaces a type implements and which of their methods its method stands for, so that a call bound to a
+    /// parent's method may run the type's method of the name.
+    pub implements: Implements,
 }
 
 impl Conventions {
@@ -351,6 +355,7 @@ impl Conventions {
         untyped_members: UntypedMembers::FileField,
         calls_apart: CallsApart::None,
         twins: Twins::First,
+        implements: Implements::Declared,
     };
 }
 
@@ -575,6 +580,46 @@ pub enum Twins {
     /// apart and some build selects each, unless the caller's own file holds one, the one that file is built with, and
     /// none in a file [`BuiltApart`] keeps from the caller's. A use reaches them as a call does.
     Package(BuiltApart),
+}
+
+/// Which interfaces a type implements, and which of their methods a method of its name stands for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum Implements {
+    /// Those its parents name, as a class names what it implements or extends; a method stands for every method of
+    /// its name they declare.
+    #[default]
+    Declared,
+    /// Those its parents name, and of their methods of its name a method stands for those [`SameMethod`] says it
+    /// overrides, as a C++ member overrides only a virtual one of its parameters.
+    Overrides(SameMethod),
+    /// The traits and interfaces its parents name, as a Rust impl names a trait: a type of another kind that a parent
+    /// reaches is a namesake of the trait.
+    Traits,
+    /// Every interface whose methods its package gives it, each of the same name and of the type [`SameMethod`] reads
+    /// alike, with no declaration that it does, as a Go type implements an interface by its method set.
+    MethodSets(SameMethod),
+}
+
+/// Says from two [signatures](crate::Symbol::signature) whether a method stands for a parent's method of its name.
+///
+/// For [`Implements::MethodSets`] it says whether the two have one type, their parameters and results alike, and for
+/// [`Implements::Overrides`] whether the method overrides the parent's.
+#[derive(Debug, Clone, Copy)]
+pub struct SameMethod(pub fn(&str, &str) -> bool);
+
+impl PartialEq for SameMethod {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::fn_addr_eq(self.0, other.0)
+    }
+}
+
+impl Eq for SameMethod {}
+
+impl Hash for SameMethod {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
 }
 
 /// Says from two files' [build constraints](crate::Extraction::build_constraint), the empty one for a file with none,

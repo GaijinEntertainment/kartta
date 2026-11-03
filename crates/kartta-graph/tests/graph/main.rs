@@ -25,6 +25,10 @@ mod typed;
 use kartta_graph::Graph;
 use kartta_lang::{CallRef, Conventions, Extraction, IncludeRef, Symbol, SymbolId, SymbolKind};
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "Graph::new keeps the conventions it is handed by value"
+)]
 fn graph_of(conventions: Conventions, files: &[Extraction]) -> Graph {
     let mut graph = Graph::new(conventions);
     for extraction in files {
