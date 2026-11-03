@@ -357,22 +357,12 @@ impl Graph {
         let mut calls = Calls::new(self);
         let root = calls.select(selector, Calls::caller_count)?;
         let mut walk = calls.walk(root, limits, Calls::callers_of);
-        let mut file_scope: Vec<(u32, u8)> = if calls.cascade.is_call_target(self.sym(root)) {
-            calls.file_scope_callers(root).collect()
-        } else {
-            Vec::new()
-        };
-        let named = file_scope.len();
-        file_scope.retain(|&(_, confidence)| confidence >= limits.min_confidence);
-        walk.below_confidence += named - file_scope.len();
-        file_scope.sort_unstable_by_key(|&(file, _)| self.path_rank(file));
-        walk.file_scope = file_scope
-            .into_iter()
-            .map(|(file, confidence)| FileScope {
-                file: self.strings.resolve(self.file(file).path),
-                confidence,
-            })
-            .collect();
+        if calls.cascade.is_call_target(self.sym(root)) {
+            let below_confidence;
+            (walk.file_scope, below_confidence) =
+                self.file_scope(&calls, root, limits.min_confidence);
+            walk.below_confidence += below_confidence;
+        }
         walk.ambiguous = calls.ambiguous_calls(root);
         (walk.passed_over, walk.candidates) =
             calls.passed_over(selector, root, Calls::caller_count);
@@ -504,6 +494,29 @@ impl Graph {
         path.passed_over = (from_count, to_count);
         path.candidates = (from_candidates, to_candidates);
         Some(path)
+    }
+
+    /// The files whose top level names the symbol at `root` and sees it, in path order, those under `min_confidence`
+    /// left out, and how many the floor left out.
+    fn file_scope(
+        &self,
+        calls: &Calls<'_>,
+        root: SymbolAt,
+        min_confidence: u8,
+    ) -> (Vec<FileScope<'_>>, usize) {
+        let mut files: Vec<(u32, u8)> = calls.file_scope_callers(root).collect();
+        let named = files.len();
+        files.retain(|&(_, confidence)| confidence >= min_confidence);
+        files.sort_unstable_by_key(|&(file, _)| self.path_rank(file));
+        let below_confidence = named - files.len();
+        let files = files
+            .into_iter()
+            .map(|(file, confidence)| FileScope {
+                file: self.strings.resolve(self.file(file).path),
+                confidence,
+            })
+            .collect();
+        (files, below_confidence)
     }
 }
 
