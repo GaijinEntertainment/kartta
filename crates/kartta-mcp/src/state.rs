@@ -183,6 +183,10 @@ impl Served {
             BuildError::Cancelled => {
                 "a later index_repo replaced this index before the refresh finished".to_owned()
             }
+            BuildError::Misspelled { path, fault } => format!(
+                "{path:?} {fault} - pass paths relative to the repository root, with / between names, as \
+                 find_files prints them"
+            ),
             error => format!("cannot refresh {}: {error}", indexed.root),
         })?;
         let root = indexed.engine.index().root();
