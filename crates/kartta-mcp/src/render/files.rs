@@ -8,47 +8,95 @@ use crate::paths::GLOB_CHARACTERS;
 /// How many unreadable files a `grep` answer lists before it counts the rest.
 const LISTED_FAILURES: usize = 5;
 
-/// The index a file tool searched and the globs that selected its files, which an empty answer reads for a glob that
-/// names a directory.
+/// The index a file tool searched and the globs that selected its files, which an answer reads for a glob that names a
+/// directory.
 pub(crate) struct Selection<'a> {
     pub(crate) index: &'a Index,
     pub(crate) globs: &'a [String],
 }
 
 impl Selection<'_> {
-    /// `" - "` and the fix for the globs that hold no glob character and name a directory the index holds, which a
-    /// glob never matches since it selects files alone; empty when no glob does.
-    fn directories(&self) -> String {
-        let dirs: Vec<&str> = self
+    /// The fix for each glob that holds no glob character nor `\`, and so names one path from the root, a trailing `/`
+    /// dropped, where that path is a directory the index holds, or one name the root does not hold that directories
+    /// below it carry: `<dir>/**` for one directory, `**/<name>/**` and their count for more. Such a glob selects
+    /// nothing, since a glob selects files alone. `None` when no glob names a directory.
+    fn directories(&self) -> Option<String> {
+        let paths: Vec<Option<&str>> = self
             .globs
             .iter()
-            .map(|glob| glob.strip_suffix('/').unwrap_or(glob))
-            .filter(|glob| {
-                !glob.contains(GLOB_CHARACTERS)
-                    && !glob.contains('\\')
-                    && self
-                        .index
-                        .entry(glob)
-                        .is_some_and(|entry| entry.kind() == EntryKind::Dir)
+            .map(|glob| {
+                Some(glob.strip_suffix('/').unwrap_or(glob)).filter(|path| {
+                    !path.is_empty() && !path.contains(GLOB_CHARACTERS) && !path.contains('\\')
+                })
             })
             .collect();
-        let quoted = |suffix: &str| {
-            dirs.iter()
-                .map(|dir| format!("{:?}", format!("{dir}{suffix}")))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        let (named, selects, them) = match dirs.len() {
-            0 => return String::new(),
-            1 => ("the directory", "selects", "it"),
-            _ => ("the directories", "select", "them"),
-        };
-        format!(
-            " - a glob matches files alone, so {named} {} {selects} nothing: pass {} for the files beneath {them}",
-            quoted(""),
-            quoted("/**")
-        )
+        let fixes: Vec<String> = self
+            .globs
+            .iter()
+            .zip(&paths)
+            .zip(self.below(&paths))
+            .filter_map(|((glob, &path), below)| {
+                let path = path?;
+                let fix = match below {
+                    (0, _) => {
+                        self.index
+                            .entry(path)
+                            .filter(|entry| entry.kind() == EntryKind::Dir)?;
+                        format!("{path}/**")
+                    }
+                    (1, Some(dir)) => format!("{dir}/**"),
+                    (count, _) => {
+                        return Some(format!(
+                            "{:?} ({count} directories are named {path:?}) in place of {glob:?}",
+                            format!("**/{path}/**")
+                        ));
+                    }
+                };
+                Some(format!("{fix:?} in place of {glob:?}"))
+            })
+            .collect();
+        (!fixes.is_empty()).then(|| {
+            format!(
+                "a glob selects files by their path from the root, so one that names a directory selects nothing: \
+                 pass {}",
+                fixes.join(", ")
+            )
+        })
     }
+
+    /// For each path of one name the root does not hold, how many directories below the root carry that name and the
+    /// first of them; `(0, None)` for every other path. One pass over the index's directories, run only when such a
+    /// path is asked.
+    fn below(&self, paths: &[Option<&str>]) -> Vec<(usize, Option<String>)> {
+        let mut below = vec![(0, None); paths.len()];
+        let unheld: Vec<usize> = (0..paths.len())
+            .filter(|&at| {
+                paths[at]
+                    .is_some_and(|path| !path.contains('/') && self.index.entry(path).is_none())
+            })
+            .collect();
+        if unheld.is_empty() {
+            return below;
+        }
+        let mut every = self.index.paths();
+        for position in (0..self.index.len()).filter(|&at| self.index.kind_at(at) == EntryKind::Dir)
+        {
+            let path = every.get(position);
+            let name = path.rsplit_once('/').map_or(path, |(_, name)| name);
+            for &at in unheld.iter().filter(|&&at| paths[at] == Some(name)) {
+                let (count, first) = &mut below[at];
+                *count += 1;
+                first.get_or_insert_with(|| path.to_owned());
+            }
+        }
+        below
+    }
+}
+
+/// `" - "` and the fix of [`Selection::directories`], which an answer that lists nothing ends with; empty when no
+/// glob names a directory.
+fn dashed(fix: Option<String>) -> String {
+    fix.map_or_else(String::new, |fix| format!(" - {fix}"))
 }
 
 /// The `find_files` answer: the paths one per line, best first, and a last line counting the `matched` paths when the
@@ -62,7 +110,10 @@ pub(crate) fn paths(
 ) -> String {
     let shown = paths.len();
     if shown == 0 {
-        return format!("no files match {pattern:?}{}", includes.directories());
+        return format!(
+            "no files match {pattern:?}{}",
+            dashed(includes.directories())
+        );
     }
     let mut answer = paths.into_text();
     if let Some(matched) = matched.filter(|&matched| matched > shown) {
@@ -70,6 +121,9 @@ pub(crate) fn paths(
             answer,
             "\n({shown} of {matched} matching paths, best first)"
         );
+    }
+    if let Some(directories) = includes.directories() {
+        let _ = write!(answer, "\n({directories})");
     }
     answer
 }
@@ -82,7 +136,7 @@ pub(crate) fn globbed(globs: &Selection<'_>, found: &Capped<'_>) -> String {
     let shown = found.items().len();
     if shown == 0 {
         let joined = globs.globs.join(", ");
-        let directories = globs.directories();
+        let directories = dashed(globs.directories());
         return if excluded == 0 {
             format!("no files match {joined}{directories}")
         } else {
@@ -106,6 +160,9 @@ pub(crate) fn globbed(globs: &Selection<'_>, found: &Capped<'_>) -> String {
     if excluded > 0 {
         let _ = write!(answer, "\n(excludes removed: {excluded})");
     }
+    if let Some(directories) = globs.directories() {
+        let _ = write!(answer, "\n({directories})");
+    }
     answer
 }
 
@@ -126,8 +183,9 @@ pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, includes: &Select
         .count("oversized", matches.oversized())
         .count("ruled_out", matches.ruled_out())
         .count("symlinks", matches.symlinks());
+    let directories = includes.directories();
     if matches.candidates() == 0 {
-        let directories = includes.directories();
+        let directories = dashed(directories);
         if matches.symlinks() > 0 {
             return element.inline(&format!(
                 "the include/exclude globs selected symlinks alone, which are never read through - include their \
@@ -142,7 +200,7 @@ pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, includes: &Select
         });
     }
     if matches.files().is_empty() && matches.failures().is_empty() {
-        return element.inline(&(no_match_hint(patterns, matches) + &includes.directories()));
+        return element.inline(&(no_match_hint(patterns, matches) + &dashed(directories)));
     }
 
     let mut paths = includes.index.paths();
@@ -151,7 +209,8 @@ pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, includes: &Select
         .files()
         .iter()
         .map(|file| file_block(paths.get(file.position()), file.lines()));
-    element.children(blocks.chain(failures))
+    let note = directories.map(|fix| Element::new("note").inline(&fix));
+    element.children(blocks.chain(failures).chain(note))
 }
 
 /// The `<failures>` block naming the files that would not read, or `None` when every file read.
