@@ -249,7 +249,8 @@ impl Server {
                        calls, uses and includes. Run this first - every other tool queries this index and errors \
                        until it exists. Takes seconds on large repositories; one repository is indexed per server, \
                        and indexing another replaces the previous one (a build of the same root and languages already \
-                       under way is waited for, not repeated). Returns an <index> envelope, its gitignore= naming the \
+                       under way is waited for, not repeated, and the index they built is answered as held, refreshed \
+                       first while index_stats shows watch off). Returns an <index> envelope, its gitignore= naming the \
                        ignore files that applied as index_stats describes, its grep_index= present only when the \
                        configured trigram index could not be kept, saying why (grep then opens every candidate, and a \
                        new index_repo tries again), with one <language/> record \
