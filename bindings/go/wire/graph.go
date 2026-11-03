@@ -1,5 +1,7 @@
 package wire
 
+import "encoding/json"
+
 // Matches is the answer of a query that names a symbol: one part for each graph the name selects a symbol in, or for
 // the one graph the params' Lang names, in the order of the engine's graphs. Each part names its graph.
 type Matches[T any] struct {
@@ -428,12 +430,40 @@ type OutlineParams struct {
 }
 
 // Outline is the answer of outline: the definitions of one file. Graph is the graph of the language that claims the
-// file, empty when none does; when that graph does not hold the file, Held is false and the rest is empty.
+// file, empty when none does or when Missing is true; when that graph does not hold the file, Held is false and the
+// rest is empty. Missing is true when the index holds no such path, and Declined names the language that leaves the
+// held file out of its graph; a held file with neither Graph nor Declined is one no language claims.
 type Outline struct {
-	File    string       `json:"file"`
-	Graph   string       `json:"graph,omitempty"`
-	Held    bool         `json:"held"`
-	Symbols []Definition `json:"symbols"`
+	File     string       `json:"file"`
+	Graph    string       `json:"graph,omitempty"`
+	Held     bool         `json:"held"`
+	Missing  bool         `json:"missing,omitempty"`
+	Declined *Declined    `json:"declined,omitempty"`
+	Symbols  []Definition `json:"symbols"`
+}
+
+// MarshalJSON writes the outline as the wire answers it, with the symbols only where Held is true.
+func (o Outline) MarshalJSON() ([]byte, error) {
+	if !o.Held {
+		return json.Marshal(fileState{o.File, o.Graph, o.Held, o.Missing, o.Declined})
+	}
+	type outline Outline
+	return json.Marshal(outline(o))
+}
+
+// Declined is the language that leaves a held file of its kind out of its graph, and the reason it states.
+type Declined struct {
+	Language string `json:"language"`
+	Reason   string `json:"reason"`
+}
+
+// fileState is what an answer about one file holds when no graph holds the file.
+type fileState struct {
+	File     string    `json:"file"`
+	Graph    string    `json:"graph,omitempty"`
+	Held     bool      `json:"held"`
+	Missing  bool      `json:"missing,omitempty"`
+	Declined *Declined `json:"declined,omitempty"`
 }
 
 // DependentsParams are the params of the dependents method.
@@ -445,16 +475,27 @@ type DependentsParams struct {
 	MaxFiles *int `json:"max_files,omitempty"`
 }
 
-// Dependents is the answer of dependents: the files that include a file, directly or through others. Graph and Held
-// are as Outline's.
+// Dependents is the answer of dependents: the files that include a file, directly or through others. Graph, Held,
+// Missing and Declined are as Outline's.
 type Dependents struct {
 	File       string      `json:"file"`
 	Graph      string      `json:"graph,omitempty"`
 	Held       bool        `json:"held"`
+	Missing    bool        `json:"missing,omitempty"`
+	Declined   *Declined   `json:"declined,omitempty"`
 	Found      []Dependent `json:"found"`
 	Truncated  bool        `json:"truncated"`
 	TurnedAway int         `json:"turned_away"`
 	Unexpanded int         `json:"unexpanded"`
+}
+
+// MarshalJSON writes the dependents as the wire answers them, with the files and counts only where Held is true.
+func (d Dependents) MarshalJSON() ([]byte, error) {
+	if !d.Held {
+		return json.Marshal(fileState{d.File, d.Graph, d.Held, d.Missing, d.Declined})
+	}
+	type dependents Dependents
+	return json.Marshal(dependents(d))
 }
 
 // Dependent is a file that includes the file asked about, Depth includes away.
@@ -477,18 +518,29 @@ type SegmentParams struct {
 	MaxSymbols *int `json:"max_symbols,omitempty"`
 }
 
-// Segment is the answer of analyze_segment: what a change to a range of a file's lines reaches. Graph and Held are as
-// Outline's. Where the params left EndLine at 0, it is the last line a symbol of the file reaches, and never before
-// StartLine.
+// Segment is the answer of analyze_segment: what a change to a range of a file's lines reaches. Graph, Held, Missing
+// and Declined are as Outline's. Where the params left EndLine at 0, it is the last line a symbol of the file reaches,
+// and never before StartLine.
 type Segment struct {
 	File       string          `json:"file"`
 	Graph      string          `json:"graph,omitempty"`
 	Held       bool            `json:"held"`
+	Missing    bool            `json:"missing,omitempty"`
+	Declined   *Declined       `json:"declined,omitempty"`
 	StartLine  int             `json:"start_line"`
 	EndLine    int             `json:"end_line"`
 	Symbols    []SegmentSymbol `json:"symbols"`
 	Includes   []string        `json:"includes"`
 	IncludedBy []string        `json:"included_by"`
+}
+
+// MarshalJSON writes the segment as the wire answers it, with the lines, symbols and includes only where Held is true.
+func (s Segment) MarshalJSON() ([]byte, error) {
+	if !s.Held {
+		return json.Marshal(fileState{s.File, s.Graph, s.Held, s.Missing, s.Declined})
+	}
+	type segment Segment
+	return json.Marshal(segment(s))
 }
 
 // SegmentSymbol is a symbol the segment overlaps, its direct calls each way, and the callers it reaches.

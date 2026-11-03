@@ -8,6 +8,8 @@ import analyzeChangeHotspots from '../../../crates/kartta-ffi/tests/golden/analy
 import analyzeChangeUsers from '../../../crates/kartta-ffi/tests/golden/analyze_change-users.json' with {type: 'json'};
 import analyzeChange from '../../../crates/kartta-ffi/tests/golden/analyze_change.json' with {type: 'json'};
 import analyzeSegmentBounds from '../../../crates/kartta-ffi/tests/golden/analyze_segment-bounds.json' with {type: 'json'};
+import analyzeSegmentDeclined from '../../../crates/kartta-ffi/tests/golden/analyze_segment-declined.json' with {type: 'json'};
+import analyzeSegmentMissing from '../../../crates/kartta-ffi/tests/golden/analyze_segment-missing.json' with {type: 'json'};
 import analyzeSegmentUsers from '../../../crates/kartta-ffi/tests/golden/analyze_segment-users.json' with {type: 'json'};
 import analyzeSegment from '../../../crates/kartta-ffi/tests/golden/analyze_segment.json' with {type: 'json'};
 import buildEveryOption from '../../../crates/kartta-ffi/tests/golden/build-every_option.json' with {type: 'json'};
@@ -34,6 +36,8 @@ import definitionsLimit from '../../../crates/kartta-ffi/tests/golden/definition
 import definitionsOneEdit from '../../../crates/kartta-ffi/tests/golden/definitions-one_edit.json' with {type: 'json'};
 import definitions from '../../../crates/kartta-ffi/tests/golden/definitions.json' with {type: 'json'};
 import dependentsBounds from '../../../crates/kartta-ffi/tests/golden/dependents-bounds.json' with {type: 'json'};
+import dependentsDeclined from '../../../crates/kartta-ffi/tests/golden/dependents-declined.json' with {type: 'json'};
+import dependentsMissing from '../../../crates/kartta-ffi/tests/golden/dependents-missing.json' with {type: 'json'};
 import dependents from '../../../crates/kartta-ffi/tests/golden/dependents.json' with {type: 'json'};
 import fuzzyGlobs from '../../../crates/kartta-ffi/tests/golden/fuzzy-globs.json' with {type: 'json'};
 import fuzzy from '../../../crates/kartta-ffi/tests/golden/fuzzy.json' with {type: 'json'};
@@ -49,6 +53,8 @@ import listCollapse from '../../../crates/kartta-ffi/tests/golden/list-collapse.
 import listNotADirectory from '../../../crates/kartta-ffi/tests/golden/list-not_a_directory.json' with {type: 'json'};
 import listNotFound from '../../../crates/kartta-ffi/tests/golden/list-not_found.json' with {type: 'json'};
 import list from '../../../crates/kartta-ffi/tests/golden/list.json' with {type: 'json'};
+import outlineDeclined from '../../../crates/kartta-ffi/tests/golden/outline-declined.json' with {type: 'json'};
+import outlineMissing from '../../../crates/kartta-ffi/tests/golden/outline-missing.json' with {type: 'json'};
 import outline from '../../../crates/kartta-ffi/tests/golden/outline.json' with {type: 'json'};
 import referencesAccess from '../../../crates/kartta-ffi/tests/golden/references-access.json' with {type: 'json'};
 import referencesFileScope from '../../../crates/kartta-ffi/tests/golden/references-file_scope.json' with {type: 'json'};
@@ -102,6 +108,8 @@ const laterGoldens = {
 	'analyze_change-hotspots': analyzeChangeHotspots,
 	'analyze_change-users': analyzeChangeUsers,
 	'analyze_segment-bounds': analyzeSegmentBounds,
+	'analyze_segment-declined': analyzeSegmentDeclined,
+	'analyze_segment-missing': analyzeSegmentMissing,
 	'analyze_segment-users': analyzeSegmentUsers,
 	'build-every_option': buildEveryOption,
 	'call_path-candidates': callPathCandidates,
@@ -119,11 +127,15 @@ const laterGoldens = {
 	'definitions-limit': definitionsLimit,
 	'definitions-one_edit': definitionsOneEdit,
 	'dependents-bounds': dependentsBounds,
+	'dependents-declined': dependentsDeclined,
+	'dependents-missing': dependentsMissing,
 	'fuzzy-globs': fuzzyGlobs,
 	'grep-cut': grepCut,
 	'implementations-candidates': implementationsCandidates,
 	'implementations-other_kind': implementationsOtherKind,
 	'list-collapse': listCollapse,
+	'outline-declined': outlineDeclined,
+	'outline-missing': outlineMissing,
 	'references-access': referencesAccess,
 	'references-file_scope': referencesFileScope,
 	'references-type': referencesType,

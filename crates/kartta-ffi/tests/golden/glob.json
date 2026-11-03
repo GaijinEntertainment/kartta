@@ -3,7 +3,7 @@
     "ok": {
       "excluded": 5,
       "paths": [
-        "go/close.go"
+        "go/_skip.go"
       ],
       "truncated": true
     }

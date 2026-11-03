@@ -1,0 +1,16 @@
+{
+  "answer": {
+    "ok": {
+      "declined": {
+        "language": "go",
+        "reason": "no Go build reads a file whose name starts with _ or ."
+      },
+      "file": "go/_skip.go",
+      "held": false
+    }
+  },
+  "method": "outline",
+  "params": {
+    "file": "go/_skip.go"
+  }
+}

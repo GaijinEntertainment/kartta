@@ -2,11 +2,11 @@
   "answer": {
     "ok": {
       "content_index": {
-        "bytes": 788472,
-        "files": 13,
-        "trigrams": 612
+        "bytes": 788530,
+        "files": 14,
+        "trigrams": 629
       },
-      "entries": 17,
+      "entries": 18,
       "errors": {
         "listed": [],
         "total": 0

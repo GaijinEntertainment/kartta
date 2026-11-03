@@ -14,6 +14,12 @@
         {
           "binary": false,
           "kind": "file",
+          "path": "go/_skip.go",
+          "size": 52
+        },
+        {
+          "binary": false,
+          "kind": "file",
           "path": "go/close.go",
           "size": 169
         },
@@ -55,7 +61,7 @@
       ],
       "excluded": 2,
       "path": "",
-      "total": 17,
+      "total": 18,
       "truncated": false
     }
   },

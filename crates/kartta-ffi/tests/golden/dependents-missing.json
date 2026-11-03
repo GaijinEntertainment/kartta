@@ -1,0 +1,13 @@
+{
+  "answer": {
+    "ok": {
+      "file": "go/gone.go",
+      "held": false,
+      "missing": true
+    }
+  },
+  "method": "dependents",
+  "params": {
+    "file": "go/gone.go"
+  }
+}
