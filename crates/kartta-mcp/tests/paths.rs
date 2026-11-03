@@ -417,6 +417,7 @@ fn a_held_file_no_graph_answers_for_says_why() {
     let tree = tree(&[
         ("go.mod", "module example.com/app\n\ngo 1.22\n"),
         ("pkg/blob.go", "\0\0\0"),
+        ("pkg/_skip.go", "package pkg\n\nfunc Skipped() {}\n"),
         ("README.md", "# app\n"),
     ]);
     let mut client = Client::start(&[]);
@@ -424,9 +425,15 @@ fn a_held_file_no_graph_answers_for_says_why() {
 
     let unclaimed =
         "no indexed language claims this file, so no code graph holds it - read or grep it";
+    let declined = "the go language leaves this file out of its graph: no Go build reads a file whose name starts \
+                    with _ or . - read or grep it";
     let unheld = "the go graph claims this file and holds no record of it, one of the files index_stats counts in \
                   unheld - read or grep it";
-    for (file, note) in [("README.md", unclaimed), ("pkg/blob.go", unheld)] {
+    for (file, note) in [
+        ("README.md", unclaimed),
+        ("pkg/_skip.go", declined),
+        ("pkg/blob.go", unheld),
+    ] {
         assert_eq!(
             [
                 client.answer("file_outline", &json!({"file": file})),

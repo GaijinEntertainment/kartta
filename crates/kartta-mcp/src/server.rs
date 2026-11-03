@@ -29,8 +29,8 @@ use crate::params::{
 };
 use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, misspelled, relative};
 use crate::render::{
-    self, CallersAsk, Found, NameDefinitions, PathAsk, Read, SUGGESTIONS, Selection, Suggestion,
-    Unmatched, UnusedAsk,
+    self, CallersAsk, Found, Graphless, NameDefinitions, PathAsk, Read, SUGGESTIONS, Selection,
+    Suggestion, Unmatched, UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
@@ -950,8 +950,8 @@ impl Server {
             let claimed = indexed.engine.graph_of(file);
             let dependents =
                 claimed.and_then(|(_, graph)| graph.dependents(file, IMPORTER_DEPTH, 0));
-            let family = claimed.map(|(family, _)| family);
-            Ok(render::importers(file, family, dependents.as_ref()))
+            let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));
+            Ok(render::importers(file, graphless, dependents.as_ref()))
         })
         .await
     }
@@ -977,8 +977,8 @@ impl Server {
             let file = held_file(indexed.engine.index(), &p.file)?;
             let claimed = indexed.engine.graph_of(file);
             let outline = claimed.and_then(|(_, graph)| graph.outline(file));
-            let family = claimed.map(|(family, _)| family);
-            Ok(render::outline(file, family, outline.as_deref()))
+            let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));
+            Ok(render::outline(file, graphless, outline.as_deref()))
         })
         .await
     }
@@ -1193,11 +1193,11 @@ impl Server {
             let claimed = indexed.engine.graph_of(file);
             let segment = claimed
                 .and_then(|(_, graph)| graph.analyze_segment(file, start_line..=end_line, limits));
-            let family = claimed.map(|(family, _)| family);
+            let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));
             Ok(render::impact(
                 file,
                 (start_line, end_line),
-                family,
+                graphless,
                 segment.as_ref(),
             ))
         })
