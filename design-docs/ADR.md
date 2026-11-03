@@ -25,6 +25,7 @@ lost, and what would reopen it.
 
 - [4.54 Serve the Go module from `bindings/go` under Gaijin's module prefix](/design-docs/adr/4.54-go-module-home.md)
 - [4.60 Link the Go binding on Windows against the `windows-gnu` archive](/design-docs/adr/4.60-go-windows-link.md)
+- [4.63 Name the Go module's floor in its `go` directive, and run CI at it](/design-docs/adr/4.63-go-floor.md)
 
 ## bindings/node
 
