@@ -6,7 +6,6 @@ mod symbols;
 mod unused;
 
 use std::fmt::Display;
-use std::time::Duration;
 
 use kartta::{Definition, Hit, Resolution, Selector, SymbolFlags, SymbolKind, UnmatchedKind};
 
@@ -19,7 +18,7 @@ pub(crate) use self::symbols::{
 };
 pub(crate) use self::unused::{UnusedAsk, unused};
 use crate::llmxml::Element;
-use crate::state::{Gitignore, Indexed, Refreshed};
+use crate::state::{Gitignore, Indexed, Refreshed, Unready};
 
 /// How an answer echoes an empty `languages` filter.
 pub(crate) const EMPTY_LANGUAGES: &str = "[]";
@@ -403,13 +402,25 @@ fn bound(family: &str, resolution: &Resolution<'_>) -> String {
         .close()
 }
 
-/// The `index_stats` answer while a build runs.
-pub(crate) fn building(root: &str, elapsed: Duration) -> String {
-    Element::new("index")
-        .attr("root", root)
-        .attr("status", "building")
-        .attr("elapsed_secs", elapsed.as_secs())
-        .inline(
-            "still building - every other tool answers once it is ready, and index_repo with this root waits for it",
-        )
+/// The `index_stats` answer while the slot holds no index: nothing indexed, a build under way, or the failure of the
+/// last build.
+pub(crate) fn unready(unready: &Unready) -> String {
+    let element = Element::new("index");
+    match unready {
+        Unready::Empty => element.attr("status", "empty").inline(
+            "nothing is indexed - call index_repo with the repository's absolute root",
+        ),
+        Unready::Building { root, elapsed } => element
+            .attr("root", root)
+            .attr("status", "building")
+            .attr("elapsed_secs", elapsed.as_secs())
+            .inline(
+                "still building - every other tool answers once it is ready, and index_repo with this root waits \
+                 for it",
+            ),
+        Unready::Failed { root, error } => element
+            .attr("root", root)
+            .attr("status", "failed")
+            .inline(&format!("{error} - call index_repo again")),
+    }
 }
