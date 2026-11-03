@@ -2,11 +2,11 @@
   "answer": {
     "ok": {
       "content_index": {
-        "bytes": 788432,
-        "files": 12,
-        "trigrams": 601
+        "bytes": 788472,
+        "files": 13,
+        "trigrams": 612
       },
-      "entries": 16,
+      "entries": 17,
       "errors": {
         "listed": [],
         "total": 0
@@ -35,20 +35,20 @@
           "writes": 0
         },
         {
-          "calls": 2,
-          "files": 4,
+          "calls": 3,
+          "files": 5,
           "files_without_symbols": 0,
-          "includes": 2,
+          "includes": 3,
           "kinds": {
             "class": 2,
-            "func": 3,
+            "func": 4,
             "method": 4,
             "var": 1
           },
           "local_calls": 0,
           "name": "cpp",
           "reads": 0,
-          "symbols": 10,
+          "symbols": 11,
           "types": 0,
           "updates": 0,
           "uses": 0,
@@ -85,11 +85,11 @@
         },
         {
           "cached": 0,
-          "claimed": 4,
+          "claimed": 5,
           "family": "cpp",
-          "held": 4,
+          "held": 5,
           "name": "cpp",
-          "read": 4
+          "read": 5
         },
         {
           "cached": 0,

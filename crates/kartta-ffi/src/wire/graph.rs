@@ -193,6 +193,8 @@ struct ReachedDef<'g> {
     depth: u32,
     confidence: u8,
     line: u32,
+    #[serde(serialize_with = "present", skip_serializing_if = "Option::is_none")]
+    through: Option<Definition<'g>>,
 }
 
 #[derive(Serialize)]

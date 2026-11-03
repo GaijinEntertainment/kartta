@@ -23,6 +23,7 @@ import callersFileScope from '../../../crates/kartta-ffi/tests/golden/callers-fi
 import callersInvalidParams from '../../../crates/kartta-ffi/tests/golden/callers-invalid_params.json' with {type: 'json'};
 import callersOneEdit from '../../../crates/kartta-ffi/tests/golden/callers-one_edit.json' with {type: 'json'};
 import callersSelfCall from '../../../crates/kartta-ffi/tests/golden/callers-self_call.json' with {type: 'json'};
+import callersThrough from '../../../crates/kartta-ffi/tests/golden/callers-through.json' with {type: 'json'};
 import callers from '../../../crates/kartta-ffi/tests/golden/callers.json' with {type: 'json'};
 import cancelBindingId from '../../../crates/kartta-ffi/tests/golden/cancel-binding_id.json' with {type: 'json'};
 import cancelGrepRefresh from '../../../crates/kartta-ffi/tests/golden/cancel-grep_refresh.json' with {type: 'json'};
@@ -111,6 +112,7 @@ const laterGoldens = {
 	'callers-file_scope': callersFileScope,
 	'callers-one_edit': callersOneEdit,
 	'callers-self_call': callersSelfCall,
+	'callers-through': callersThrough,
 	'cancel-binding_id': cancelBindingId,
 	'cancel-grep_refresh': cancelGrepRefresh,
 	'dead_code-path_prefix': deadCodePathPrefix,

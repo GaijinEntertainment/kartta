@@ -658,6 +658,10 @@ A symbol a name also selects that the answer passed over.
 - `depth` (integer, always): How many calls away it is.
 - `confidence` (integer, always): How sure the resolution of the call is, 0 to 100.
 - `line` (integer, always): The line of the call.
+- `through` ([`Definition`](#definition), optional): In a walk over callers, the method the call binds where it reaches
+  the called method only through it: a method of the same name that an interface, a trait or a base class of the called
+  method's owner declares, so the call runs whichever implementation the value holds. Absent for a call that binds the
+  called symbol itself.
 
 ### CallersView
 

@@ -3,7 +3,7 @@
     "ok": {
       "binary": 0,
       "cancelled": false,
-      "candidates": 12,
+      "candidates": 13,
       "excluded": 0,
       "failures": [],
       "files": [
@@ -60,7 +60,7 @@
       ],
       "lines": 3,
       "oversized": 0,
-      "ruled_out": 10,
+      "ruled_out": 11,
       "searched": 2,
       "symlinks": 0,
       "total_files": 2,

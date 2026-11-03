@@ -1,7 +1,7 @@
 {
   "answer": {
     "ok": {
-      "excluded": 4,
+      "excluded": 5,
       "paths": [
         "go/close.go"
       ],
