@@ -866,7 +866,8 @@ impl Server {
                        answered for and up to 5 <candidate/> records list the most implemented others - path_prefix \
                        with one's file and line with its line pick it. A type that implements an interface without \
                        naming it, as Go's structural typing allows, is not found. A name several types end with lists \
-                       them instead; an unknown name answers with up to 5 close alternatives (did you mean): those \
+                       them instead; a name held only as kinds no type implements, such as a function, a variable or \
+                       a Go defined type, counts them by kind and lists up to 5 of those definitions; an unknown name answers with up to 5 close alternatives (did you mean): those \
                        named one edit from it, which one_edit= counts, or else the best search hits. Requires \
                        index_repo first."
     )]
@@ -1073,7 +1074,8 @@ impl Server {
                        match with no site states what the graph does not record; with below_confidence=, it states \
                        only how many sites bind below the confidence floor, which min_confidence \"any\" lists, \
                        without access where one was asked. A name several symbols end with lists \
-                       them instead; an unknown name answers with up to 5 close alternatives (did you mean): those \
+                       them instead; a name held only as enum variants, which this tool takes no root of, counts \
+                       them and lists up to 5; an unknown name answers with up to 5 close alternatives (did you mean): those \
                        named one edit from it, which one_edit= counts, or else the best search hits. Requires \
                        index_repo first."
     )]
