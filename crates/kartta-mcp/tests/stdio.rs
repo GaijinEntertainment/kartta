@@ -475,8 +475,8 @@ fn list_dir_counts_what_it_did_not_enter() {
     assert!(globbed.is_error);
     assert_eq!(
         globbed.text,
-        "excludes: \"**/lib\" holds the glob character * - list_dir excludes are directory names, matched literally \
-         at any depth, such as \"vendor\" or \"pkg/deep\""
+        "excludes: \"**/lib\" holds the glob character * and names no indexed directory - list_dir excludes are \
+         directory names, matched literally at any depth, such as \"vendor\" or \"pkg/deep\""
     );
     assert!(
         client
@@ -485,6 +485,72 @@ fn list_dir_counts_what_it_did_not_enter() {
     );
     assert!(client.call("list_dir", &json!({"path": "go.mod"})).is_error);
     assert!(client.call("list_dir", &json!({"path": "/"})).is_error);
+}
+
+#[test]
+fn a_list_dir_exclude_excludes_a_held_directory_whatever_its_name_holds() {
+    let tree = go_module();
+    std::fs::create_dir_all(tree.path().join("cmd/odd[1]")).expect("the directory is created");
+    std::fs::write(tree.path().join("cmd/odd[1]/a[2]"), "a\n").expect("the file is written");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer(
+            "list_dir",
+            &json!({"path": "cmd", "max_depth": 2, "excludes": ["odd[1]"]})
+        ),
+        "<dir path=\"cmd\" entries=\"3\" total=\"4\">\n\
+         <entry path=\"cmd/app\" kind=\"dir\"/>\n\
+         <entry path=\"cmd/app/main.go\" kind=\"file\" size=\"128\"/>\n\
+         <entry path=\"cmd/odd[1]\" kind=\"dir\" unlisted=\"1\"/>\n\
+         </dir>"
+    );
+    for name in ["dd[1]", "a[2]"] {
+        assert!(
+            client
+                .call("list_dir", &json!({"excludes": [name]}))
+                .is_error,
+            "{name} ends a directory's name or names a file, and names no directory"
+        );
+    }
+    let unheld = client.call("list_dir", &json!({"excludes": ["odd[1]", "odd[2]"]}));
+    assert!(unheld.is_error);
+    assert_eq!(
+        unheld.text,
+        "excludes: \"odd[2]\" holds the glob character [ and names no indexed directory - list_dir excludes are \
+         directory names, matched literally at any depth, such as \"vendor\" or \"pkg/deep\""
+    );
+    let backslashed = client.call("list_dir", &json!({"excludes": ["cmd\\app"]}));
+    assert!(backslashed.is_error);
+    assert_eq!(
+        backslashed.text,
+        "excludes: \"cmd\\\\app\" holds a \\ and names no indexed directory - list_dir excludes are directory names, \
+         matched literally at any depth, such as \"vendor\" or \"pkg/deep\""
+    );
+}
+
+/// Windows cannot spell a name that holds a `\`, so the case exists only where a filename may hold one.
+#[cfg(unix)]
+#[test]
+fn a_list_dir_exclude_excludes_a_held_directory_whose_name_holds_a_backslash() {
+    let tree = go_module();
+    std::fs::create_dir_all(tree.path().join("cmd/a\\b")).expect("the directory is created");
+    std::fs::write(tree.path().join("cmd/a\\b/a.txt"), "a\n").expect("the file is written");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer(
+            "list_dir",
+            &json!({"path": "cmd", "max_depth": 2, "excludes": ["a\\b"]})
+        ),
+        "<dir path=\"cmd\" entries=\"3\" total=\"4\">\n\
+         <entry path=\"cmd/a\\\\b\" kind=\"dir\" unlisted=\"1\"/>\n\
+         <entry path=\"cmd/app\" kind=\"dir\"/>\n\
+         <entry path=\"cmd/app/main.go\" kind=\"file\" size=\"128\"/>\n\
+         </dir>"
+    );
 }
 
 #[test]
