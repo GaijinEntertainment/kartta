@@ -27,7 +27,7 @@ use crate::params::{
     FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
     IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams, RefreshParams,
 };
-use crate::paths::{self, Wanted, held_file, held_prefix, misspelled, relative};
+use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, misspelled, relative};
 use crate::render::{
     self, CallersAsk, Found, NameDefinitions, PathAsk, Read, SUGGESTIONS, Selection, Suggestion,
     Unmatched, UnusedAsk,
@@ -599,8 +599,8 @@ impl Server {
         let collapse = globs(
             &names
                 .iter()
-                .map(|name| format!("**/{}", escape_glob(name)))
-                .collect::<Vec<_>>(),
+                .map(|name| collapsed(name))
+                .collect::<Result<Vec<_>, _>>()?,
         )?;
         let dotfiles = if p.skip_dotfiles.unwrap_or(false) {
             Some(Filter::new(["**/.*"]).map_err(|error| error.to_string())?)
@@ -1550,16 +1550,19 @@ fn prefix_of<'p>(
         .map_err(|error| format!("{parameter}: {error}"))
 }
 
-/// `name` as a glob that matches it literally: each character the glob dialect gives a meaning to is escaped.
-fn escape_glob(name: &str) -> String {
-    let mut escaped = String::with_capacity(name.len());
-    for character in name.chars() {
-        if matches!(character, '*' | '?' | '[' | ']' | '{' | '}' | '\\' | '!') {
-            escaped.push('\\');
-        }
-        escaped.push(character);
+/// The glob that matches the `list_dir` exclude `name` literally at any depth, or the tool error for a name that holds
+/// a glob character: such a name would match no directory as written, and excluding nothing says nothing.
+fn collapsed(name: &str) -> Result<String, String> {
+    if let Some(character) = name
+        .chars()
+        .find(|character| GLOB_CHARACTERS.contains(character))
+    {
+        return Err(format!(
+            "excludes: {name:?} holds the glob character {character} - list_dir excludes are directory names, matched \
+             literally at any depth, such as \"vendor\" or \"pkg/deep\""
+        ));
     }
-    escaped
+    Ok(format!("**/{}", name.replace('\\', r"\\")))
 }
 
 #[cfg(test)]
@@ -1567,11 +1570,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_escaped_name_matches_only_itself() {
-        let filter = Filter::new([format!("**/{}", escape_glob("a[1]{b}*"))]).unwrap();
+    fn a_collapsed_name_matches_only_itself_at_any_depth() {
+        let filter = Filter::new([collapsed("a!,c").unwrap()]).unwrap();
 
-        assert!(filter.matches("x/a[1]{b}*"));
-        assert!(!filter.matches("x/a1b"));
+        assert!(filter.matches("x/y/a!,c"));
+        assert!(!filter.matches("x/a,c"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_collapsed_name_matches_the_backslash_a_unix_name_holds() {
+        let filter = Filter::new([collapsed(r"a\b").unwrap()]).unwrap();
+
+        assert!(filter.matches(r"x/y/a\b"));
+        assert!(!filter.matches("x/ab"));
+    }
+
+    #[test]
+    fn a_name_holding_any_glob_character_is_refused() {
+        for name in ["de*p", "de?p", "de[e]p", "dee]p", "{deep}", "dee}p"] {
+            assert!(collapsed(name).is_err(), "{name}");
+        }
     }
 
     async fn until_cancelled(cancel: CancelToken) -> &'static str {
