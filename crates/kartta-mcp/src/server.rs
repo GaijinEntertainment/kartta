@@ -263,8 +263,24 @@ impl Server {
         Parameters(p): Parameters<IndexRepoParams>,
     ) -> Result<String, String> {
         CATALOG.check(p.languages.as_deref())?;
+        let root = PathBuf::from(&p.root);
+        if !root.is_absolute() {
+            return Err(format!(
+                "the root {:?} is not an absolute path - pass the repository's absolute path",
+                p.root
+            ));
+        }
+        let root = tokio::task::spawn_blocking(move || match std::fs::read_dir(&root) {
+            Ok(_) => Ok(root),
+            Err(error) => Err(format!(
+                "cannot index {}: {error} - pass the absolute path of a readable directory",
+                root.display()
+            )),
+        })
+        .await
+        .map_err(|error| format!("the root check stopped before it answered: {error}"))??;
         let request = Request {
-            root: PathBuf::from(&p.root),
+            root,
             languages: CATALOG.to_build(p.languages.as_deref()),
             index_ignored: p.index_ignored,
         };
