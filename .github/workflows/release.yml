@@ -103,9 +103,8 @@ jobs:
         if: endsWith(matrix.target, '-gnu')
         run: |
           docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} scripts/glibc-floor.sh ${{ matrix.target }} \
-            "$GLIBC_FLOOR" target/artifacts/kartta-mcp-*.tar.gz target/artifacts/kartta-ffi-*.tar.gz target/floor
-          docker run --rm -v "$PWD/target/floor:/floor" "$GLIBC_FLOOR_HOST" \
-            sh -c '/floor/kartta-mcp --version && /floor/kartta-abi'
+            "$GLIBC_FLOOR" target/artifacts/kartta-ffi-*.tar.gz target/floor
+          docker run --rm -v "$PWD/target/floor:/floor" "$GLIBC_FLOOR_HOST" /floor/kartta-abi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.target }}

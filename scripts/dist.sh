@@ -3,10 +3,9 @@ set -eu
 
 usage() {
   cat <<'USAGE'
-usage: scripts/dist.sh <target>   build the release artifacts of <target> into <target directory>/artifacts
+usage: scripts/dist.sh <target>   build the release artifact of <target> into <target directory>/artifacts
 
-Writes kartta-mcp-<version>-<target>.tar.gz and kartta-ffi-<version>-<target>.tar.gz, and fails when the second does
-not link as its WIRE.md states.
+Writes kartta-ffi-<version>-<target>.tar.gz, and fails when it does not link as its WIRE.md states.
 USAGE
 }
 
@@ -35,25 +34,17 @@ target=$1
 cd "$(dirname "$0")/.."
 
 case $target in
-  *-windows-msvc)
-    binary=kartta-mcp.exe
-    archive=kartta_ffi.lib
-    ;;
-  *)
-    binary=kartta-mcp
-    archive=libkartta_ffi.a
-    ;;
+  *-windows-msvc) archive=kartta_ffi.lib ;;
+  *) archive=libkartta_ffi.a ;;
 esac
 
-version=$(cargo pkgid --locked -p kartta-mcp)
+version=$(cargo pkgid --locked -p kartta-ffi)
 version=${version##*[#@]}
 built=${CARGO_TARGET_DIR:-target}/$target/dist
 out=${CARGO_TARGET_DIR:-target}/artifacts
 
-cargo build --locked --profile dist --target "$target" -p kartta-mcp
 scripts/ffi-archive.sh "$target"
 
-pack "kartta-mcp-$version-$target" "$built/$binary"
 pack "kartta-ffi-$version-$target" "$built/$archive" crates/kartta-ffi/include/kartta.h crates/kartta-ffi/WIRE.md
 
 mkdir -p "$out/check"
