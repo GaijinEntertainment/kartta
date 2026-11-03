@@ -293,7 +293,7 @@ impl fmt::Display for Unready {
             Self::Building { root, elapsed } => write!(
                 formatter,
                 "the index of {root} is still building ({}s so far) - index_stats answers once it is ready, and \
-                 index_repo with the same root waits for it",
+                 index_repo with the same root, languages and index_ignored waits for it",
                 elapsed.as_secs()
             ),
             Self::Failed { root, error } => write!(
@@ -529,6 +529,21 @@ impl Served {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_building_slot_names_every_field_a_waiting_index_repo_matches() {
+        let building = Unready::Building {
+            root: "/repo".into(),
+            elapsed: Duration::from_secs(3),
+        };
+
+        for answer in [building.to_string(), crate::render::unready(&building)] {
+            assert!(
+                answer.contains("root, languages and index_ignored waits"),
+                "{answer}"
+            );
+        }
+    }
 
     #[test]
     fn a_rebuild_releases_the_watched_index_before_it_builds_its_own() {
