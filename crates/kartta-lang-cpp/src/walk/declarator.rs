@@ -1,4 +1,4 @@
-use kartta_lang::tree::{signature, text};
+use kartta_lang::tree::{signature, text, uncommented};
 use kartta_lang::{Symbol, SymbolKind};
 use tree_sitter::Node;
 
@@ -26,7 +26,7 @@ pub(super) fn function_symbol(node: Node<'_>, source: &[u8]) -> Option<Symbol> {
     symbol.signature = trailing_annotation_end(node, source).map_or_else(
         || signature(node, source),
         |end| {
-            let written = String::from_utf8_lossy(&source[node.start_byte()..end]);
+            let written = uncommented(node, node.start_byte()..end, source);
             Some(written.trim_end().to_owned())
         },
     );

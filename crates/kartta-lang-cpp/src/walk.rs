@@ -6,7 +6,9 @@ mod sites;
 
 use std::collections::{HashMap, HashSet};
 
-use kartta_lang::tree::{child_nodes, line, preorder, signature, signature_from, text};
+use kartta_lang::tree::{
+    child_nodes, line, preorder, signature, signature_from, text, uncommented,
+};
 use kartta_lang::{
     Banner, CallRef, Callable, CallableRole, FILE_SCOPE, FoldedDeclaration, RawDirective,
     RawExtraction, Symbol, SymbolFlags, SymbolId, SymbolKind,
@@ -277,8 +279,7 @@ impl<'s, 't> Replayer<'s, 't> {
         let (end, body) = match misread_body {
             Some(body) => {
                 symbol.end_line = line(body.end_position().row);
-                let written =
-                    String::from_utf8_lossy(&self.source[node.start_byte()..body.start_byte()]);
+                let written = uncommented(node, node.start_byte()..body.start_byte(), self.source);
                 symbol.signature = Some(written.trim_end().to_owned());
                 (body.end_byte(), body.start_byte())
             }
@@ -3816,6 +3817,37 @@ static int free_helper() { return 2; }
             raw.symbols
                 .iter()
                 .all(|symbol| symbol.kind == SymbolKind::Method)
+        );
+    }
+
+    #[test]
+    fn a_signature_leaves_out_its_comments() {
+        let raw = extract(
+            b"class task\n{\npublic:\n    template<typename _Ty>\n    __declspec(noinline) // Ask for no inlining\n\
+              \x20   explicit task(_Ty _Param)\n    {\n    }\n\n    int run() // runs it\n    {\n        return 0;\n\
+              \x20   }\n};\n\nint wide(int/*w*/x);\nvoid tick(float /*dt*/);\n\
+              int table[] = // the table\n{\n    1,\n};\n",
+        );
+
+        assert_eq!(
+            qualified(&raw, "task::task").signature.as_deref(),
+            Some("__declspec(noinline)\n    explicit task(_Ty _Param)")
+        );
+        assert_eq!(
+            qualified(&raw, "task::run").signature.as_deref(),
+            Some("int run()")
+        );
+        assert_eq!(
+            qualified(&raw, "wide").signature.as_deref(),
+            Some("int wide(int x)")
+        );
+        assert_eq!(
+            qualified(&raw, "tick").signature.as_deref(),
+            Some("void tick(float)")
+        );
+        assert_eq!(
+            qualified(&raw, "table").signature.as_deref(),
+            Some("int table[]")
         );
     }
 }

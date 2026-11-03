@@ -1,4 +1,4 @@
-use kartta_lang::tree::{signature, text};
+use kartta_lang::tree::{signature, text, uncommented};
 use tree_sitter::Node;
 
 use super::child_nodes;
@@ -173,7 +173,7 @@ pub(super) fn data_signature(node: Node<'_>, source: &[u8]) -> Option<String> {
     else {
         return signature(node, source);
     };
-    let text = String::from_utf8_lossy(&source[node.start_byte()..value.start_byte()]);
+    let text = uncommented(node, node.start_byte()..value.start_byte(), source);
     let text = text.trim_end().trim_end_matches('=').trim_end();
 
     (!text.is_empty()).then(|| text.to_owned())
