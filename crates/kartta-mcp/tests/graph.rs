@@ -2961,7 +2961,7 @@ fn find_references_counts_the_sites_below_the_floor_and_names_it_only_where_it_d
                 r#"<references of="helper" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:5" kind="function" count="0" "#,
-                    r#"below_confidence="2">no recorded site at this confidence floor - 2 sites bind below it, "#,
+                    r#"below_confidence="2">no recorded site at this confidence floor - 2 uses bind below it, "#,
                     r#"and min_confidence "any" lists them</match>"#,
                 ),
                 "</references>",
@@ -2970,7 +2970,7 @@ fn find_references_counts_the_sites_below_the_floor_and_names_it_only_where_it_d
                 r#"<references of="limit" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="limit" qn="lib.limit" loc="helper.go:3" kind="variable" count="0" "#,
-                    r#"below_confidence="1">no recorded site at this confidence floor - 1 site binds below it, and "#,
+                    r#"below_confidence="1">no recorded site at this confidence floor - 1 use binds below it, and "#,
                     r#"min_confidence "any" without access lists it</match>"#,
                 ),
                 "</references>",
@@ -5170,5 +5170,70 @@ fn a_name_that_picks_no_one_of_several_lists_them_and_implementations_name_the_t
                 "</call_path>",
             ]),
         ]
+    );
+}
+
+#[test]
+fn find_references_names_the_files_whose_top_level_reads_a_constant_and_sees_it() {
+    let answers = answers_over(
+        &[
+            ("ts/a.ts", "export const LIMIT = 3;\n"),
+            (
+                "ts/b.ts",
+                "import { LIMIT } from './a';\nconsole.log(LIMIT);\n\nexport function f() {\n  return LIMIT;\n}\n",
+            ),
+            ("ts/c.ts", "console.log(LIMIT);\n"),
+        ],
+        &[
+            ("find_references", json!({"name": "LIMIT"})),
+            (
+                "find_references",
+                json!({"name": "LIMIT", "access": "write"}),
+            ),
+            (
+                "find_references",
+                json!({"name": "LIMIT", "min_confidence": "certain"}),
+            ),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="LIMIT" matches="1">"#,
+                concat!(
+                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" count="1" files="1" "#,
+                    r#"reads="1" file_scope="1">"#,
+                ),
+                r#"<file path="ts/b.ts" sites="1">"#,
+                r#"<ref name="f" line="4" role="consumer" site="read" at="5" confidence="likely"/>"#,
+                "</file>",
+                r#"<file_scope path="ts/b.ts" confidence="likely"/>"#,
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="LIMIT" matches="1">"#,
+                concat!(
+                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" count="0" reads="1" "#,
+                    r#"file_scope="1">"#,
+                ),
+                r#"<file_scope path="ts/b.ts" confidence="likely"/>"#,
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="LIMIT" matches="1">"#,
+                concat!(
+                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" count="0" "#,
+                    r#"below_confidence="2">no recorded site at this confidence floor - 2 uses bind below it, "#,
+                    r#"and min_confidence "any" lists them</match>"#,
+                ),
+                "</references>",
+            ]),
+        ],
+        "b.ts imports LIMIT and reads it at its top level, which no access filters and the floor counts with f's \
+         read; c.ts sees no LIMIT"
     );
 }
