@@ -210,6 +210,28 @@ fn unresolved(
 /// a path prefix with one's file and the line it starts on, since a file can hold several of them.
 fn named_instead(asked: Asked<'_>, named: &kartta::Unmatched<'_>) -> String {
     let (total, end) = (named.total, asked.end);
+    if named.kind == UnmatchedKind::OtherKind {
+        let held: Vec<String> = named
+            .kinds
+            .iter()
+            .map(|&(held, count)| format!("{} ({count})", kind(held)))
+            .collect();
+        let those = if held.len() == 1 {
+            "that kind"
+        } else {
+            "those kinds"
+        };
+        let listed = named.listed.len();
+        let shown = if listed < total {
+            format!(", the first {listed} of {total} listed")
+        } else {
+            String::new()
+        };
+        return format!(
+            "the name is held only as {} - this tool takes no root of {those}{shown}:",
+            held.join(", ")
+        );
+    }
     if named.kind == UnmatchedKind::Several {
         return format!(
             "{total} definitions end with this name and it picks none of them - a longer name, or {end}path_prefix \

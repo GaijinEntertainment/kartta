@@ -3,7 +3,8 @@ use kartta_lang::SymbolKind;
 
 /// The definitions that say why a query selected no symbol by a name: `total` of them, the first `listed`.
 ///
-/// They are of the kinds the query selects, and the name names them, or names one edit from it do.
+/// They are of the kinds the query selects, and the name names them, or names one edit from it do; or, for
+/// [`UnmatchedKind::OtherKind`], the name names them and none is of such a kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Unmatched<'g> {
@@ -14,6 +15,9 @@ pub struct Unmatched<'g> {
     /// The first of them, each with the name of the graph that holds it, in the order of the graphs asked and, within
     /// each, of [`Graph::definitions`], or of [`Graph::definitions_one_edit_from`] for [`UnmatchedKind::OneEdit`].
     pub listed: Vec<(&'g str, Definition<'g>)>,
+    /// For [`UnmatchedKind::OtherKind`], how many of them are of each kind, the kinds in the order their first
+    /// definition comes; empty for every other kind.
+    pub kinds: Vec<(SymbolKind, usize)>,
 }
 
 /// Why a name selected none of the definitions an [`Unmatched`] counts.
@@ -31,10 +35,13 @@ pub enum UnmatchedKind {
     /// The name names no definition, and names one edit from it do, as [`Graph::definitions_one_edit_from`] edits
     /// one: one character swapped with the next, dropped, replaced or added.
     OneEdit,
+    /// The name names definitions and none is of a kind the query selects: the count and the list hold every one of
+    /// them, wherever it lies.
+    OtherKind,
 }
 
 impl UnmatchedKind {
-    /// The word for the kind in an answer: `several`, `outside_prefix`, `off_line` or `one_edit`.
+    /// The word for the kind in an answer: `several`, `outside_prefix`, `off_line`, `one_edit` or `other_kind`.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -42,6 +49,7 @@ impl UnmatchedKind {
             Self::OutsidePrefix => "outside_prefix",
             Self::OffLine => "off_line",
             Self::OneEdit => "one_edit",
+            Self::OtherKind => "other_kind",
         }
     }
 }
@@ -49,9 +57,10 @@ impl UnmatchedKind {
 /// What `named` names instead, for a name by which a query selected no symbol in the `searched` graphs.
 ///
 /// Among the definitions of the kinds `selects` takes, it answers several under the name's path prefix and on its line,
-/// else some outside them, of [`UnmatchedKind::OffLine`] where one of those lies under the prefix, else, for a name
-/// that names no definition of any kind, those of the names one edit from it wherever they lie, listing at most
-/// `limit`; and `None` when none holds. The name is looked up once in each graph, as [`Graph::definitions`] reads it,
+/// else some outside them, of [`UnmatchedKind::OffLine`] where one of those lies under the prefix; else, for a name
+/// whose every definition is of another kind, those definitions, [`UnmatchedKind::OtherKind`]; else, for a name that
+/// names no definition of any kind, those of the names one edit from it wherever they lie, listing at most `limit`;
+/// and `None` when none holds. The name is looked up once in each graph, as [`Graph::definitions`] reads it,
 /// and a name that names nothing once more for each string one edit from it, as
 /// [`Graph::definitions_one_edit_from`] looks them up; nothing is searched.
 pub fn unmatched<'g>(
@@ -64,13 +73,21 @@ pub fn unmatched<'g>(
         tally(UnmatchedKind::Several),
         tally(UnmatchedKind::OutsidePrefix),
     );
+    let mut other = tally(UnmatchedKind::OtherKind);
     let on_any_line = named.with_line(None);
-    let mut names_any = false;
     for (family, graph) in searched.clone() {
         let found = graph.definitions(named.name, None, usize::MAX).found;
-        names_any |= !found.is_empty();
         for definition in found.into_iter().map(|found| found.definition) {
             if !selects(definition.kind) {
+                match other
+                    .kinds
+                    .iter_mut()
+                    .find(|(kind, _)| *kind == definition.kind)
+                {
+                    Some((_, count)) => *count += 1,
+                    None => other.kinds.push((definition.kind, 1)),
+                }
+                hold(&mut other, (family, definition), limit);
                 continue;
             }
             let admitted = named.admits(definition.file, definition.line);
@@ -78,10 +95,7 @@ pub fn unmatched<'g>(
                 outside.kind = UnmatchedKind::OffLine;
             }
             let held = if admitted { &mut under } else { &mut outside };
-            held.total += 1;
-            if held.listed.len() < limit {
-                held.listed.push((family, definition));
-            }
+            hold(held, (family, definition), limit);
         }
     }
     if under.total > 1 {
@@ -90,8 +104,11 @@ pub fn unmatched<'g>(
     if outside.total > 0 {
         return Some(outside);
     }
-    if names_any {
+    if under.total > 0 {
         return None;
+    }
+    if other.total > 0 {
+        return Some(other);
     }
     let mut near = tally(UnmatchedKind::OneEdit);
     for (family, graph) in searched {
@@ -114,6 +131,15 @@ const fn tally<'g>(kind: UnmatchedKind) -> Unmatched<'g> {
         kind,
         total: 0,
         listed: Vec::new(),
+        kinds: Vec::new(),
+    }
+}
+
+/// Counts `listed` in `held`, and lists it among the first `limit`.
+fn hold<'g>(held: &mut Unmatched<'g>, listed: (&'g str, Definition<'g>), limit: usize) {
+    held.total += 1;
+    if held.listed.len() < limit {
+        held.listed.push(listed);
     }
 }
 

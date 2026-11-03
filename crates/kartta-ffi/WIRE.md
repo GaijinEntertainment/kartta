@@ -607,8 +607,8 @@ The answer of a query over the graphs.
 - `from_read_as` (string, optional): The reading of `from` of a `call_path`, each end read on its own.
 - `to_read_as` (string, optional): The reading of `to` of a `call_path`.
 - `unmatched` ([`Unmatched`](#unmatched), optional): Why `matches` is empty when the name, or its reading, names
-  definitions of the kinds the method selects and picks none of them, or names no definition while names one edit from
-  it do.
+  definitions of the kinds the method selects and picks none of them, names definitions none of which is of such a
+  kind, or names no definition while names one edit from it do.
 - `from_unmatched` ([`Unmatched`](#unmatched), optional): The same for `from` of a `call_path`.
 - `to_unmatched` ([`Unmatched`](#unmatched), optional): The same for `to` of a `call_path`.
 
@@ -623,6 +623,8 @@ The fields of the method's answer, and:
 - `kind` ([`UnmatchedKind`](#unmatchedkind), always): How the name failed to select.
 - `total` (integer, always): How many definitions the name names so.
 - `listed` (array of [`GraphDefinition`](#graphdefinition), always): The first of them, at most `UNMATCHED_LISTED`.
+- `kinds` (object, optional): For `other_kind`, how many of them are of each [`SymbolKind`](#symbolkind), keyed by its
+  label. Absent for every other kind.
 
 ### GraphDefinition
 
@@ -1163,3 +1165,5 @@ The highest band whose rule holds answers.
 - `off_line`: It names definitions under the path prefix that start off the line and at most one on it, these counting
   and listing those outside the prefix too.
 - `one_edit`: It names no definition of any kind, and these are named one edit from it.
+- `other_kind`: It names definitions and none is of a kind the method selects: these are every one of them, wherever
+  it lies. Only `references` and `implementations` refuse a kind, so only they carry it.

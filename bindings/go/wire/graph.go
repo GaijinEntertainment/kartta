@@ -13,8 +13,8 @@ type Matches[T any] struct {
 	FromReadAs string `json:"from_read_as,omitempty"`
 	ToReadAs   string `json:"to_read_as,omitempty"`
 	// Unmatched says why Matches is empty when the name, or its reading, names definitions of the kinds the method
-	// selects and picks none of them, or names no definition while names one edit from it do; nil for a name that
-	// matched or for which neither holds. callers, callees, references, implementations, definitions and sources set
+	// selects and picks none of them, names definitions none of which is of such a kind, or names no definition while
+	// names one edit from it do; nil for a name that matched or for which none holds. callers, callees, references, implementations, definitions and sources set
 	// it.
 	Unmatched *Unmatched `json:"unmatched,omitempty"`
 	// FromUnmatched and ToUnmatched say it for a call_path's From and To, each set only for an end that selects no
@@ -30,14 +30,17 @@ type Unmatched struct {
 	// longer name or a path prefix holding one picking one; "outside_prefix" when the name names definitions outside
 	// the path prefix, none under it, or one that the selector looks at; "off_line" when it names definitions under
 	// the path prefix that start off the line and at most one on it, these counting and listing those outside the
-	// prefix too; or "one_edit" when the name names no definition of any kind, and these are named one edit from it:
+	// prefix too; "one_edit" when the name names no definition of any kind, and these are named one edit from it:
 	// one character swapped with the next, dropped, replaced or added, a replacing or added one being an ASCII letter,
-	// a digit, "_" or one the name holds.
+	// a digit, "_" or one the name holds; or "other_kind" when the name names definitions and none is of a kind the
+	// method selects, these being every one of them, wherever it lies.
 	Kind string `json:"kind"`
 	// Total counts those definitions.
 	Total int `json:"total"`
 	// Listed is the first five of them.
 	Listed []GraphDefinition `json:"listed"`
+	// Kinds counts them by the label of their kind for "other_kind", and is nil for every other Kind.
+	Kinds map[string]int `json:"kinds,omitempty"`
 }
 
 // GraphDefinition is a definition and the graph that holds it.
