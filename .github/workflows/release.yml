@@ -48,6 +48,9 @@ jobs:
             os: macos-26
           - target: x86_64-pc-windows-msvc
             os: windows-2025-vs2026
+          # ADR 4.60: the archive the Go module links on Windows, where cgo's MinGW refuses the MSVC one.
+          - target: x86_64-pc-windows-gnu
+            os: windows-2025-vs2026
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-24.04
             image: "quay.io/pypa/manylinux_2_28_x86_64:2026.11.01-2@\
@@ -69,16 +72,27 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The go job's MinGW-w64: its gcc builds the grammars and links the check, and its binutils hide the names.
+      - name: install MinGW-w64
+        if: endsWith(matrix.target, '-windows-gnu')
+        working-directory: ${{ runner.temp }}
+        run: |
+          archive=x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev1.7z
+          curl -fsSLO "https://github.com/niXman/mingw-builds-binaries/releases/download/15.2.0-rt_v13-rev1/$archive"
+          echo "029bd02b5bce7c10fd9476165b3fe178239fe1838ad62516b5c3e0921bb283cf  $archive" | sha256sum -c
+          7z x -bd -y "$archive" | tail -3
+          cygpath -w "$PWD/mingw64/bin" >> "$GITHUB_PATH"
       - name: build on the runner
-        if: matrix.image == '' && runner.os != 'Windows'
+        if: matrix.image == '' && !endsWith(matrix.target, '-msvc')
         run: |
           rustup toolchain install
+          rustup target add ${{ matrix.target }}
           scripts/dist.sh ${{ matrix.target }}
       # scripts/link-check.sh runs cl, which only the Developer environment puts on PATH.
       # constraint: cmd goes on past a failed line, `bash` alone can name WSL's, and Git's bash puts its own `link` ahead
       # of the one cl and rustc call
       - name: build in the MSVC environment
-        if: runner.os == 'Windows'
+        if: endsWith(matrix.target, '-msvc')
         shell: cmd
         run: |
           rustup toolchain install || exit /b 1
@@ -93,14 +107,14 @@ jobs:
         run: docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} scripts/dist.sh ${{ matrix.target }}
       # The image brings glibc and the compiler. rustup and rustc run on it from the runner.
       - name: build in the glibc floor's image
-        if: endsWith(matrix.target, '-gnu')
+        if: endsWith(matrix.target, '-linux-gnu')
         run: |
           rustup toolchain install
           docker run --rm -v "$PWD:/src" -w /src -v "$HOME/.rustup:/rustup" -v "$HOME/.cargo:/cargo" \
             -e RUSTUP_HOME=/rustup -e CARGO_HOME=/cargo ${{ matrix.image }} \
             sh -c 'PATH=/cargo/bin:$PATH exec scripts/dist.sh ${{ matrix.target }}'
       - name: prove the glibc floor
-        if: endsWith(matrix.target, '-gnu')
+        if: endsWith(matrix.target, '-linux-gnu')
         run: |
           docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} scripts/glibc-floor.sh ${{ matrix.target }} \
             "$GLIBC_FLOOR" target/artifacts/kartta-ffi-*.tar.gz target/floor
