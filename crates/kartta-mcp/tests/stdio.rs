@@ -858,3 +858,23 @@ fn indexing_another_repository_replaces_the_first() {
         "a second build of the same root answers the same"
     );
 }
+
+#[test]
+fn index_repo_names_every_field_a_repeated_build_matches() {
+    let mut client = Client::start(&[]);
+
+    let listed = client.request("tools/list", &json!({}));
+    let description = listed["tools"]
+        .as_array()
+        .expect("a tool list")
+        .iter()
+        .find(|tool| tool["name"] == "index_repo")
+        .and_then(|tool| tool["description"].as_str())
+        .expect("index_repo is described");
+
+    assert!(
+        description
+            .contains("a build of the same root, languages and index_ignored already under way"),
+        "{description}"
+    );
+}
