@@ -934,11 +934,11 @@ impl Server {
     ) -> Result<String, String> {
         self.answer(move |indexed| {
             let file = held_file(indexed.engine.index(), &p.file)?;
-            let dependents = indexed
-                .engine
-                .graph_of(file)
-                .and_then(|(_, graph)| graph.dependents(file, IMPORTER_DEPTH, 0));
-            Ok(render::importers(file, dependents.as_ref()))
+            let claimed = indexed.engine.graph_of(file);
+            let dependents =
+                claimed.and_then(|(_, graph)| graph.dependents(file, IMPORTER_DEPTH, 0));
+            let family = claimed.map(|(family, _)| family);
+            Ok(render::importers(file, family, dependents.as_ref()))
         })
         .await
     }
@@ -962,11 +962,10 @@ impl Server {
     async fn file_outline(&self, Parameters(p): Parameters<FileParams>) -> Result<String, String> {
         self.answer(move |indexed| {
             let file = held_file(indexed.engine.index(), &p.file)?;
-            let outline = indexed
-                .engine
-                .graph_of(file)
-                .and_then(|(_, graph)| graph.outline(file));
-            Ok(render::outline(file, outline.as_deref()))
+            let claimed = indexed.engine.graph_of(file);
+            let outline = claimed.and_then(|(_, graph)| graph.outline(file));
+            let family = claimed.map(|(family, _)| family);
+            Ok(render::outline(file, family, outline.as_deref()))
         })
         .await
     }
@@ -1178,13 +1177,14 @@ impl Server {
         self.answer(move |indexed| {
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
             let file = held_file(indexed.engine.index(), &p.file)?;
-            let segment = indexed
-                .engine
-                .graph_of(file)
+            let claimed = indexed.engine.graph_of(file);
+            let segment = claimed
                 .and_then(|(_, graph)| graph.analyze_segment(file, start_line..=end_line, limits));
+            let family = claimed.map(|(family, _)| family);
             Ok(render::impact(
                 file,
                 (start_line, end_line),
+                family,
                 segment.as_ref(),
             ))
         })
