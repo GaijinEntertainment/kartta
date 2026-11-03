@@ -1,0 +1,13 @@
+{
+  "answer": {
+    "ok": {
+      "directory": true,
+      "file": "go/lib",
+      "held": false
+    }
+  },
+  "method": "outline",
+  "params": {
+    "file": "go/lib"
+  }
+}

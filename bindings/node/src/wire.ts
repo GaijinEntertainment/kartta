@@ -860,15 +860,17 @@ export type OutlineParams = {
 
 /**
  * What an answer about one file says of the file. `graph` is the graph of the language that claims the file, absent
- * when none does or when `missing` is true; when that graph does not hold the file, `held` is false and the answer
- * holds these fields alone. `missing` is true when the index holds no such path, and `declined` names the language that
- * leaves the held file out of its graph; a held file with neither `graph` nor `declined` is one no language claims.
+ * when none does or when `missing` or `directory` is true; when that graph does not hold the file, `held` is false and
+ * the answer holds these fields alone. `missing` is true when the index holds no such path, `directory` when it holds
+ * the path as a directory, whose files are the ones to ask about, and `declined` names the language that leaves the
+ * held file out of its graph; a held file with neither `graph` nor `declined` is one no language claims.
  */
 export type FileState = {
 	file: string;
 	graph?: string;
 	held: boolean;
 	missing?: boolean;
+	directory?: boolean;
 	declined?: Declined;
 };
 

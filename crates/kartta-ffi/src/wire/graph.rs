@@ -3,11 +3,11 @@ use std::ops::RangeInclusive;
 
 use kartta::{
     Access, Blast, CallPath, Candidate, Change, Conventions, CutLine, Dead, DeadCode, Definition,
-    Definitions, Dependent, Dependents, DirCount, DirectCalls, Engine, Excluded, FileScope, Graph,
-    Hit, Hotspot, Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand,
-    Reached, Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SelfCall,
-    SiteCounts, Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched,
-    UnmatchedKind, Walk,
+    Definitions, Dependent, Dependents, DirCount, DirectCalls, Engine, EntryKind, Excluded,
+    FileScope, Graph, Hit, Hotspot, Implementations, Implementor, LanguageFiles, Miss, Misses,
+    Nearness, ReachBand, Reached, Reference, References, Resolution, Search, Seed, Segment,
+    SegmentSymbol, SelfCall, SiteCounts, Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound,
+    Unmatched, UnmatchedKind, Walk,
 };
 
 use serde::{Serialize, Serializer};
@@ -495,6 +495,8 @@ pub(crate) struct FileView<'a, T> {
     held: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     missing: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    directory: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     declined: Option<DeclinedView<'a>>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
@@ -510,7 +512,7 @@ struct DeclinedView<'a> {
 
 impl<'a, T> FileView<'a, T> {
     /// What `ask` answers of `file` from the graph that claims it, or why no graph answers: the index holds no such
-    /// path, a language leaves the held file out, or no language claims it.
+    /// path, the path is a directory, a language leaves the held file out, or no language claims it.
     pub(crate) fn new(
         engine: &'a Engine,
         file: &'a str,
@@ -518,16 +520,22 @@ impl<'a, T> FileView<'a, T> {
     ) -> Self {
         let claimed = engine.graph_of(file);
         let answer = claimed.and_then(|(_, graph)| ask(graph));
-        let missing = answer.is_none() && engine.index().entry(file).is_none();
+        let unheld = answer
+            .is_none()
+            .then(|| engine.index().entry(file).map(|entry| entry.kind()));
+        let missing = unheld == Some(None);
+        let directory = unheld == Some(Some(EntryKind::Dir));
+        let a_file = !missing && !directory;
         let declined = match claimed {
-            None if !missing => engine.declined(file),
+            None if a_file => engine.declined(file),
             _ => None,
         };
         Self {
             file,
-            graph: claimed.filter(|_| !missing).map(|(name, _)| name),
+            graph: claimed.filter(|_| a_file).map(|(name, _)| name),
             held: answer.is_some(),
             missing,
+            directory,
             declined: declined.map(|(language, reason)| DeclinedView { language, reason }),
             answer,
         }
