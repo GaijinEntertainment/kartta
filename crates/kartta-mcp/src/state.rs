@@ -477,7 +477,7 @@ fn build(
         BuildError::Stopped(_) => {
             "a later index_repo replaced this build before it finished".to_owned()
         }
-        error => format!("cannot index {}: {error}", request.root.display()),
+        error => error.to_string(),
     };
     if !watch {
         let outcome =

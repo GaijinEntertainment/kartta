@@ -76,9 +76,11 @@ fn warn(message: &str) {
     eprintln!("kartta-mcp: {message}");
 }
 
-async fn warn_unbuilt(launched: impl Future<Output = Option<String>>) {
+async fn warn_unbuilt(root: String, launched: impl Future<Output = Option<String>>) {
     if let Some(error) = launched.await {
-        warn(&format!("the launch build ended without an index: {error}"));
+        warn(&format!(
+            "the launch build of {root} ended without an index: {error}"
+        ));
     }
 }
 
@@ -110,7 +112,8 @@ async fn main() -> ExitCode {
 
     let server = Server::with_config(config);
     if let Some(root) = root {
-        tokio::spawn(warn_unbuilt(server.index_at_launch(root)));
+        let shown = root.display().to_string();
+        tokio::spawn(warn_unbuilt(shown, server.index_at_launch(root)));
     }
     let service = match server.serve(stdio()).await {
         Ok(service) => service,
