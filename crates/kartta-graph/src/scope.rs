@@ -1799,6 +1799,24 @@ impl Cascade<'_> {
         })
     }
 
+    /// Whether `above` is among the types the member walk reaches above `class`, however far up.
+    pub(crate) fn is_above(&self, above: SymbolAt, class: SymbolAt) -> bool {
+        let mut walked = vec![class];
+        let mut level = vec![class];
+        while !level.is_empty() {
+            let mut parents = self.parents_of(&level, |_| true);
+            if parents.contains(&above) {
+                return true;
+            }
+            parents.retain(|at| !walked.contains(at));
+            parents.sort_unstable();
+            parents.dedup();
+            walked.extend_from_slice(&parents);
+            level = parents;
+        }
+        false
+    }
+
     /// The types that the types of `level` name as parents, a trait before any other type.
     fn parents_of(&self, level: &[SymbolAt], admitted: fn(SymbolKind) -> bool) -> Vec<SymbolAt> {
         let mut parents: Vec<SymbolAt> = level
