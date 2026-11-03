@@ -15,8 +15,8 @@ use std::time::Duration;
 use std::{fs, io};
 
 use kartta::{
-    BuildOptions, Conventions, DocComments, Engine, EngineRefresh, Language, Limits, RawExtraction,
-    Repository, Resolver,
+    BuildError, BuildOptions, Conventions, DocComments, Engine, EngineRefresh, Language, Limits,
+    PathFault, RawExtraction, Repository, Resolver,
 };
 use tempfile::TempDir;
 
@@ -164,7 +164,7 @@ fn answers(engine: &Engine) -> String {
     answers
 }
 
-fn refreshed(refresh: Result<EngineRefresh, kartta::BuildError>) -> EngineRefresh {
+fn refreshed(refresh: Result<EngineRefresh, BuildError>) -> EngineRefresh {
     let refresh = refresh.expect("the refresh completes");
     assert_eq!(
         refresh.errors().count(),
@@ -370,15 +370,45 @@ fn a_path_outside_the_tree_fails_a_refresh_that_would_walk_the_whole_tree() {
     let without_stamps = unstamped.refresh_paths(["src/util.cpp", "src/../../out.cpp"], None);
 
     assert!(
-        matches!(&past_the_limit, Err(kartta::BuildError::OutsideTree { path }) if path == "../past-the-limit.cpp"),
+        matches!(&past_the_limit, Err(BuildError::Misspelled { path, fault: PathFault::ParentName }) if path == "../past-the-limit.cpp"),
         "{past_the_limit:?}"
     );
     assert!(
-        matches!(&without_stamps, Err(kartta::BuildError::OutsideTree { path }) if path == "src/../../out.cpp"),
+        matches!(&without_stamps, Err(BuildError::Misspelled { path, fault: PathFault::ParentName }) if path == "src/../../out.cpp"),
         "{without_stamps:?}"
     );
     assert_eq!(
         (answers(&widened), answers(&unstamped)),
+        before,
+        "a refused refresh leaves each engine answering as it did"
+    );
+}
+
+#[test]
+fn a_path_not_spelled_from_the_root_with_slashes_fails_every_refresh_by_its_fault() {
+    let tree = settled_tree();
+    let mut named = build(tree.path(), true);
+    let mut unstamped = build(tree.path(), false);
+    let before = (answers(&named), answers(&unstamped));
+
+    edit(tree.path());
+    for (path, fault) in [
+        ("/src/util.cpp", PathFault::Absolute),
+        ("\\src\\util.cpp", PathFault::Absolute),
+        ("C:\\repo\\src\\util.cpp", PathFault::Drive('C')),
+        ("src\\util.cpp", PathFault::Backslash),
+    ] {
+        for engine in [&mut named, &mut unstamped] {
+            let refreshed = engine.refresh_paths(["main.go", path], None);
+
+            assert!(
+                matches!(&refreshed, Err(BuildError::Misspelled { path: given, fault: found }) if given == path && *found == fault),
+                "{path:?}: {refreshed:?}"
+            );
+        }
+    }
+    assert_eq!(
+        (answers(&named), answers(&unstamped)),
         before,
         "a refused refresh leaves each engine answering as it did"
     );

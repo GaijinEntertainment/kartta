@@ -209,6 +209,22 @@ fn refreshing_with_what_the_watcher_hands_over_keeps_the_index_a_build_would_mak
     assert_eq!(shown(&index), shown(&build(dir.path())));
 }
 
+#[cfg(unix)]
+#[test]
+fn a_name_a_refresh_refuses_is_followed_through_the_directory_that_holds_it() {
+    let dir = tree(&[("src/a\\b.rs", "a"), ("C:x", "b"), ("keep.rs", "c")]);
+    let (mut index, mut watcher) = watched(dir.path());
+
+    write(dir.path(), "src/a\\b.rs", "changed");
+    write(dir.path(), "src/c\\d.rs", "new");
+    write(dir.path(), "C:x", "changed");
+    write(dir.path(), "e\\f.rs", "new");
+    follow(&mut watcher, &mut index);
+
+    assert_eq!(shown(&index), shown(&build(dir.path())));
+    assert!(index.entry("e\\f.rs").is_some());
+}
+
 #[test]
 fn what_the_watcher_hands_over_from_a_pruned_directory_stays_out_of_the_index() {
     let dir = tree(&[("a.rs", "a")]);
