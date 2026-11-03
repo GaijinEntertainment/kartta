@@ -6,11 +6,9 @@
               without cfg(test), so the client's helpers fail the test by a failed expectation"
 )]
 
-#[expect(
-    dead_code,
-    reason = "the helpers serve every test crate, and this one calls some of them"
-)]
 mod common;
+
+use std::time::Duration;
 
 use serde_json::json;
 
@@ -400,6 +398,25 @@ fn index_stats_names_why_a_build_failed() {
         )
             && shown.ends_with(" - call index_repo again</index>"),
         "{stats}"
+    );
+}
+
+#[test]
+fn a_launch_build_that_fails_warns_on_stderr() {
+    let tree = common::tree(&[]);
+    let missing = tree.path().join("missing");
+
+    let (_client, stderr) = Client::with_stderr(&[&missing]);
+
+    let warning = stderr
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the server warns");
+    assert!(
+        warning.starts_with(&format!(
+            "kartta-mcp: the launch build ended without an index: cannot index {}: ",
+            missing.display()
+        )),
+        "{warning}"
     );
 }
 
