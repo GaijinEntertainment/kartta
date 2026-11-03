@@ -358,6 +358,23 @@ fn grep_answers_lines_with_context_and_counts_what_it_did_not_cover() {
 }
 
 #[test]
+fn grep_echoes_each_pattern_on_a_line_of_its_own() {
+    let tree = go_module();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer(
+        "grep",
+        &json!({"patterns": ["x, y", "zzz"], "includes": ["pkg/**"]}),
+    );
+
+    assert!(
+        answer.starts_with(r#"<grep patterns="x, y\nzzz" candidates="1""#),
+        "{answer}"
+    );
+}
+
+#[test]
 fn list_dir_counts_what_it_did_not_enter() {
     let tree = go_module();
     std::fs::create_dir_all(tree.path().join("vendor/lib")).expect("the directory is created");
