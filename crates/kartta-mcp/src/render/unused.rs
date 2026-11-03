@@ -41,8 +41,8 @@ pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> St
     }
     let note = empty_languages_note(ask.languages).unwrap_or_else(|| match (&excluded, live) {
         (None, 0) if ask.path_prefix.is_some() => {
-            "no definition in a code graph lies under path_prefix - pass a repo-relative prefix as find_files prints \
-             paths"
+            "no definition in a code graph lies under path_prefix - the paths it starts are in no graph, or define \
+             nothing"
         }
         (None, 0) => "no code graph holds a definition",
         (None, _) => "no unused definition - every definition was judged, and a call or a use reaches each",

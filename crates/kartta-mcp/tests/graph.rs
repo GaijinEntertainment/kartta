@@ -3241,7 +3241,7 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
             client.answer("find_unused", &json!({"limit": 1})),
             client.answer("find_unused", &json!({"path_prefix": "pkg/"})),
             client.answer("find_unused", &json!({"path_prefix": "pkg/pkg_test.go"})),
-            client.answer("find_unused", &json!({"path_prefix": "cmd/"})),
+            client.answer("find_unused", &json!({"path_prefix": "go."})),
             client.answer("find_unused", &json!({"languages": []})),
         ],
         [
@@ -3277,8 +3277,8 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
                 "</unused>",
             ]),
             concat!(
-                r#"<unused path_prefix="cmd/" count="0" live="0">no definition in a code graph lies under "#,
-                "path_prefix - pass a repo-relative prefix as find_files prints paths</unused>",
+                r#"<unused path_prefix="go." count="0" live="0">no definition in a code graph lies under "#,
+                "path_prefix - the paths it starts are in no graph, or define nothing</unused>",
             )
             .to_owned(),
             concat!(
@@ -4388,7 +4388,7 @@ fn a_call_path_lists_each_ends_passed_over_symbols_and_what_an_unselected_end_ma
         ("find_call_path", json!({"from": "One", "to": "util.Parse"})),
         (
             "find_call_path",
-            json!({"from": "One", "to": "util.Parse", "to_path_prefix": "c/"}),
+            json!({"from": "One", "to": "util.Parse", "to_path_prefix": "a/alpha/"}),
         ),
         (
             "find_call_path",
@@ -4486,7 +4486,7 @@ fn a_name_several_symbols_share_lists_the_others_and_a_path_prefix_picks_one() {
         ),
         (
             "find_callers",
-            json!({"name": "util.Parse", "path_prefix": "c/"}),
+            json!({"name": "util.Parse", "path_prefix": "a/alpha/"}),
         ),
     ]);
 
