@@ -343,6 +343,13 @@ impl<'g> Cascade<'g> {
             && symbol.owner == Some(symbol.name)
     }
 
+    /// Whether `symbol` is the method a construction runs: one named for its class, where the language writes a
+    /// constructor so, or of the language's [`Conventions::constructor`](kartta_lang::Conventions) name.
+    pub(crate) fn is_a_constructor(&self, symbol: &StoredSymbol) -> bool {
+        self.is_constructor(symbol)
+            || self.conventions.constructor == Some(self.graph.strings.resolve(symbol.name))
+    }
+
     // constraint: a method call names no type, so a file it includes that offers one of the name offers it nothing, yet
     // the member another file offers is then the one left of a name shared across files, which is a guess
     fn another_include_offers_a_type(&self, call: &Call, member: SymbolAt) -> bool {

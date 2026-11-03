@@ -2371,6 +2371,421 @@ fn find_callers_describes_the_no_callers_note_of_a_function_a_field_and_an_enum_
     }
 }
 
+/// The answers to `calls` over one interface's method called through the interface in PHP, Go and TypeScript, each
+/// implemented by `Kernel`, and in PHP by `Other` too, beside a `Plain` whose `boot` implements nothing.
+fn answers_over_an_interface(calls: &[(&str, Value)]) -> Vec<String> {
+    answers_over(
+        &[
+            (
+                "composer.json",
+                r#"{"autoload": {"psr-4": {"App\\": "src/"}}}"#,
+            ),
+            (
+                "src/A.php",
+                "<?php\nnamespace App;\ninterface Runs {\n    public function boot();\n}\n\
+                 class Kernel implements Runs {\n    public function boot() {}\n}\n\
+                 class Other implements Runs {\n    public function boot() {}\n}\n\
+                 class Plain {\n    public function boot() {}\n}\n\
+                 class Holder {\n    private Runs $k;\n    public function start() { $this->k->boot(); }\n}\n",
+            ),
+            ("go/go.mod", "module example.com/runs\n\ngo 1.22\n"),
+            (
+                "go/runs.go",
+                "package runs\n\ntype Runs interface{ Boot() }\n\ntype Kernel struct{}\n\nfunc (Kernel) Boot() {}\n\n\
+                 type Wide interface {\n\tBoot()\n\tHalt()\n}\n\nfunc start(r Runs) { r.Boot() }\n\n\
+                 func stop(w Wide) { w.Boot() }\n",
+            ),
+            (
+                "ts/runs.ts",
+                "interface Runs { boot(): void }\nclass Kernel implements Runs { boot() {} }\n\
+                 function start(r: Runs) { r.boot(); }\n",
+            ),
+        ],
+        calls,
+    )
+}
+
+#[test]
+fn find_callers_lists_a_call_through_an_interface_the_owner_implements() {
+    let answers = answers_over_an_interface(&[
+        ("find_callers", json!({"name": "App\\Kernel::boot"})),
+        ("find_callers", json!({"name": "runs.Kernel.Boot"})),
+        (
+            "find_callers",
+            json!({"name": "Kernel.boot", "languages": ["jsts"]}),
+        ),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<callers of="App\\Kernel::boot" matches="1">"#,
+                concat!(
+                    r#"<match lang="php" of="boot" qn="App\\Kernel::boot" loc="src/A.php:7" count="1" "#,
+                    r#"reach_band="low">"#,
+                ),
+                concat!(
+                    r#"<ref name="start" qn="App\\Holder::start" loc="src/A.php:17" role="consumer" "#,
+                    r#"through="App\\Runs::boot" hops="1" at="src/A.php:17"/>"#,
+                ),
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="runs.Kernel.Boot" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" of="Boot" qn="runs.Kernel.Boot" loc="go/runs.go:7" count="1" "#,
+                    r#"reach_band="low">"#,
+                ),
+                concat!(
+                    r#"<ref name="start" qn="runs.start" loc="go/runs.go:14" role="consumer" "#,
+                    r#"through="runs.Runs.Boot" hops="1" at="go/runs.go:14"/>"#,
+                ),
+                "</match>",
+                "</callers>",
+            ]),
+            lines(&[
+                r#"<callers of="Kernel.boot" languages="jsts" matches="1">"#,
+                concat!(
+                    r#"<match lang="jsts" of="boot" qn="Kernel.boot" loc="ts/runs.ts:2" count="1" "#,
+                    r#"reach_band="low">"#,
+                ),
+                concat!(
+                    r#"<ref name="start" loc="ts/runs.ts:3" role="consumer" through="Runs.boot" hops="1" "#,
+                    r#"at="ts/runs.ts:3"/>"#,
+                ),
+                "</match>",
+                "</callers>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn find_callers_lists_no_call_through_an_interface_the_owner_does_not_implement() {
+    let answers = answers_over_an_interface(&[
+        ("find_callers", json!({"name": "App\\Plain::boot"})),
+        ("find_callers", json!({"name": "App\\Runs::boot"})),
+    ]);
+
+    assert!(
+        answers[0].contains(r#"count="0""#) && !answers[0].contains("through="),
+        "Plain implements no interface: {}",
+        answers[0]
+    );
+    assert!(
+        answers[1].contains(r#"count="1""#) && !answers[1].contains("through="),
+        "the interface's own callers bind it: {}",
+        answers[1]
+    );
+}
+
+#[test]
+fn find_callers_reads_a_go_interface_as_implemented_only_by_a_type_with_its_every_method() {
+    let answers =
+        answers_over_an_interface(&[("find_callers", json!({"name": "runs.Kernel.Boot"}))]);
+
+    assert!(
+        !answers[0].contains(r#"name="stop""#),
+        "Kernel has no Halt, so it is no Wide: {}",
+        answers[0]
+    );
+}
+
+#[test]
+fn find_callers_reads_a_go_interface_that_embeds_one_as_implemented_by_a_type_with_both_method_sets()
+ {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module m\n\ngo 1.22\n"),
+            (
+                "p/p.go",
+                "package p\n\ntype Runner interface {\n\tRun()\n}\n\n\
+                 type Service interface {\n\tRunner\n\tStop()\n}\n\n\
+                 type T struct{}\n\nfunc (T) Run() {}\n\nfunc (T) Stop() {}\n\n\
+                 type Half struct{}\n\nfunc (Half) Stop() {}\n\n\
+                 func shut(s Service) {\n\ts.Stop()\n}\n",
+            ),
+        ],
+        &[
+            ("find_callers", json!({"name": "p.T.Stop"})),
+            ("find_callers", json!({"name": "p.Half.Stop"})),
+        ],
+    );
+
+    assert!(
+        answers[0].contains(r#"name="shut""#) && answers[0].contains(r#"through="p.Service.Stop""#),
+        "{}",
+        answers[0]
+    );
+    assert!(
+        answers[1].contains(r#"count="0""#),
+        "Half has no Run, so it is no Runner and no Service: {}",
+        answers[1]
+    );
+}
+
+#[test]
+fn find_callers_reads_a_go_interface_only_from_a_package_near_the_types() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module m\n\ngo 1.22\n"),
+            (
+                "b/b.go",
+                "package b\n\ntype Runner interface {\n\tRun() error\n}\n",
+            ),
+            (
+                "c/c.go",
+                "package c\n\nimport \"m/b\"\n\nfunc Start(r b.Runner) error {\n\treturn r.Run()\n}\n",
+            ),
+            (
+                "d/d.go",
+                "package d\n\nimport \"m/b\"\n\nvar _ b.Runner = U{}\n\ntype U struct{}\n\n\
+                 func (U) Run() error { return nil }\n",
+            ),
+            (
+                "e/e.go",
+                "package e\n\ntype T struct{}\n\nfunc (T) Run() error { return nil }\n",
+            ),
+        ],
+        &[
+            ("find_callers", json!({"name": "d.U.Run"})),
+            ("find_callers", json!({"name": "e.T.Run"})),
+        ],
+    );
+
+    assert!(
+        answers[0].contains(r#"name="Start""#) && answers[0].contains(r#"through="b.Runner.Run""#),
+        "d imports b: {}",
+        answers[0]
+    );
+    assert!(
+        answers[1].contains(r#"count="0""#),
+        "e and b import neither the other: {}",
+        answers[1]
+    );
+}
+
+#[test]
+fn find_callers_lists_a_caller_that_also_calls_the_method_itself_once_as_a_direct_caller() {
+    let answers = answers_over(
+        &[
+            (
+                "composer.json",
+                r#"{"autoload": {"psr-4": {"App\\": "src/"}}}"#,
+            ),
+            (
+                "src/A.php",
+                "<?php\nnamespace App;\ninterface Runs {\n    public function boot();\n}\n\
+                 class Kernel implements Runs {\n    public function boot() {}\n}\n\
+                 class Holder {\n    public function start(Runs $runs, Kernel $kernel) {\n        \
+                 $runs->boot();\n        $kernel->boot();\n    }\n}\n",
+            ),
+        ],
+        &[
+            ("find_callers", json!({"name": "App\\Kernel::boot"})),
+            (
+                "impact_of_edit",
+                json!({"file": "src/A.php", "start_line": 7, "end_line": 7}),
+            ),
+        ],
+    );
+
+    for answer in &answers {
+        assert!(
+            answer.matches(r#"name="start""#).count() == 1 && !answer.contains("through="),
+            "{answer}"
+        );
+    }
+}
+
+#[test]
+fn find_callers_lists_no_call_on_this_from_a_class_the_member_walk_sets_below_the_parent() {
+    let answers = answers_over(
+        &[
+            (
+                "base.nut",
+                "let Base = class {\n  function close() {}\n}\n\n\
+                 local Page = class (Base) {\n  function show() {}\n}\n\n\
+                 return {\n  Base\n  Page\n}\n",
+            ),
+            (
+                "form.nut",
+                "let base = require(\"base.nut\")\n\n\
+                 local Page = class (base.Page) {\n  function submit() {\n    this.close()\n  }\n}\n\n\
+                 return { Page }\n",
+            ),
+            (
+                "other.nut",
+                "let { Base } = require(\"base.nut\")\n\n\
+                 local Page = class (Base) {\n  function close() {}\n}\n\n\
+                 return { Page }\n",
+            ),
+        ],
+        &[(
+            "find_callers",
+            json!({"name": "close", "path_prefix": "other.nut"}),
+        )],
+    );
+
+    assert!(
+        !answers[0].contains(r#"name="submit""#),
+        "this in form's Page is a Base below base's Page, never other's: {}",
+        answers[0]
+    );
+}
+
+#[test]
+fn find_callers_reads_a_cpp_member_as_reached_only_through_the_virtual_one_it_overrides() {
+    let answers = answers_over(
+        &[(
+            "runs.cpp",
+            "struct Runs {\n    virtual void boot(int n) = 0;\n    virtual void visit(int* n) {}\n    \
+             void plain() {}\n};\n\n\
+             struct Kernel : Runs {\n    void boot(int count) override {}\n    void visit(char* c) {}\n    \
+             void plain() {}\n};\n\n\
+             void start(Runs& runs) {\n    runs.boot(1);\n    runs.visit(nullptr);\n    runs.plain();\n}\n",
+        )],
+        &[
+            ("find_callers", json!({"name": "Kernel::boot"})),
+            ("find_callers", json!({"name": "Kernel::visit"})),
+            ("find_callers", json!({"name": "Kernel::plain"})),
+        ],
+    );
+
+    assert!(
+        answers[0].contains(r#"name="start""#) && answers[0].contains(r#"through="Runs::boot""#),
+        "{}",
+        answers[0]
+    );
+    for answer in &answers[1..] {
+        assert!(
+            answer.contains(r#"count="0""#),
+            "another parameter list, or no virtual, overrides nothing: {answer}"
+        );
+    }
+}
+
+#[test]
+fn find_callers_lists_no_call_from_within_another_branch_of_the_hierarchy_or_of_a_constructor() {
+    let answers = answers_over(
+        &[
+            (
+                "composer.json",
+                r#"{"autoload": {"psr-4": {"App\\": "src/"}}}"#,
+            ),
+            (
+                "src/B.php",
+                "<?php\nnamespace App;\nclass Base {\n    public function __construct() {}\n    \
+                 public function boot() {}\n    public function run() { $this->boot(); }\n}\n\
+                 class Child extends Base {\n    public function __construct() { parent::__construct(); }\n    \
+                 public function boot() { parent::boot(); }\n}\n\
+                 class Sibling extends Base {\n    public function boot() {}\n}\n\
+                 class Cousin extends Base {\n    public function go() { $this->boot(); }\n}\n\
+                 class User {\n    public function make() { return new Base(); }\n}\n",
+            ),
+            (
+                "py/app.py",
+                "class Base:\n    def __init__(self):\n        pass\n\n    def boot(self):\n        pass\n\n\
+                 class Child(Base):\n    def __init__(self):\n        Base.__init__(self)\n\n    \
+                 def boot(self):\n        Base.boot(self)\n\n\
+                 class Sibling(Base):\n    def __init__(self):\n        pass\n\n    def boot(self):\n        pass\n",
+            ),
+        ],
+        &[
+            ("find_callers", json!({"name": "App\\Sibling::boot"})),
+            ("find_callers", json!({"name": "App\\Child::__construct"})),
+            ("find_callers", json!({"name": "py.app.Sibling.boot"})),
+            ("find_callers", json!({"name": "py.app.Sibling.__init__"})),
+        ],
+    );
+
+    assert!(
+        answers[0].contains(r#"name="run""#) && !answers[0].contains(r#"qn="App\\Child::boot""#),
+        "parent::boot() runs Base's own boot: {}",
+        answers[0]
+    );
+    assert!(
+        !answers[0].contains(r#"name="go""#),
+        "$this in Cousin is a Cousin, never a Sibling: {}",
+        answers[0]
+    );
+    assert!(
+        !answers[1].contains(r#"name="make""#),
+        "new Base() constructs a Base: {}",
+        answers[1]
+    );
+    for answer in &answers[2..] {
+        assert!(
+            answer.contains(r#"count="0""#),
+            "Base.boot(self) and Base.__init__(self) run Base's own: {answer}"
+        );
+    }
+}
+
+#[test]
+fn find_callers_reads_a_rust_impl_as_implementing_a_trait_and_no_namesake_struct() {
+    let answers = answers_over(
+        &[
+            ("x/Cargo.toml", "[package]\nname = \"x\"\n"),
+            (
+                "x/src/lib.rs",
+                "pub struct Module;\n\nimpl Module {\n    pub fn new() -> Self {\n        Module\n    }\n}\n\n\
+                 pub fn build() -> Module {\n    Module::new()\n}\n",
+            ),
+            ("y/Cargo.toml", "[package]\nname = \"y\"\n"),
+            (
+                "y/src/lib.rs",
+                "pub trait Module {\n    fn new() -> Self;\n    fn run(&self);\n}\n\npub struct Object;\n\n\
+                 impl Module for Object {\n    fn new() -> Self {\n        Object\n    }\n\n    fn run(&self) {}\n}\n\n\
+                 pub fn start(m: &dyn Module) {\n    m.run();\n}\n",
+            ),
+        ],
+        &[
+            ("find_callers", json!({"name": "Object::new"})),
+            ("find_callers", json!({"name": "Object::run"})),
+        ],
+    );
+
+    assert!(
+        answers[0].contains(r#"count="0""#),
+        "x's struct Module is no trait Object implements: {}",
+        answers[0]
+    );
+    assert!(
+        answers[1].contains(r#"name="start""#) && answers[1].contains(r#"through="Module::run""#),
+        "{}",
+        answers[1]
+    );
+}
+
+#[test]
+fn the_impact_tools_and_find_call_path_reach_a_method_through_an_interface() {
+    let answers = answers_over_an_interface(&[
+        (
+            "impact_of_edit",
+            json!({"file": "src/A.php", "start_line": 7}),
+        ),
+        (
+            "find_call_path",
+            json!({"from": "App\\Holder::start", "to": "App\\Kernel::boot"}),
+        ),
+    ]);
+
+    assert!(
+        answers[0].contains(r#"callers="1""#)
+            && answers[0].contains(r#"through="App\\Runs::boot""#),
+        "{}",
+        answers[0]
+    );
+    assert!(
+        answers[1].contains(r#"hops="1""#) && answers[1].contains(r#"through="App\\Runs::boot""#),
+        "{}",
+        answers[1]
+    );
+}
+
 /// What a method that no call binds answers while calls of its name that several methods may answer bound none.
 const NO_CALL_BINDS: &str = "no call binds it - ambiguous counts the calls of its name that bound none because \
                              several definitions of the name may be meant, and any of them may call this method; \

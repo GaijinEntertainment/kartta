@@ -272,7 +272,7 @@ impl<'g> Analysis<'g> {
     ) -> SegmentSymbol<'g> {
         let root = self.calls.canonical(at);
         let floor = self.limits.min_confidence;
-        let callers = DirectCalls::of(self.graph, self.calls.caller_edges(root), floor);
+        let callers = DirectCalls::of(self.graph, &self.calls.callers_of(root), floor);
         let users = DirectCalls::of(self.graph, &self.calls.user_edges(root), floor);
         let unresolved_before = self.calls.unresolved();
         let outgoing = self.calls.callees_of(root);

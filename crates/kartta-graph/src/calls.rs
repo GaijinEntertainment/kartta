@@ -8,10 +8,12 @@ use hashbrown::{HashMap, HashSet};
 use kartta_lang::{Access, DataUses};
 
 use crate::confidence;
+use crate::dispatch;
 use crate::graph::{
     Candidate, Definition, Graph, QUALIFIER_SEPARATORS, Selector, distinct, is_data_kind,
     is_referent, keep_first, listed, narrow,
 };
+use crate::implementations::Types;
 use crate::resolution::Miss;
 use crate::resolve::{Call, Cascade, UseMiss};
 use crate::stored::{Entry, Site, SymbolAt};
@@ -73,6 +75,11 @@ pub struct Reached<'g> {
     /// The one-based line of the call, in the caller's file. Where a caller calls a callee from several lines, the
     /// first line among the calls the most confident tier bound.
     pub line: u32,
+    /// In a walk over callers, the method the call binds where it reaches the called method only through it: a method
+    /// of the same name that a parent of the called method's owner declares, an interface, a trait or a base class.
+    /// The call is made on that parent, so it runs whichever implementation the value holds, this one or another
+    /// implementor's. `None` for a call that binds the called symbol itself, and in a walk over callees.
+    pub through: Option<Definition<'g>>,
 }
 
 /// What a walk over calls found, and what it left out.
@@ -313,15 +320,26 @@ pub(crate) struct Edge {
     pub(crate) far: SymbolAt,
     pub(crate) confidence: u8,
     pub(crate) line: u32,
+    pub(crate) through: Option<SymbolAt>,
 }
 
 impl Edge {
+    const fn new(far: SymbolAt, confidence: u8, line: u32) -> Self {
+        Self {
+            far,
+            confidence,
+            line,
+            through: None,
+        }
+    }
+
     pub(crate) fn reached(self, graph: &Graph, depth: u32) -> Reached<'_> {
         Reached {
             symbol: graph.definition_at(self.far),
             depth,
             confidence: self.confidence,
             line: self.line,
+            through: self.through.map(|parent| graph.definition_at(parent)),
         }
     }
 }
@@ -567,6 +585,7 @@ pub(crate) struct Calls<'g> {
     ambiguous: HashMap<Str, usize, FixedState>,
     ambiguous_members: HashSet<Str, FixedState>,
     unbound_use_files: HashMap<Str, Vec<u32>, FixedState>,
+    types: Types<'g>,
 }
 
 // constraint: the calls of one name that bind no definition, bind one only by proximity or a fallback, or bind their
@@ -714,6 +733,7 @@ impl<'g> Calls<'g> {
             ambiguous: HashMap::default(),
             ambiguous_members: HashSet::default(),
             unbound_use_files: HashMap::default(),
+            types: Types::new(graph),
         }
     }
 
@@ -845,8 +865,11 @@ impl<'g> Calls<'g> {
         sites
     }
 
+    /// The callers of `target`: those whose calls bind it, then in path order with them those whose calls bind a
+    /// method a parent of its owner declares and reach it only through that method.
     pub(crate) fn callers_of(&mut self, target: SymbolAt) -> Cow<'_, [Edge]> {
-        Cow::Borrowed(self.caller_edges(target))
+        let dispatched = self.dispatched_callers(target);
+        self.with_dispatched(target, dispatched)
     }
 
     /// What a change to `target` reaches first: its callers, and for a field, a variable or a constant, its users.
@@ -854,8 +877,56 @@ impl<'g> Calls<'g> {
         if is_data_kind(self.graph.sym(target).kind) {
             Cow::Owned(self.user_edges(target))
         } else {
-            Cow::Borrowed(self.caller_edges(target))
+            self.callers_of(target)
         }
+    }
+
+    fn with_dispatched(&self, target: SymbolAt, dispatched: Vec<Edge>) -> Cow<'_, [Edge]> {
+        let direct = listed(&self.callers, &target);
+        if dispatched.is_empty() {
+            return Cow::Borrowed(direct);
+        }
+        let mut edges = direct.to_vec();
+        edges.extend(dispatched);
+        self.sort(&mut edges);
+        Cow::Owned(edges)
+    }
+
+    // constraint: a call bound to a method a parent of a method's owner declares runs whichever implementation the
+    // value holds, but one from inside the parent's hierarchy runs only its own class's or a base's own, and one from
+    // the method itself is no caller of it
+    /// The callers that reach `target` only through a method a parent of its owner declares, each once, at its most
+    /// confident call of the most confident such method, a caller whose call binds `target` itself not among them.
+    fn dispatched_callers(&mut self, target: SymbolAt) -> Vec<Edge> {
+        self.resolve_callers(self.graph.sym(target).name);
+        let (callers, cascade) = (&self.callers, &self.cascade);
+        let dispatching = dispatch::parent_methods(&self.types, cascade, target, |at| {
+            callers.contains_key(&cascade.canonical(at))
+        });
+        if dispatching.parents.is_empty() {
+            return Vec::new();
+        }
+        let direct: HashSet<SymbolAt, FixedState> = listed(callers, &target)
+            .iter()
+            .map(|edge| edge.far)
+            .collect();
+        let mut strongest: HashMap<SymbolAt, Edge, FixedState> = HashMap::default();
+        let reached = (dispatching.parents.iter()).flat_map(|&parent| {
+            (listed(callers, &parent).iter()).map(move |&edge| Edge {
+                through: Some(parent),
+                ..edge
+            })
+        });
+        for edge in reached {
+            if let Some(parent) = edge.through
+                && edge.far != target
+                && !direct.contains(&edge.far)
+                && dispatching.may_run((&self.types, cascade), edge.far, parent)
+            {
+                keep_stronger(&mut strongest, edge.far, edge);
+            }
+        }
+        strongest.into_values().collect()
     }
 
     /// The users of a field, a variable or a constant: the symbols that call it, or whose code reads or writes it, each
@@ -957,11 +1028,7 @@ impl<'g> Calls<'g> {
             if self.graph.sym(callable).name != name {
                 continue;
             }
-            let edge = Edge {
-                far: call.caller_at(),
-                confidence,
-                line: call.line,
-            };
+            let edge = Edge::new(call.caller_at(), confidence, call.line);
             for twin in self.cascade.twins(&call, (callee, confidence)) {
                 keep_stronger(&mut strongest, (twin, call.caller_at()), edge);
             }
@@ -997,19 +1064,13 @@ impl<'g> Calls<'g> {
             };
             let callable = self.cascade.canonical(callee);
             for twin in self.cascade.twins(&call, (callee, confidence)) {
-                let edge = Edge {
-                    far: twin,
-                    confidence,
-                    line: call.line,
-                };
-                keep_stronger(&mut strongest, twin, edge);
+                keep_stronger(&mut strongest, twin, Edge::new(twin, confidence, call.line));
             }
-            let edge = Edge {
-                far: callable,
-                confidence,
-                line: call.line,
-            };
-            keep_stronger(&mut strongest, callable, edge);
+            keep_stronger(
+                &mut strongest,
+                callable,
+                Edge::new(callable, confidence, call.line),
+            );
         }
         let mut edges: Vec<Edge> = strongest.into_values().collect();
         self.sort(&mut edges);
@@ -1073,11 +1134,7 @@ impl<'g> Calls<'g> {
             self.unbound_use_files.insert(name, unbound_files);
         }
         for ((used, far, line, access), confidence) in best {
-            let edge = Edge {
-                far,
-                confidence,
-                line,
-            };
+            let edge = Edge::new(far, confidence, line);
             self.uses.entry(used).or_default().push((edge, access));
         }
     }
@@ -1159,9 +1216,9 @@ impl<'g> Calls<'g> {
             && let Some(current) = search.queue.pop_front()
         {
             let depth = search.toward[&current].0;
-            self.resolve_callers(self.graph.sym(current).name);
-            let edges = listed(&self.callers, &current);
-            end = search.take(&self.cascade, (current, depth + 1), edges);
+            let dispatched = self.dispatched_callers(current);
+            let edges = self.with_dispatched(current, dispatched);
+            end = search.take(&self.cascade, (current, depth + 1), &edges);
         }
 
         CallPath {
@@ -1302,6 +1359,7 @@ impl PathSearch {
                 depth: narrow(hops.len()),
                 confidence: edge.confidence,
                 line: edge.line,
+                through: edge.through.map(|parent| graph.definition_at(parent)),
             });
             node = callee;
         }

@@ -992,8 +992,10 @@ impl Server {
                        match per language. Returns a <call_path> envelope of <match lang=..> records: each the \
                        resolved from and to, the chain length in hops and the searched bound in max_hops, and one \
                        <ref> per caller in call order - the last one calls to - each carrying loc= at the caller's \
-                       definition, call= at the line where it calls the next symbol, an explicit role= and a \
-                       confidence=likely / guess mark on a weakly resolved hop. A match without a chain carries \
+                       definition, call= at the line where it calls the next symbol, an explicit role=, a \
+                       confidence=likely / guess mark on a weakly resolved hop, and through= the interface, trait or \
+                       base-class method a hop's call binds where it reaches the next method only through it, as \
+                       find_callers marks it. A match without a chain carries \
                        found=false and states that an absent chain in the graph does not show one absent in the code; \
                        at_depth_bound= counts the callers at the hops limit a longer chain could pass through, and \
                        below_confidence= the callers the floor dropped. With below_confidence=, a match without a \
@@ -1160,8 +1162,10 @@ impl Server {
                        for a diff hunk under review or an edit you are about to make. Returns an <impact> envelope \
                        with one <symbol> record per definition overlapping the range - caller and callee counts with \
                        sampled <ref/> lists (each carrying an explicit role=, \"consumer\" for a real caller/callee or \
-                       test/entry/generated for a reach artifact, at= for the line of the call, and weakly resolved \
-                       edges marked confidence=likely/guess; a shown=/of= pair on the enclosing <callers>/<callees> \
+                       test/entry/generated for a reach artifact, at= for the line of the call, weakly resolved \
+                       edges marked confidence=likely/guess, and a caller that reaches a method only through an \
+                       interface, trait or base-class method marked through= as find_callers marks it; a shown=/of= \
+                       pair on the enclosing <callers>/<callees> \
                        discloses the 50-ref sampling cap), ambiguous= for the calls of its name that bound no \
                        definition because several definitions of the name may be meant, any of which may call it and \
                        none of which callers= or the reach counts, unresolved= for the calls into code the graph does \
@@ -1217,7 +1221,8 @@ impl Server {
                        callers reach within 3 hops, each once) and footprint_files; a <seeds> list of the changed \
                        symbols, widest reach first and test/entry/generated code last, each <seed> with its loc span, \
                        direct callers count, reach and reach_band, its direct callers as <ref/> records with at= the \
-                       line of the call (at most 10, in <callers shown= of=>), or past 30 callers their directories \
+                       line of the call and through= as find_callers marks it (at most 10, in <callers shown= of=>), \
+                       or past 30 callers their directories \
                        as <dir path callers/> (in <caller_dirs shown= of=>) - a field, a variable or a constant with \
                        users= lists those users in <users> and <user_dirs> instead; and, when two or more changed \
                        symbols reach one, a <hotspots> list of those symbols, reached_by= how many and hops= how near, \
@@ -1316,7 +1321,11 @@ impl Server {
                        artifact); 'role' keeps the callers of one role - the root then echoes role= and each <match> \
                        counts its callers per role in consumers, tests, entries, and generated; weakly resolved edges \
                        are marked confidence=likely (module-structure inference) or confidence=guess (name-only \
-                       match) - unmarked means certain. A file whose top level, outside every function, calls or uses \
+                       match) - unmarked means certain. A caller whose call binds a method of the same name that an \
+                       interface, a trait or a base class of the method's owner declares, and so reaches the method \
+                       only through it, carries through= that method's qualified name: the call runs whichever \
+                       implementation the value holds, this one or another implementor's; find_implementations lists \
+                       those whose parents are written, not a Go type that only has the method set. A file whose top level, outside every function, calls or uses \
                        the name and sees the symbol is a direct caller that no symbol holds: file_scope=N counts \
                        them, and after the refs each is a <file_scope path=../> record with the same confidence \
                        mark. It has no line, because the graph keeps only the names a top level spells, and the walk \
