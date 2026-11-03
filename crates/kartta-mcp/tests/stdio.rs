@@ -38,37 +38,43 @@ fn the_server_lists_its_tools() {
     let mut client = Client::start(&[]);
 
     let listed = client.request("tools/list", &json!({}));
-    let mut names: Vec<&str> = listed["tools"]
+    let mut hinted: Vec<String> = listed["tools"]
         .as_array()
         .expect("a tool list")
         .iter()
-        .map(|tool| tool["name"].as_str().expect("a named tool"))
+        .map(|tool| {
+            let name = tool["name"].as_str().expect("a named tool");
+            format!("{name} {}", tool["annotations"])
+        })
         .collect();
-    names.sort_unstable();
+    hinted.sort_unstable();
 
+    let read_only = r#"{"readOnlyHint":true}"#;
+    let idempotent = r#"{"idempotentHint":true}"#;
     assert_eq!(
-        names,
+        hinted,
         [
-            "file_outline",
-            "find_call_path",
-            "find_callees",
-            "find_callers",
-            "find_files",
-            "find_implementations",
-            "find_importers",
-            "find_references",
-            "find_symbols",
-            "find_unused",
-            "glob_files",
-            "grep",
-            "impact_of_change",
-            "impact_of_edit",
-            "index_repo",
-            "index_stats",
-            "list_dir",
-            "read_definitions",
-            "refresh"
-        ]
+            format!("file_outline {read_only}"),
+            format!("find_call_path {read_only}"),
+            format!("find_callees {read_only}"),
+            format!("find_callers {read_only}"),
+            format!("find_files {read_only}"),
+            format!("find_implementations {read_only}"),
+            format!("find_importers {read_only}"),
+            format!("find_references {read_only}"),
+            format!("find_symbols {read_only}"),
+            format!("find_unused {read_only}"),
+            format!("glob_files {read_only}"),
+            format!("grep {read_only}"),
+            format!("impact_of_change {read_only}"),
+            format!("impact_of_edit {read_only}"),
+            format!("index_repo {idempotent}"),
+            format!("index_stats {read_only}"),
+            format!("list_dir {read_only}"),
+            format!("read_definitions {read_only}"),
+            format!("refresh {idempotent}"),
+        ],
+        "a tool that changes nothing is read-only, and one that changes the index is safe to repeat"
     );
 }
 

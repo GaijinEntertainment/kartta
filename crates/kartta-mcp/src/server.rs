@@ -260,6 +260,7 @@ fn unmatched<'g>(
 #[tool_router]
 impl Server {
     #[tool(
+        annotations(idempotent_hint = true),
         description = "Build the code index for a repository: walk the file tree and parse every recognized source \
                        file into a per-language code graph of symbols (functions, types, methods...) with their \
                        calls, uses and includes. Run this first - every other tool queries this index and errors \
@@ -315,6 +316,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Show what the index currently holds: repository root, total files, and per-language \
                        file/symbol/call/use/include counts, plus 'files_without_symbols' on any language whose files \
                        did not all yield symbols (an unsupported dialect or a failed parse) and 'unheld' on any whose \
@@ -363,6 +365,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(idempotent_hint = true),
         description = "Bring the index up to date after files changed on disk. While index_stats shows \
                        watch=\"following\" the index does this by itself; call refresh when it shows watch off, or \
                        after a change made where notifications do not reach, such as a network mount or a container \
@@ -400,6 +403,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Find files by name with a fuzzy match: pattern characters must appear in order but not \
                        contiguously, and filename matches rank above directory matches (\"serv\" finds \
                        pkg/service.go). Use it to locate a file when you know part of its name or path: a config \
@@ -445,6 +449,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "List indexed files matching glob patterns - pure enumeration: every .go file, everything \
                        under src/, the tree minus vendored code. Use it when the SET of files is the answer \
                        (inventory, scoping a sweep); when you are hunting ONE file by name, use find_files. Returns \
@@ -482,6 +487,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Search file contents line by line with regular expressions - the evidence tool: pull the \
                        exact lines that prove how code behaves, find every textual occurrence of an identifier, \
                        string, or pattern. Several patterns search as one pass (a line matching any of them is \
@@ -552,6 +558,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "List a directory's entries from the index: subdirectories, files with their byte sizes \
                        (size=\"unknown\" when the file could not be read - distinct from size=\"0\", an empty file; \
                        directories and symlinks carry no size), and symlinks (marked explicitly, with their target). \
@@ -622,6 +629,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Find where symbols - functions, methods, types, constants, variables - are defined, by keyword \
                        search over the words of symbol names and of their files' paths. The starting point for \
                        \"where is X defined?\" and for pinning a symbol's exact name before find_callers / \
@@ -733,6 +741,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Read the source of named definitions - functions, methods, types - several names in one \
                        call. Answers \"show me X\" without a search followed by a file read of a guessed range. \
                        Searches every indexed language unless narrowed with 'languages'. Returns a <definitions> \
@@ -846,6 +855,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "List the types that implement or extend a named interface, base class, or trait, \
                        transitively. Use it when a contract changes and you need everything bound to it, or to find \
                        the real targets behind a dynamically-dispatched call site. Searches every indexed language \
@@ -904,6 +914,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Find every file that imports or includes a given file, directly or through a chain of imports \
                        (followed up to 3 hops) - the downstream files of a shared module, header, or type-definition \
                        file. This is whole-file impact: for line-level impact use impact_of_edit, for a single \
@@ -927,6 +938,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "List the definitions of one known file in source order - \"where in this file is X?\" when the \
                        file is known but the place in it is not. Returns an <outline> envelope with one <symbol/> \
                        record per definition: name; qn, the qualified name, omitted when it equals name; owner, the \
@@ -953,6 +965,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Find the shortest chain of calls from one symbol to another: from calls a symbol, which calls \
                        another, until one calls to. Answers \"does this entry point reach that function, and how?\" in \
                        one call, where following the calls by hand takes a read per hop. Searches every indexed \
@@ -1024,6 +1037,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "List every site where a symbol is used: its calls, its uses as a type, and every read and \
                        write of a field, a constant or a variable. Answers \"where is this type, field, constant, or \
                        function used?\" and \"who sets Config.Timeout?\" (access=\"write\") in one call, without a \
@@ -1109,6 +1123,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Assess the blast radius of editing a span of lines - \"what breaks if I touch these lines?\" \
                        for a diff hunk under review or an edit you are about to make. Returns an <impact> envelope \
                        with one <symbol> record per definition overlapping the range - caller and callee counts with \
@@ -1155,6 +1170,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Assess what a whole change reaches - a diff of several hunks across files and languages in one \
                        call: the symbols it touches, how far a change to each spreads through its callers (and from \
                        a field, a variable or a constant through the symbols that read or write it), and where \
@@ -1202,6 +1218,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Find definitions nothing in the repository calls or uses - candidates for deletion in a \
                        clean-up. Judges only what the graph can see used: functions, methods and macros through their \
                        calls, and Go types, fields, variables and constants through their uses. Judges every indexed \
@@ -1246,6 +1263,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Trace who calls a symbol, transitively: walks the call graph in reverse from the named \
                        function or method, hop by hop. Answers \"what is affected if I change this function?\" before \
                        an edit, rename, or removal. Searches every indexed language unless narrowed with 'languages'; \
@@ -1330,6 +1348,7 @@ impl Server {
     }
 
     #[tool(
+        annotations(read_only_hint = true),
         description = "Trace what a symbol calls: walks the call graph forward from the named function or method, the \
                        forward half of find_callers. Answers \"what does X depend on, what runs when it runs?\" \
                        without reading its body and every body it calls. Searches every indexed language unless \
