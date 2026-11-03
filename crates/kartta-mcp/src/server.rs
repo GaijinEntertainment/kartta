@@ -27,6 +27,7 @@ use crate::params::{
     FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
     IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams, RefreshParams,
 };
+use crate::paths::relative;
 use crate::render::{
     self, CallersAsk, Found, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion, Unmatched,
     UnusedAsk,
@@ -599,7 +600,7 @@ impl Server {
                 "{path:?} is absolute - pass a repo-relative directory path as printed by find_files; \".\" lists the root"
             ));
         }
-        let dir = match path.trim_end_matches('/') {
+        let dir = match relative(&path).trim_end_matches('/') {
             "." => String::new(),
             path => path.to_owned(),
         };
@@ -780,6 +781,7 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limit = p.limit.map_or(DEFINITIONS, NonZeroUsize::get);
+            let from = p.from.as_deref().map(relative);
             let searched = selected(indexed, p.languages.as_deref());
             let per_name: Vec<(usize, Vec<Nearest<'_>>, Option<String>)> = p
                 .names
@@ -790,8 +792,7 @@ impl Server {
                         [Selector::new(name, None)],
                         |_| true,
                         |(family, graph), [named]| {
-                            let definitions =
-                                graph.definitions(named.name, p.from.as_deref(), limit);
+                            let definitions = graph.definitions(named.name, from, limit);
                             (definitions.total > 0).then_some((family, definitions))
                         },
                     );
@@ -878,7 +879,7 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let searched = selected(indexed, p.languages.as_deref());
-            let written = Selector::new(&p.name, p.path_prefix.as_deref())
+            let written = Selector::new(&p.name, p.path_prefix.as_deref().map(relative))
                 .with_line(p.line.map(NonZeroU32::get));
             let (mut found, [read_as]) = ask_reading(
                 searched.iter().copied(),
@@ -929,11 +930,12 @@ impl Server {
         Parameters(p): Parameters<FileParams>,
     ) -> Result<String, String> {
         self.answer(move |indexed| {
+            let file = relative(&p.file);
             let dependents = indexed
                 .engine
-                .graph_of(&p.file)
-                .and_then(|(_, graph)| graph.dependents(&p.file, IMPORTER_DEPTH, 0));
-            Ok(render::importers(&p.file, dependents.as_ref()))
+                .graph_of(file)
+                .and_then(|(_, graph)| graph.dependents(file, IMPORTER_DEPTH, 0));
+            Ok(render::importers(file, dependents.as_ref()))
         })
         .await
     }
@@ -956,11 +958,12 @@ impl Server {
     )]
     async fn file_outline(&self, Parameters(p): Parameters<FileParams>) -> Result<String, String> {
         self.answer(move |indexed| {
+            let file = relative(&p.file);
             let outline = indexed
                 .engine
-                .graph_of(&p.file)
-                .and_then(|(_, graph)| graph.outline(&p.file));
-            Ok(render::outline(&p.file, outline.as_deref()))
+                .graph_of(file)
+                .and_then(|(_, graph)| graph.outline(file));
+            Ok(render::outline(file, outline.as_deref()))
         })
         .await
     }
@@ -1001,9 +1004,9 @@ impl Server {
                 .with_max_symbols(PATH_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let written = [
-                Selector::new(&p.from, p.from_path_prefix.as_deref())
+                Selector::new(&p.from, p.from_path_prefix.as_deref().map(relative))
                     .with_line(p.from_line.map(NonZeroU32::get)),
-                Selector::new(&p.to, p.to_path_prefix.as_deref())
+                Selector::new(&p.to, p.to_path_prefix.as_deref().map(relative))
                     .with_line(p.to_line.map(NonZeroU32::get)),
             ];
             let (paths, [from_read_as, to_read_as]) = ask_reading(
@@ -1092,7 +1095,7 @@ impl Server {
         self.answer(move |indexed| {
             let floor = p.min_confidence.unwrap_or_default().floor();
             let searched = selected(indexed, p.languages.as_deref());
-            let written = Selector::new(&p.name, p.path_prefix.as_deref())
+            let written = Selector::new(&p.name, p.path_prefix.as_deref().map(relative))
                 .with_line(p.line.map(NonZeroU32::get));
             let (found, [read_as]) = ask_reading(
                 searched.iter().copied(),
@@ -1164,11 +1167,13 @@ impl Server {
         }
         self.answer(move |indexed| {
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
-            let segment = indexed.engine.graph_of(&p.file).and_then(|(_, graph)| {
-                graph.analyze_segment(&p.file, start_line..=end_line, limits)
-            });
+            let file = relative(&p.file);
+            let segment = indexed
+                .engine
+                .graph_of(file)
+                .and_then(|(_, graph)| graph.analyze_segment(file, start_line..=end_line, limits));
             Ok(render::impact(
-                &p.file,
+                file,
                 (start_line, end_line),
                 segment.as_ref(),
             ))
@@ -1253,7 +1258,7 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limit = p.limit.map_or(UNUSED, NonZeroUsize::get);
-            let path_prefix = p.path_prefix.as_deref();
+            let path_prefix = p.path_prefix.as_deref().map(relative);
             let judged: Vec<_> = selected(indexed, p.languages.as_deref())
                 .into_iter()
                 .map(|(family, graph)| (family, graph.dead_code(&[], path_prefix, limit)))
@@ -1328,7 +1333,7 @@ impl Server {
                 .with_min_confidence(p.min_confidence.unwrap_or_default().floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
-            let written = Selector::new(&p.name, p.path_prefix.as_deref())
+            let written = Selector::new(&p.name, p.path_prefix.as_deref().map(relative))
                 .with_line(p.line.map(NonZeroU32::get));
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
@@ -1396,7 +1401,7 @@ impl Server {
                 .with_min_confidence(p.min_confidence.unwrap_or_default().floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
-            let written = Selector::new(&p.name, p.path_prefix.as_deref())
+            let written = Selector::new(&p.name, p.path_prefix.as_deref().map(relative))
                 .with_line(p.line.map(NonZeroU32::get));
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
@@ -1476,8 +1481,10 @@ fn changed_regions(
                 "regions[{at}]: end_line {end} is before start_line {start}"
             ));
         }
+        let mut path = region.file;
+        path.drain(..path.len() - relative(&path).len());
         changed.push(Changed {
-            path: region.file,
+            path,
             lines: start..=end,
         });
     }
