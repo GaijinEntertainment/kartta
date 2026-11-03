@@ -21,8 +21,8 @@ use std::time::Duration;
 use common::{tree, write};
 use kartta_fs::{
     BuildError, BuildOptions, CancelToken, Case, Content, ContentId, ContentIndexStorage,
-    ContentVisitor, EntryKind, FileStamp, GrepOptions, IgnoreSources, Index, Patterns, PrunedNames,
-    RefreshOutcome,
+    ContentVisitor, EntryKind, FileStamp, GrepOptions, IgnoreSources, Index, PathFault, Patterns,
+    PrunedNames, RefreshOutcome,
 };
 use tempfile::TempDir;
 
@@ -1209,9 +1209,39 @@ fn a_path_that_may_leave_the_tree_is_refused_before_anything_is_walked() {
 
     assert!(matches!(
         refreshed,
-        Err(BuildError::OutsideTree { path }) if path == "sub/../../outside"
+        Err(BuildError::Misspelled { path, fault: PathFault::ParentName }) if path == "sub/../../outside"
     ));
     assert_eq!(paths(&index), ["a.rs"]);
+}
+
+#[test]
+fn a_path_not_spelled_from_the_root_with_slashes_is_refused_by_its_fault_before_anything_is_walked()
+{
+    let dir = tree(&[("a.rs", ""), ("src/a.rs", "")]);
+    let mut index = build(dir.path(), &BuildOptions::default(), None);
+
+    write(dir.path(), "b.rs", "");
+    for (path, fault) in [
+        ("/b.rs", PathFault::Absolute),
+        ("\\repo\\b.rs", PathFault::Absolute),
+        ("C:\\repo\\b.rs", PathFault::Drive('C')),
+        ("C:b.rs", PathFault::Drive('C')),
+        ("src\\a.rs", PathFault::Backslash),
+    ] {
+        let refreshed = index.refresh_paths(["b.rs", path], None, None);
+        let parts = index.parts_of(["b.rs", path]);
+
+        for refused in [refreshed.map(|_| ()), parts.map(|_| ())] {
+            assert!(
+                matches!(&refused, Err(BuildError::Misspelled { path: given, fault: found }) if given == path && *found == fault),
+                "{path:?}: {refused:?}"
+            );
+        }
+    }
+    assert_eq!(paths(&index), ["a.rs", "src", "src/a.rs"]);
+
+    let walked = refresh_paths(&mut index, ["src/a.rs", "./b.rs"]);
+    assert_eq!(walked, ["b.rs", "src/a.rs"]);
 }
 
 #[cfg(any(target_os = "macos", windows))]

@@ -753,7 +753,7 @@ mod tests {
         let refreshed = index.refresh_paths_watched(["../outside"], &mut watcher, None, None);
         let drained = watcher.drain();
 
-        assert!(matches!(refreshed, Err(BuildError::OutsideTree { .. })));
+        assert!(matches!(refreshed, Err(BuildError::Misspelled { .. })));
         assert!(matches!(drained, Err(WatchError::Start { .. })));
     }
 

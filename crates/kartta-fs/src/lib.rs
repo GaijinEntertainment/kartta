@@ -180,7 +180,7 @@ pub use kartta_cache::{ContentHash, Namespace};
 pub use kartta_walk::CancelToken;
 
 pub use crate::binary::{BinaryExtensions, BinaryExtensionsError};
-pub use crate::build::{BuildError, BuildOptions, IgnoreSources};
+pub use crate::build::{BuildError, BuildOptions, IgnoreSources, PathFault};
 pub use crate::content::{Content, ContentId, ContentVisitor};
 pub use crate::content_index::{ContentIndexStats, ContentIndexStorage};
 pub use crate::entry::{Entry, EntryKind};

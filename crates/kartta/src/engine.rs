@@ -5,8 +5,8 @@ use std::{io, iter};
 
 use foldhash::fast::FixedState;
 use kartta_fs::{
-    BuildError, BuildOptions, BuildOutcome, CancelToken, ContentVisitor, Index, RefreshOutcome,
-    Stopped,
+    BuildError, BuildOptions, BuildOutcome, CancelToken, ContentVisitor, Index, PathFault,
+    RefreshOutcome, Stopped,
 };
 #[cfg(feature = "watch")]
 use kartta_fs::{WatchError, Watcher};
@@ -386,9 +386,12 @@ impl Engine {
     ) -> Result<(EngineRefresh, T), BuildError> {
         let mut paths = paths.into_iter();
         if self.following.is_none() {
-            if let Some(path) = paths.find(|path| leads_outside_tree(path)) {
-                return Err(BuildError::OutsideTree {
+            // constraint: kartta_fs::Index::refresh_paths refuses a path by its fault, and a refresh that never reaches
+            // it must too
+            if let Some((path, fault)) = paths.find_map(|path| Some((path, PathFault::of(path)?))) {
+                return Err(BuildError::Misspelled {
                     path: path.to_owned(),
+                    fault,
                 });
             }
             return self
@@ -673,11 +676,6 @@ pub(crate) fn families(languages: &[Box<dyn Language>]) -> (Vec<Family>, Vec<usi
     }
 
     (families, family_of)
-}
-
-// constraint: kartta_fs::Index::refresh_paths refuses a path by this rule, and a call that never reaches it must too
-fn leads_outside_tree(path: &str) -> bool {
-    path.split('/').any(|part| part == "..")
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]

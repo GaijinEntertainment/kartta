@@ -247,7 +247,7 @@ impl Built {
                 ErrorCode::RefreshCancelled,
                 "a cancel stopped the refresh; the engine answers as it did before it",
             ),
-            BuildError::OutsideTree { .. } => {
+            BuildError::Misspelled { .. } => {
                 Error::new(ErrorCode::InvalidParams, error.to_string())
             }
             error => Error::new(

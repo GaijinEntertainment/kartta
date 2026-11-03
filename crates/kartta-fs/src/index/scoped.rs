@@ -13,7 +13,7 @@ use super::{
     Asked, ChangedFiles, Finished, Held, Index, Previous, RefreshOutcome, depth_first_below,
     indexing, node_sized, order_errors, tree_order, unfinished_error,
 };
-use crate::build::{BuildError, IgnoreSources};
+use crate::build::{BuildError, IgnoreSources, PathFault};
 use crate::content::{ContentId, ContentVisitor};
 use crate::content_index::{ContentIndexes, IdPositions, Target};
 use crate::inspection::Inspection;
@@ -75,7 +75,7 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// [`BuildError::OutsideTree`] for a path with a `..` component, before anything is walked, and otherwise as
+    /// [`BuildError::Misspelled`] for a path with a [`PathFault`], before anything is walked, and otherwise as
     /// [`Index::refresh`]. A returned error leaves the index answering as it did. Like [`Index::refresh`], the call
     /// stops for `cancel` only while it has something left to walk or read, or a content index to finish: it looks at
     /// `cancel` before it takes each part, reads the rules of each directory above the parts and reads each file, so a
@@ -141,7 +141,7 @@ impl Index {
     ///
     /// # Errors
     ///
-    /// [`BuildError::OutsideTree`] for a path with a `..` component.
+    /// [`BuildError::Misspelled`] for a path with a [`PathFault`].
     pub fn parts_of<'p>(
         &self,
         paths: impl IntoIterator<Item = &'p str>,
@@ -185,15 +185,16 @@ impl Index {
         lookups: &mut Lookups,
         names_on_disk: usize,
     ) -> Result<Option<String>, BuildError> {
-        let mut parts = Vec::new();
-        for part in path.split('/').filter(|part| !matches!(*part, "" | ".")) {
-            if part == ".." {
-                return Err(BuildError::OutsideTree {
-                    path: path.to_owned(),
-                });
-            }
-            parts.push(part);
+        if let Some(fault) = PathFault::of(path) {
+            return Err(BuildError::Misspelled {
+                path: path.to_owned(),
+                fault,
+            });
         }
+        let mut parts: Vec<&str> = path
+            .split('/')
+            .filter(|part| !matches!(*part, "" | "."))
+            .collect();
 
         let rules_apply = self.ignore_sources != IgnoreSources::None;
         if let Some(at) = parts.iter().position(|part| names_match(part, DOT_GIT)) {

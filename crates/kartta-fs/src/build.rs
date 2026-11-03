@@ -1,8 +1,8 @@
 use std::error::Error;
-use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::{fmt, io};
 
 use kartta_walk::WalkError;
 
@@ -165,8 +165,8 @@ pub struct BuildOptions {
 /// [`Index::refresh_paths`](crate::Index::refresh_paths) when theirs stopped them, [`BuildError::ContentIndex`] by both
 /// refreshes when the content index cannot be kept where it was asked to be, [`BuildError::ContentIdsExhausted`] by both
 /// refreshes when the index has no ids left, and
-/// [`BuildError::OutsideTree`] by [`Index::refresh_paths`](crate::Index::refresh_paths) for a path that may lead out of
-/// the tree; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
+/// [`BuildError::Misspelled`] by [`Index::refresh_paths`](crate::Index::refresh_paths) for a path not spelled as the
+/// index spells one; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
 /// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names,
 /// so one unreadable directory yields a partial index rather than none.
 #[derive(Debug, thiserror::Error)]
@@ -250,12 +250,15 @@ pub enum BuildError {
     /// file fails from then on. A new build numbers its reads from the start again.
     #[error("the index has no content ids left to number the files a refresh reads")]
     ContentIdsExhausted,
-    /// A path given to [`Index::refresh_paths`](crate::Index::refresh_paths) has a `..` component, so it may name
-    /// something outside the tree. Returned before anything is walked, so the index is left as it was.
-    #[error("cannot refresh {path:?}: a `..` component may lead outside the tree")]
-    OutsideTree {
+    /// A path given to [`Index::refresh_paths`](crate::Index::refresh_paths) is not spelled as the index spells a
+    /// path, from the root with `/` between names, so it names no part of the tree or may lead out of it. Returned
+    /// before anything is walked, so the index is left as it was.
+    #[error("cannot refresh {path:?}: the path {fault}")]
+    Misspelled {
         /// The path as it was given.
         path: String,
+        /// What is wrong with its spelling.
+        fault: PathFault,
     },
     /// The directory [`BuildOptions::content_cache`] names could not be opened, written, published to or merged, or its
     /// merge could not remove files it should have: merged packs, which then hold their entries twice, temporary files
@@ -275,7 +278,7 @@ pub enum BuildError {
 
 impl BuildError {
     /// The word for the failure in an answer: `walk`, `thread_pool`, `ignore`, `name`, `read`, `content_index`,
-    /// `cancelled`, `content_ids_exhausted`, `outside_tree` or `cache`.
+    /// `cancelled`, `content_ids_exhausted`, `misspelled` or `cache`.
     #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
@@ -287,7 +290,7 @@ impl BuildError {
             Self::ContentIndex { .. } => "content_index",
             Self::Stopped(_) | Self::Cancelled => "cancelled",
             Self::ContentIdsExhausted => "content_ids_exhausted",
-            Self::OutsideTree { .. } => "outside_tree",
+            Self::Misspelled { .. } => "misspelled",
             Self::Cache { .. } => "cache",
         }
     }
@@ -300,7 +303,7 @@ impl BuildError {
     /// could not be formed.
     ///
     /// Every collected error names a path. Only the returned [`BuildError::ThreadPool`], [`BuildError::Stopped`],
-    /// [`BuildError::Cancelled`], [`BuildError::ContentIdsExhausted`] and [`BuildError::OutsideTree`] do not.
+    /// [`BuildError::Cancelled`], [`BuildError::ContentIdsExhausted`] and [`BuildError::Misspelled`] do not.
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
         match self {
@@ -314,7 +317,7 @@ impl BuildError {
             | Self::Stopped(_)
             | Self::Cancelled
             | Self::ContentIdsExhausted
-            | Self::OutsideTree { .. } => None,
+            | Self::Misspelled { .. } => None,
         }
     }
 
@@ -327,7 +330,7 @@ impl BuildError {
             Self::ContentIndex { .. } => 4,
             Self::Cancelled => 5,
             Self::ContentIdsExhausted => 6,
-            Self::OutsideTree { .. } => 7,
+            Self::Misspelled { .. } => 7,
             Self::Cache { .. } => 8,
             Self::ThreadPool { .. } => 9,
             Self::Stopped(_) => 10,
@@ -335,9 +338,94 @@ impl BuildError {
     }
 }
 
+/// What keeps a path from naming a part of the tree, as [`BuildError::Misspelled`] names it.
+///
+/// The index spells a path from the root with `/` between names. The fault's text reads after the path, as in
+/// `"C:\a" starts with the drive C:`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PathFault {
+    /// The path starts with `/` or `\`.
+    Absolute,
+    /// The path starts with a drive, such as `C:`, here its letter.
+    Drive(char),
+    /// A `\` separates the path's names, where the index reads `/` alone, so the path names one entry at the root.
+    Backslash,
+    /// A name of the path is `..`, which may lead out of the tree.
+    ParentName,
+}
+
+impl fmt::Display for PathFault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Absolute => f.write_str("is absolute"),
+            Self::Drive(letter) => write!(f, "starts with the drive {letter}:"),
+            Self::Backslash => f.write_str("separates its names with \\"),
+            Self::ParentName => f.write_str("holds a .. name, which may leave the root"),
+        }
+    }
+}
+
+impl PathFault {
+    /// The first fault of `path`, in the order the variants are declared, or `None` for a path spelled as the index
+    /// spells one. A name of `.` or an empty name is no fault: the index reads `./a` and `a//b` as `a` and `a/b`.
+    #[must_use]
+    pub fn of(path: &str) -> Option<Self> {
+        if path.starts_with(['/', '\\']) {
+            return Some(Self::Absolute);
+        }
+        if let [drive, b':', ..] = path.as_bytes()
+            && drive.is_ascii_alphabetic()
+        {
+            return Some(Self::Drive(char::from(*drive)));
+        }
+        if path.contains('\\') {
+            return Some(Self::Backslash);
+        }
+        path.split('/')
+            .any(|name| name == "..")
+            .then_some(Self::ParentName)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_spelled_from_the_root_with_slashes_has_no_fault() {
+        for path in ["pkg/a.go", "pkg/..a.go", "./pkg//a.go", "", "pkg/C:x"] {
+            assert_eq!(PathFault::of(path), None, "{path:?}");
+        }
+    }
+
+    #[test]
+    fn a_misspelled_path_has_its_first_fault() {
+        for (path, fault) in [
+            ("/r/pkg", PathFault::Absolute),
+            ("\\r\\a.go", PathFault::Absolute),
+            ("C:\\r", PathFault::Drive('C')),
+            ("c:src\\a.rs", PathFault::Drive('c')),
+            ("pkg\\a.go", PathFault::Backslash),
+            ("../a.go", PathFault::ParentName),
+            ("pkg/../../a.go", PathFault::ParentName),
+        ] {
+            assert_eq!(PathFault::of(path), Some(fault), "{path:?}");
+        }
+    }
+
+    #[test]
+    fn a_misspelled_path_is_refused_by_its_fault() {
+        let refused = BuildError::Misspelled {
+            path: "C:\\r".to_owned(),
+            fault: PathFault::Drive('C'),
+        };
+
+        assert_eq!(
+            refused.to_string(),
+            r#"cannot refresh "C:\\r": the path starts with the drive C:"#
+        );
+    }
 
     #[test]
     fn a_pool_that_cannot_start_is_named_as_the_index_s_whole_pool() {
@@ -355,11 +443,12 @@ mod tests {
 
     #[test]
     fn a_failure_that_names_no_path_has_a_label_of_its_own() {
-        let outside = BuildError::OutsideTree {
+        let misspelled = BuildError::Misspelled {
             path: "../x".to_owned(),
+            fault: PathFault::ParentName,
         };
 
-        assert_eq!(outside.label(), "outside_tree");
+        assert_eq!(misspelled.label(), "misspelled");
         assert_eq!(BuildError::Cancelled.label(), "cancelled");
         assert_eq!(
             BuildError::ContentIdsExhausted.label(),
