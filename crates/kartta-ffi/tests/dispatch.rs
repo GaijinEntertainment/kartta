@@ -264,6 +264,66 @@ fn a_segment_left_open_ends_on_the_last_line_a_held_symbol_reaches() {
     assert_eq!(asked["end_line"], 40, "a line the caller names: {asked}");
 }
 
+/// What a file answer says beside its `file` and `held`: the keys that tell its state apart.
+fn file_state(answer: &Value) -> Value {
+    json!({
+        "graph": answer.get("graph"),
+        "held": answer["held"],
+        "missing": answer.get("missing"),
+        "declined": answer.get("declined"),
+    })
+}
+
+#[test]
+fn a_file_answer_tells_a_missing_path_an_unclaimed_file_and_a_declined_one_apart() {
+    let tree = tree();
+    fs::write(
+        tree.path().join("_skip.go"),
+        "package main\n\nfunc skip() {}\n",
+    )
+    .expect("_skip.go");
+    fs::write(tree.path().join("notes.txt"), "notes\n").expect("notes.txt");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    for method in ["outline", "dependents", "analyze_segment"] {
+        let state = |file: &str| file_state(&ok(&kartta, method, &json!({ "file": file })));
+        assert_eq!(
+            state("run.go"),
+            json!({ "graph": "go", "held": true, "missing": null, "declined": null }),
+            "{method} of a file the graph holds"
+        );
+        assert_eq!(
+            state("gone.go"),
+            json!({ "graph": null, "held": false, "missing": true, "declined": null }),
+            "{method} of a path the index does not hold"
+        );
+        assert_eq!(
+            state("_gone.go"),
+            json!({ "graph": null, "held": false, "missing": true, "declined": null }),
+            "{method} of a path the index does not hold, named as a language leaves a file out"
+        );
+        assert_eq!(
+            state("notes.txt"),
+            json!({ "graph": null, "held": false, "missing": null, "declined": null }),
+            "{method} of a held file no language claims"
+        );
+        assert_eq!(
+            state("_skip.go"),
+            json!({
+                "graph": null,
+                "held": false,
+                "missing": null,
+                "declined": {
+                    "language": "go",
+                    "reason": "no Go build reads a file whose name starts with _ or ."
+                },
+            }),
+            "{method} of a held file a language leaves out"
+        );
+    }
+}
+
 #[test]
 fn a_graphs_stats_count_its_uses_by_access() {
     let tree = tempfile::tempdir().expect("a temporary directory");

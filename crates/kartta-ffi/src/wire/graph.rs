@@ -3,10 +3,11 @@ use std::ops::RangeInclusive;
 
 use kartta::{
     Access, Blast, CallPath, Candidate, Change, Conventions, CutLine, Dead, DeadCode, Definition,
-    Definitions, Dependent, Dependents, DirCount, DirectCalls, Excluded, FileScope, Hit, Hotspot,
-    Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand, Reached,
-    Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SelfCall, SiteCounts,
-    Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched, UnmatchedKind, Walk,
+    Definitions, Dependent, Dependents, DirCount, DirectCalls, Engine, Excluded, FileScope, Graph,
+    Hit, Hotspot, Implementations, Implementor, LanguageFiles, Miss, Misses, Nearness, ReachBand,
+    Reached, Reference, References, Resolution, Search, Seed, Segment, SegmentSymbol, SelfCall,
+    SiteCounts, Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound, Unmatched,
+    UnmatchedKind, Walk,
 };
 
 use serde::{Serialize, Serializer};
@@ -492,16 +493,42 @@ pub(crate) struct FileView<'a, T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     graph: Option<&'a str>,
     held: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    missing: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    declined: Option<DeclinedView<'a>>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     answer: Option<T>,
 }
 
+/// The language that leaves a held file of its kind out of its graph, and the reason it states.
+#[derive(Debug, Serialize)]
+struct DeclinedView<'a> {
+    language: &'a str,
+    reason: &'a str,
+}
+
 impl<'a, T> FileView<'a, T> {
-    pub(crate) const fn new(file: &'a str, graph: Option<&'a str>, answer: Option<T>) -> Self {
+    /// What `ask` answers of `file` from the graph that claims it, or why no graph answers: the index holds no such
+    /// path, a language leaves the held file out, or no language claims it.
+    pub(crate) fn new(
+        engine: &'a Engine,
+        file: &'a str,
+        ask: impl FnOnce(&'a Graph) -> Option<T>,
+    ) -> Self {
+        let claimed = engine.graph_of(file);
+        let answer = claimed.and_then(|(_, graph)| ask(graph));
+        let missing = answer.is_none() && engine.index().entry(file).is_none();
+        let declined = match claimed {
+            None if !missing => engine.declined(file),
+            _ => None,
+        };
         Self {
             file,
-            graph,
+            graph: claimed.filter(|_| !missing).map(|(name, _)| name),
             held: answer.is_some(),
+            missing,
+            declined: declined.map(|(language, reason)| DeclinedView { language, reason }),
             answer,
         }
     }

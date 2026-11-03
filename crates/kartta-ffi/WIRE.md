@@ -590,8 +590,17 @@ The failures a build or a refresh collected rather than stopped on.
 The answer of a query about one file, with the fields of the answer named beside the method when `held` is true.
 
 - `file` (string, always): The file asked about.
-- `graph` (string, optional): The graph of the language that claims the file, absent when none does.
+- `graph` (string, optional): The graph of the language that claims the file, absent when none does or when `missing`
+  is present. Present beside a `held` of false, that graph holds no record of the file.
 - `held` (boolean, always): Whether that graph holds the file.
+- `missing` (boolean, optional): Present, and true, when the index holds no such path.
+- `declined` ([`DeclinedView`](#declinedview), optional): The language that leaves the held file out of its graph, a
+  file of its kind it does not claim. A held file with no `graph` and no `declined` is one no language claims.
+
+### DeclinedView
+
+- `language` (string, always): The first language that leaves the file out.
+- `reason` (string, always): Why it leaves the file out, as the language states it.
 
 ## Answers of a graph
 
