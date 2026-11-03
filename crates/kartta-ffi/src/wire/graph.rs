@@ -329,6 +329,8 @@ struct ReferencesDef<'g> {
     #[serde(with = "SiteCountsDef")]
     counts: SiteCounts,
     ambiguous: usize,
+    #[serde(serialize_with = "each", skip_serializing_if = "Vec::is_empty")]
+    file_scope: Vec<FileScope<'g>>,
 }
 
 #[derive(Serialize)]

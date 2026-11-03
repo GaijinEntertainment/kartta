@@ -123,7 +123,9 @@ type SelfCall struct {
 // top level spells, so it has no line.
 type FileScope struct {
 	File string `json:"file"`
-	// Confidence is how the file sees the symbol: 80 in the same file, 75 in its package, 70 through an include.
+	// Confidence is how the file sees the symbol: 80 in the same file, 75 in its package, 70 through an include; 85
+	// where the top level reads the name through the body that types the value, as Ruby's pasted bodies do. In
+	// References a member's file that sees it the first three ways is 15, a guess, as such a name keeps no receiver.
 	Confidence int `json:"confidence"`
 }
 
@@ -253,6 +255,10 @@ type References struct {
 	// may be meant, and the uses of a member's name on a value whose type the graph could not follow, which bound no
 	// definition: any of them may take this one.
 	Ambiguous int `json:"ambiguous"`
+	// FileScope lists the files whose top level calls or uses the symbol's name and sees the symbol, in path order. They
+	// are no sites: the graph keeps no line for them and not how they touch the symbol, so neither Limit nor Access
+	// bounds them. BelowConfidence also counts the files the floor left out.
+	FileScope []FileScope `json:"file_scope,omitempty"`
 	// TypeUsesUnrecorded is set when Symbol is a type and its graph records no use of a type where code names it as
 	// one, such as a declaration, a signature, a generic argument or an import: Sites then hold only the calls that
 	// name it and its reads as a value, so an empty Sites does not show that nothing uses the type.

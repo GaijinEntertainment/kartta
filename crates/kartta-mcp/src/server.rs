@@ -1068,16 +1068,21 @@ impl Server {
                        lists at most 100 sites one by one, then names 50 more files with their sites= count alone. It \
                        carries shown= only when it lists fewer sites than count=, a <file> carries shown= only when it \
                        lists part of its sites, and files_shown= appears only when the match names fewer files than \
-                       files=; below_confidence= counts the sites the floor dropped, whatever access keeps, \
-                       and passed_over= the other symbols the name selects, the most used of them listed as up to 5 \
-                       <candidate sites=N/> records - path_prefix with one's file and line with its line pick it. A \
-                       match with no site states what the graph does not record; with below_confidence=, it states \
-                       only how many sites bind below the confidence floor, which min_confidence \"any\" lists, \
-                       without access where one was asked. A name several symbols end with lists \
-                       them instead; a name held only as enum variants, which this tool takes no root of, counts \
-                       them and lists up to 5; an unknown name answers with up to 5 close alternatives (did you mean): those \
-                       named one edit from it, which one_edit= counts, or else the best search hits. Requires \
-                       index_repo first."
+                       files=. A file whose top level, outside every definition, names the symbol and sees it is a \
+                       user no definition holds: file_scope=N counts them, and after the <file> records each is a \
+                       <file_scope path=../> record, with the confidence find_callers gives it, or a guess for a \
+                       member, as the file keeps no receiver for the name. The graph keeps no line for such a use and \
+                       not how it touches the symbol, so count= does not count them, access does not filter them, \
+                       and grep in the file finds the line. below_confidence= counts the sites and the file_scope \
+                       files the floor dropped, whatever access keeps, and passed_over= the other symbols the name \
+                       selects, the most used of them listed as up to 5 <candidate sites=N/> records - path_prefix \
+                       with one's file and line with its line pick it. A match with no site and no file_scope states \
+                       what the graph does not record; with below_confidence=, it states only how many uses, sites \
+                       and file_scope files, bind below the confidence floor, which min_confidence \"any\" lists, \
+                       without access where one was asked. A name several symbols end with lists them instead; a name \
+                       held only as enum variants, which this tool takes no root of, counts them and lists up to 5; \
+                       an unknown name answers with up to 5 close alternatives (did you mean): those named one edit \
+                       from it, which one_edit= counts, or else the best search hits. Requires index_repo first."
     )]
     async fn find_references(
         &self,

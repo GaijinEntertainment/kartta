@@ -259,10 +259,18 @@ pub struct References<'g> {
     pub sites: Vec<Reference<'g>>,
     /// The sites that pass the confidence floor and the access the query keeps, before the limit.
     pub total: usize,
-    /// The sites the confidence floor left out.
+    /// The sites the confidence floor left out, and the files of [`file_scope`](Self::file_scope) it left out.
     pub below_confidence: usize,
     /// The sites that pass the confidence floor, of each kind, whatever access the query keeps.
     pub counts: SiteCounts,
+    /// The files whose top level, outside every definition, calls or uses the symbol's name and sees the symbol, in
+    /// path order, as [`Walk::file_scope`] lists them for a callable. They are no sites: the graph keeps no line for
+    /// them and not how they touch the symbol, so neither the limit nor the access the query keeps bounds them. A file
+    /// keeps no receiver for a name either, so for a member each file the name reaches through how the file sees it is
+    /// a guess, at [`FIRST_PARTY`](crate::confidence::FIRST_PARTY). A file whose top level reads the name through the
+    /// body the symbol's value names takes [`RECEIVER`](crate::confidence::RECEIVER) instead: that read carries its
+    /// receiver.
+    pub file_scope: Vec<FileScope<'g>>,
     /// The calls of the symbol's name that [`Walk::ambiguous`] counts for a walk from it, and the uses that take a
     /// member of its name on a value and bind no definition, because the graph could not follow the value's type and
     /// no other tier picked one of the members of the name, and those of the own receiver that several bases may
@@ -360,7 +368,7 @@ impl Graph {
         if calls.cascade.is_call_target(self.sym(root)) {
             let below_confidence;
             (walk.file_scope, below_confidence) =
-                self.file_scope(&calls, root, limits.min_confidence);
+                self.file_scope(calls.file_scope_callers(root), limits.min_confidence);
             walk.below_confidence += below_confidence;
         }
         walk.ambiguous = calls.ambiguous_calls(root);
@@ -400,7 +408,8 @@ impl Graph {
     /// files it includes or reaches. A member of `this` or `self` binds the member of the class around the use or of a
     /// base the graph finds, and where a bare name in a member reads the class first, the field of the own class or
     /// of the one base that lookup finds. Every site of the name is resolved before the query's limit applies, so the
-    /// limit bounds the answer, not the work, and `total` counts them all.
+    /// limit bounds the answer, not the work, and `total` counts them all. The answer also lists the files whose top
+    /// level names the symbol and sees it, which the confidence floor bounds as it bounds a site.
     #[must_use]
     pub fn references<'s>(
         &self,
@@ -446,8 +455,17 @@ impl Graph {
             by_file_and_line(left).cmp(&by_file_and_line(right))
         });
         sites.sort_unstable_by_key(by_file_and_line);
+        let member = self.sym(root).owner.is_some();
+        let listed = calls.file_scope_callers(root).map(|(file, confidence)| {
+            if member && confidence <= confidence::SAME_FILE {
+                (file, confidence::FIRST_PARTY)
+            } else {
+                (file, confidence)
+            }
+        });
+        let (file_scope, files_below_confidence) = self.file_scope(listed, query.min_confidence);
         let (passed_over, candidates) = calls.passed_over(selector, root, Calls::site_count);
-        let ambiguous_uses = if self.sym(root).owner.is_some() {
+        let ambiguous_uses = if member {
             calls.ambiguous.get(&named).copied().unwrap_or(0)
         } else {
             0
@@ -468,8 +486,9 @@ impl Graph {
                     access: access.unwrap_or(Access::Read),
                 })
                 .collect(),
-            below_confidence,
+            below_confidence: below_confidence + files_below_confidence,
             counts,
+            file_scope,
             ambiguous: ambiguous_uses + calls.ambiguous_calls(root),
         })
     }
@@ -496,15 +515,14 @@ impl Graph {
         Some(path)
     }
 
-    /// The files whose top level names the symbol at `root` and sees it, in path order, those under `min_confidence`
-    /// left out, and how many the floor left out.
+    /// The files of `listed`, each with its confidence, in path order, those under `min_confidence` left out, and how
+    /// many the floor left out.
     fn file_scope(
         &self,
-        calls: &Calls<'_>,
-        root: SymbolAt,
+        listed: impl Iterator<Item = (u32, u8)>,
         min_confidence: u8,
     ) -> (Vec<FileScope<'_>>, usize) {
-        let mut files: Vec<(u32, u8)> = calls.file_scope_callers(root).collect();
+        let mut files: Vec<(u32, u8)> = listed.collect();
         let named = files.len();
         files.retain(|&(_, confidence)| confidence >= min_confidence);
         files.sort_unstable_by_key(|&(file, _)| self.path_rank(file));

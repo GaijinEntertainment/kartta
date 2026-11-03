@@ -460,7 +460,7 @@ pub(crate) struct FindReferencesParams {
     pub(crate) languages: Option<Vec<String>>,
     /// Drop sites the resolver is less sure about than this floor: "any" (the default) keeps every site, "likely"
     /// keeps sites backed by module structure and better, "certain" keeps only structurally resolved sites.
-    /// below_confidence= on a match counts the sites the floor dropped.
+    /// below_confidence= on a match counts the sites and the file_scope files the floor dropped.
     #[serde(default)]
     pub(crate) min_confidence: Option<ConfidenceFloor>,
     /// Keep only the uses that read the symbol ("read"), that set it ("write") or that name it as a type ("type"),

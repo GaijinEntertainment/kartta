@@ -516,7 +516,11 @@ export type SelfCall = {
  */
 export type FileScope = {
 	file: string;
-	/** How the file sees the symbol: 80 in the same file, 75 in its package, 70 through an include. */
+	/**
+	 * How the file sees the symbol: 80 in the same file, 75 in its package, 70 through an include; 85 where the top
+	 * level reads the name through the body that types the value, as Ruby's pasted bodies do. In `References` a
+	 * member's file that sees it the first three ways is 15, a guess, as such a name keeps no receiver.
+	 */
 	confidence: number;
 };
 
@@ -616,6 +620,12 @@ export type References = {
 	 * symbol.
 	 */
 	ambiguous: number;
+	/**
+	 * The files whose top level calls or uses the symbol's name and sees the symbol, in path order. They are no sites:
+	 * the graph keeps no line for them and not how they touch the symbol, so neither `limit` nor `access` bounds them.
+	 * `below_confidence` also counts the files the floor left out.
+	 */
+	file_scope?: FileScope[];
 	/**
 	 * Present, and `true`, when `symbol` is a type and its graph records no use of a type where code names it as one,
 	 * such as a declaration, a signature, a generic argument or an import: `sites` then hold only the calls that name

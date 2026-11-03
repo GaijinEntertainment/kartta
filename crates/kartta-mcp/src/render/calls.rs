@@ -234,7 +234,8 @@ fn reference_match(
         .count("updates", counts.updates)
         .count("ambiguous", references.ambiguous)
         .count("below_confidence", references.below_confidence)
-        .count("passed_over", references.passed_over);
+        .count("passed_over", references.passed_over)
+        .count("file_scope", references.file_scope.len());
     let member_note = match symbol.kind.label() {
         "method" => Some(METHOD_NOTE),
         "field" => PARTIAL_DATA_ACCESS
@@ -245,7 +246,7 @@ fn reference_match(
     };
     let unrecorded = Unrecorded::of(conventions, symbol.kind);
     let passed_over = candidates(&references.candidates, "sites");
-    if references.sites.is_empty() {
+    if references.sites.is_empty() && references.file_scope.is_empty() {
         let text = if references.below_confidence > 0 {
             let lists = if keeps_one_access {
                 "min_confidence \"any\" without access lists"
@@ -255,7 +256,7 @@ fn reference_match(
             below_the_floor(
                 "no recorded site",
                 references.below_confidence,
-                ("site binds", "sites bind"),
+                ("use binds", "uses bind"),
                 lists,
             )
         } else {
@@ -272,7 +273,18 @@ fn reference_match(
     let note = (missing.as_deref())
         .or(member_note)
         .map(|note| Element::new("note").inline(note));
-    element.children(note.into_iter().chain(listing.records).chain(passed_over))
+    let file_scope = references.file_scope.iter().map(|user| {
+        Element::new("file_scope")
+            .attr("path", user.file)
+            .optional("confidence", confidence(user.confidence))
+            .close()
+    });
+    element.children(
+        note.into_iter()
+            .chain(listing.records)
+            .chain(file_scope)
+            .chain(passed_over),
+    )
 }
 
 /// The uses of a symbol that its family's graph records nowhere, as the family's conventions state them.
