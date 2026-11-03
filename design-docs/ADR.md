@@ -288,6 +288,7 @@ lost, and what would reopen it.
 - [4.24 Count in each MCP answer what it left out](/design-docs/adr/4.24-mcp-omission-counts.md)
 - [4.44 Refresh on request, and list what the tree fails now](/design-docs/adr/4.44-mcp-refresh-tool.md)
 - [4.61 Read an MCP path argument from the index, and answer a miss with its fault and the paths near it](/design-docs/adr/4.61-mcp-path-arguments.md)
+- [4.62 Read the MCP server's settings from its environment, with a cache and a mapped grep index by default](/design-docs/adr/4.62-mcp-server-environment.md)
 
 ## crates/kartta-node
 
