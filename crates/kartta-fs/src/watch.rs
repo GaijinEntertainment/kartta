@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::CancelToken;
-use crate::build::{BuildError, BuildOptions};
+use crate::build::{BuildError, BuildOptions, PathFault};
 use crate::content::ContentVisitor;
 use crate::index::{Asked, BuildOutcome, Index, RefreshOutcome};
 use crate::policy::Descending;
@@ -118,7 +118,9 @@ impl Watcher {
     /// named as the operating system reported it, so it may be ignored, pruned, inside `.git`, or gone again;
     /// [`Index::refresh_paths`] skips or widens each as it does any path. A name that is not valid UTF-8 is named by
     /// the directory that holds it, and one directly below the root names nothing, since the index holds no such name
-    /// and nothing below it. A notification for the root itself, such as `FSEvents` raises for a change of its times,
+    /// and nothing below it. A name a refresh refuses by its [`PathFault`], one that holds a `\` or a first name that
+    /// starts with a drive such as `C:`, both legal outside Windows, is named by the directory that holds it too, and
+    /// one directly below the root makes the batch the whole tree, since the index holds it. A notification for the root itself, such as `FSEvents` raises for a change of its times,
     /// names nothing either: a change of an entry inside it is reported for that entry. A path outside the tree names
     /// nothing. The batch is the empty path alone, the whole tree, when changes were dropped before they could be
     /// handed over: an inotify queue that overflowed, an error notify hands over in place of a notification, an
@@ -192,17 +194,38 @@ impl Watcher {
         if found.lost || found.unread > 0 {
             return Ok(vec![String::new()]);
         }
-        let paths: BTreeSet<String> = found
+        let mut paths = BTreeSet::new();
+        for named in found
             .paths
             .into_iter()
             .filter_map(|path| relative(&path, &self.prefixes))
             // constraint: the root's own path, and a name directly below it that is not valid UTF-8, name no entry the
             // index holds, and the root's deletion or move has ended the batch already
             .filter(|named| !named.is_empty())
-            .collect();
+        {
+            let Some(part) = refreshable(named) else {
+                return Ok(vec![String::new()]);
+            };
+            paths.insert(part);
+        }
 
         Ok(paths.into_iter().collect())
     }
+}
+
+/// `named` as [`Index::refresh_paths`] takes it: whole, or cut to the directory that holds its first name a refresh
+/// refuses, one that holds a `\` or a first name that starts with a drive, which outside Windows are names like any
+/// other. `None` when that directory is the root, which only a refresh of the whole tree walks again.
+fn refreshable(mut named: String) -> Option<String> {
+    let refused = match PathFault::of(&named) {
+        None => return Some(named),
+        Some(PathFault::Backslash) => named.find('\\').unwrap_or(0),
+        Some(_) => 0,
+    };
+    let holder = named[..refused].rfind('/')?;
+    named.truncate(holder);
+    named.shrink_to_fit();
+    Some(named)
 }
 
 impl Index {
@@ -576,6 +599,51 @@ mod tests {
         };
 
         assert_eq!(watcher.changes(found).expect("the root is there"), ["a.rs"]);
+    }
+
+    #[test]
+    fn a_name_a_refresh_refuses_is_named_by_the_directory_that_holds_it() {
+        for (named, part) in [
+            ("src/a.rs", Some("src/a.rs")),
+            ("src/C:x/a.rs", Some("src/C:x/a.rs")),
+            ("src/lib/a\\b/c.rs", Some("src/lib")),
+            ("src/a\\b.rs", Some("src")),
+            ("a\\b.rs", None),
+            ("C:x/a.rs", None),
+        ] {
+            let refreshed = refreshable(named.to_owned());
+
+            assert_eq!(refreshed.as_deref(), part, "{named:?}");
+            assert!(
+                refreshed.is_none_or(|part| part.len() == part.capacity()),
+                "{named:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_name_a_refresh_refuses_directly_below_the_root_makes_the_batch_the_whole_tree() {
+        let tree = tempfile::tempdir().expect("a tree");
+        let watcher = Watcher::start(tree.path()).expect("start watching");
+        let root = watcher.prefixes[0].0.clone();
+        let below = Found {
+            paths: vec![root.join("src/a\\b.rs"), root.join("a.rs")],
+            ..Found::default()
+        };
+        let at_the_root = Found {
+            paths: vec![root.join("a.rs"), root.join("C:x")],
+            ..Found::default()
+        };
+
+        assert_eq!(
+            watcher.changes(below).expect("the root is there"),
+            ["a.rs", "src"]
+        );
+        assert_eq!(
+            watcher.changes(at_the_root).expect("the root is there"),
+            [""]
+        );
     }
 
     #[test]
