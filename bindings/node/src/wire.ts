@@ -417,6 +417,12 @@ export type Reached = {
 	confidence: number;
 	/** The line of the call. */
 	line: number;
+	/**
+	 * In a walk over callers, the method the call binds where it reaches the called method only through it: a method of
+	 * the same name that an interface, a trait or a base class of the called method's owner declares, so the call runs
+	 * whichever implementation the value holds. Absent for a call that binds the called symbol itself.
+	 */
+	through?: Definition;
 };
 
 /** A symbol a name also selects that the answer passed over, and the count the query ranked it by. */

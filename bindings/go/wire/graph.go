@@ -142,6 +142,10 @@ type Reached struct {
 	Confidence int        `json:"confidence"`
 	// Line is the line of the call.
 	Line int `json:"line"`
+	// Through is, in a walk over callers, the method the call binds where it reaches the called method only through
+	// it: a method of the same name that an interface, a trait or a base class of the called method's owner declares,
+	// so the call runs whichever implementation the value holds. Nil for a call that binds the called symbol itself.
+	Through *Definition `json:"through,omitempty"`
 }
 
 // Definition is a symbol a graph holds, where it is defined.
