@@ -342,6 +342,40 @@ fn an_index_inside_a_repository_names_the_top_whose_rules_it_did_not_read_unless
 }
 
 #[test]
+fn a_root_that_is_not_an_absolute_readable_directory_is_refused_and_the_index_stays() {
+    let tree = go_module();
+    let missing = tree.path().join("missing");
+    let file = tree.path().join("go.mod");
+    let mut client = Client::start(&[]);
+    let indexed = client.index(tree.path());
+
+    let refused: Vec<String> = [json!(missing), json!(file), json!("."), json!("")]
+        .iter()
+        .map(|root| {
+            let answer = client.call("index_repo", &json!({"root": root}));
+            assert!(answer.is_error, "{root} was indexed: {}", answer.text);
+            answer.text
+        })
+        .collect();
+
+    assert_eq!(client.answer("index_stats", &json!({})), indexed);
+    for (refusal, root) in refused[..2].iter().zip([&missing, &file]) {
+        assert!(
+            refusal.starts_with(&format!("cannot index {}: ", root.display()))
+                && refusal.ends_with(" - pass the absolute path of a readable directory"),
+            "{refusal}"
+        );
+    }
+    assert_eq!(
+        refused[2..],
+        [
+            "the root \".\" is not an absolute path - pass the repository's absolute path",
+            "the root \"\" is not an absolute path - pass the repository's absolute path",
+        ]
+    );
+}
+
+#[test]
 fn a_root_given_at_launch_builds_without_index_repo() {
     let tree = go_module();
     let mut client = Client::start(&[tree.path()]);
