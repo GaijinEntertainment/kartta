@@ -7,7 +7,9 @@ mod unused;
 
 use std::fmt::Display;
 
-use kartta::{Definition, Hit, Resolution, Selector, SymbolFlags, SymbolKind, UnmatchedKind};
+use kartta::{
+    Definition, Engine, Hit, Resolution, Selector, SymbolFlags, SymbolKind, UnmatchedKind,
+};
 
 pub(crate) use self::calls::{
     CallersAsk, PathAsk, call_path, callees, callers, change, impact, references,
@@ -48,18 +50,48 @@ fn span(definition: &Definition<'_>) -> String {
     }
 }
 
-/// Why no code graph answers for a file the index holds: no language claims it, or the graph of `family`, which
-/// claims it, holds no record of it.
-fn graphless(family: Option<&str>) -> String {
-    family.map_or_else(
-        || "no indexed language claims this file, so no code graph holds it - read or grep it".to_owned(),
-        |family| {
-            format!(
+/// Why no code graph answers for a file the index holds.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Graphless<'e> {
+    /// No indexed language claims the file or declines it.
+    Unclaimed,
+    /// `language` leaves the file, one of its kind, out of its graph for `reason`.
+    Declined { language: &'e str, reason: &'e str },
+    /// The graph of this family claims the file and holds no record of it.
+    Unheld(&'e str),
+}
+
+impl<'e> Graphless<'e> {
+    /// Why no graph answers for `file`, which the graph of `family` claims, or no graph when `family` is `None`.
+    pub(crate) fn of(engine: &'e Engine, file: &str, family: Option<&'e str>) -> Self {
+        family.map_or_else(
+            || {
+                engine
+                    .declined(file)
+                    .map_or(Self::Unclaimed, |(language, reason)| Self::Declined {
+                        language,
+                        reason,
+                    })
+            },
+            Self::Unheld,
+        )
+    }
+
+    fn note(self) -> String {
+        let why = match self {
+            Self::Unclaimed => {
+                "no indexed language claims this file, so no code graph holds it".to_owned()
+            }
+            Self::Declined { language, reason } => {
+                format!("the {language} language leaves this file out of its graph: {reason}")
+            }
+            Self::Unheld(family) => format!(
                 "the {family} graph claims this file and holds no record of it, one of the files index_stats counts \
-                 in unheld - read or grep it"
-            )
-        },
-    )
+                 in unheld"
+            ),
+        };
+        format!("{why} - read or grep it")
+    }
 }
 
 fn file_element(path: &str) -> String {
