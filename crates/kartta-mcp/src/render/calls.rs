@@ -9,7 +9,7 @@ use kartta::{
 
 use super::{
     Asked, Unmatched, candidate, confidence, edge_role, empty_languages_note, file_element, flat,
-    kind, loc, named, noted, qn, role, span, unresolved,
+    graphless, kind, loc, named, noted, qn, role, span, unresolved,
 };
 use crate::llmxml::Element;
 
@@ -447,8 +447,14 @@ fn site_records<'g>(sites: &[Reference<'g>]) -> Vec<SiteRecord<'g>> {
 
 /// The `impact_of_edit` answer: a `<symbol>` per definition the lines overlap, with its direct callers and callees
 /// and the reach of a change to it, and the files the file includes and is included by. A field, a variable or a
-/// constant lists its users in place of its callers, because its users hold them.
-pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>>) -> String {
+/// constant lists its users in place of its callers, because its users hold them. `family` names the graph that claims
+/// a file no graph answers for.
+pub(crate) fn impact(
+    file: &str,
+    lines: (u32, u32),
+    family: Option<&str>,
+    segment: Option<&Segment<'_>>,
+) -> String {
     const NO_SYMBOLS: &str = "no symbols defined in this range - it may cover only file-scope code (imports, \
                               comments); zero symbols is not proof the edit is safe";
     let (start_line, end_line) = lines;
@@ -462,10 +468,7 @@ pub(crate) fn impact(file: &str, lines: (u32, u32), segment: Option<&Segment<'_>
         .attr("start_line", start_line)
         .attr("end_line", end);
     let Some(segment) = segment else {
-        return element.attr("symbols", 0).inline(
-            "not in a code graph - an unrecognized extension, a language not indexed, or a path the index does not \
-             hold: pass a repo-relative path as printed by find_files",
-        );
+        return element.attr("symbols", 0).inline(&graphless(family));
     };
     let element = element.attr("symbols", segment.symbols.len());
     let has_includes = !segment.includes.is_empty() || !segment.included_by.is_empty();
