@@ -5,6 +5,7 @@ import {expect, onTestFinished, test} from 'vite-plus/test';
 import {Kartta, KarttaError, type Methods} from '../src/kartta.ts';
 import analyzeChangeConsumerDirs from '../../../crates/kartta-ffi/tests/golden/analyze_change-consumer_dirs.json' with {type: 'json'};
 import analyzeChangeHotspots from '../../../crates/kartta-ffi/tests/golden/analyze_change-hotspots.json' with {type: 'json'};
+import analyzeChangeUnheld from '../../../crates/kartta-ffi/tests/golden/analyze_change-unheld.json' with {type: 'json'};
 import analyzeChangeUsers from '../../../crates/kartta-ffi/tests/golden/analyze_change-users.json' with {type: 'json'};
 import analyzeChange from '../../../crates/kartta-ffi/tests/golden/analyze_change.json' with {type: 'json'};
 import analyzeSegmentBounds from '../../../crates/kartta-ffi/tests/golden/analyze_segment-bounds.json' with {type: 'json'};
@@ -109,6 +110,7 @@ type Goldens = typeof goldens;
 const laterGoldens = {
 	'analyze_change-consumer_dirs': analyzeChangeConsumerDirs,
 	'analyze_change-hotspots': analyzeChangeHotspots,
+	'analyze_change-unheld': analyzeChangeUnheld,
 	'analyze_change-users': analyzeChangeUsers,
 	'analyze_segment-bounds': analyzeSegmentBounds,
 	'analyze_segment-declined': analyzeSegmentDeclined,

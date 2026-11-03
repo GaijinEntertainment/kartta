@@ -607,19 +607,31 @@ type Region struct {
 	EndLine int `json:"end_line,omitempty"`
 }
 
-// Change is the answer of analyze_change: what a change to regions across files reaches.
+// Change is the answer of analyze_change: what a change to regions across files reaches. UnheldRegions counts the
+// regions whose file no graph holds; of them, MissingRegions counts those whose path the index does not hold,
+// UnclaimedRegions those of held files no language claims or declines, and Declined those of held files a language
+// leaves out of its graph. The rest are regions of held files the graph claiming them holds no record of.
 type Change struct {
-	ChangedSymbols        int       `json:"changed_symbols"`
-	ChangedFiles          int       `json:"changed_files"`
-	UnheldRegions         int       `json:"unheld_regions"`
-	RegionsOutsideSymbols int       `json:"regions_outside_symbols"`
-	Footprint             int       `json:"footprint"`
-	FootprintFiles        int       `json:"footprint_files"`
-	TransitiveSum         int       `json:"transitive_sum"`
-	Hotspots              []Hotspot `json:"hotspots"`
-	TotalHotspots         int       `json:"total_hotspots"`
-	Seeds                 []Seed    `json:"seeds"`
-	TruncatedSeeds        int       `json:"truncated_seeds"`
+	ChangedSymbols        int               `json:"changed_symbols"`
+	ChangedFiles          int               `json:"changed_files"`
+	UnheldRegions         int               `json:"unheld_regions"`
+	RegionsOutsideSymbols int               `json:"regions_outside_symbols"`
+	Footprint             int               `json:"footprint"`
+	FootprintFiles        int               `json:"footprint_files"`
+	TransitiveSum         int               `json:"transitive_sum"`
+	Hotspots              []Hotspot         `json:"hotspots"`
+	TotalHotspots         int               `json:"total_hotspots"`
+	Seeds                 []Seed            `json:"seeds"`
+	TruncatedSeeds        int               `json:"truncated_seeds"`
+	MissingRegions        int               `json:"missing_regions"`
+	UnclaimedRegions      int               `json:"unclaimed_regions"`
+	Declined              []DeclinedRegions `json:"declined"`
+}
+
+// DeclinedRegions counts the regions of held files that one language leaves out of its graph for one reason.
+type DeclinedRegions struct {
+	Declined
+	Regions int `json:"regions"`
 }
 
 // Hotspot is a symbol several changed symbols reach.

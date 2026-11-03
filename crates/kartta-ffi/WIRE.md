@@ -58,8 +58,8 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
 
 ### Methods
 
-- `analyze_change`: params [`ChangeParams`](#changeparams), answer [`Change`](#change). What a change to regions across
-  files reaches. It asks every graph.
+- `analyze_change`: params [`ChangeParams`](#changeparams), answer [`ChangeView`](#changeview). What a change to regions
+  across files reaches. It asks every graph.
 - `analyze_segment`: params [`SegmentParams`](#segmentparams), answer [`FileView`](#fileview) of
   [`Segment`](#segment). What a change to a range of a file's lines reaches.
 - `build`: params [`BuildParams`](#buildparams), answer [`StatsAnswer`](#statsanswer). Walks the tree once and builds
@@ -901,11 +901,27 @@ The fields of [`Lines`](#lines), and:
   symbol itself at a depth of 0, and those the symbol cap left.
 - `below_confidence` (integer, always): The calls under the confidence floor.
 
+### ChangeView
+
+The fields of [`Change`](#change), and why no graph holds each region `unheld_regions` counts:
+
+- `missing_regions` (integer, always): The regions whose path the index does not hold.
+- `unclaimed_regions` (integer, always): The regions of held files that no language claims or declines.
+- `declined` (array of [`DeclinedRegionsView`](#declinedregionsview), always): The regions of held files that a
+  language leaves out of its graph, per language and reason, in the order the regions first name them. The rest of
+  `unheld_regions` are regions of held files that the graph claiming them holds no record of.
+
+### DeclinedRegionsView
+
+The fields of [`DeclinedView`](#declinedview), and:
+
+- `regions` (integer, always): The regions that name a file the language leaves out for that reason.
+
 ### Change
 
 - `changed_symbols` (integer, always): The symbols the regions overlap.
 - `changed_files` (integer, always): The files whose symbols the regions overlap.
-- `unheld_regions` (integer, always): The regions whose file the graph asked does not hold.
+- `unheld_regions` (integer, always): The regions whose file no graph holds.
 - `regions_outside_symbols` (integer, always): The regions of held files that overlap no symbol.
 - `footprint` (integer, always): The symbols the walks over the changed symbols' callers reach, each once.
 - `footprint_files` (integer, always): The files that hold them.

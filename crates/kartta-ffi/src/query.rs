@@ -7,7 +7,7 @@ use crate::built::{Built, Matches};
 use crate::error::Error;
 use crate::wire::files::{FuzzyParams, FuzzyView, GlobParams, GlobView, ListParams, ListView};
 use crate::wire::graph::{
-    CallersView, DefinitionsView, FileView, OutlineView, ReferencesView, Wired,
+    CallersView, ChangeView, DefinitionsView, FileView, OutlineView, ReferencesView, Wired,
 };
 use crate::wire::params::{
     CALLEES_DEPTH, CALLERS_DEPTH, CallPathParams, ChangeParams, DeadCodeParams, DefinitionsParams,
@@ -233,11 +233,8 @@ fn analyze_change(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         .iter()
         .map(|region| Region::new(&region.file, region.lines()))
         .collect();
-    wire::ok(&Wired(
-        built
-            .engine
-            .analyze_change(&regions, params.limits())
-            .change,
+    wire::ok(&ChangeView::new(
+        built.engine.analyze_change(&regions, params.limits()),
     ))
 }
 
