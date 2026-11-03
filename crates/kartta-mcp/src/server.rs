@@ -27,7 +27,7 @@ use crate::params::{
     FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
     IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams, RefreshParams,
 };
-use crate::paths::relative;
+use crate::paths::{self, Wanted, held_file, held_prefix, misspelled, relative};
 use crate::render::{
     self, CallersAsk, Found, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion, Unmatched,
     UnusedAsk,
@@ -371,8 +371,8 @@ impl Server {
                        watch=\"following\" the index does this by itself; call refresh when it shows watch off, or \
                        after a change made where notifications do not reach, such as a network mount or a container \
                        bind mount. Pass the repo-relative 'paths' that changed, with / between names, or omit them to \
-                       check the whole tree; a path that is absolute, starts with a drive such as C: or holds a \
-                       backslash is refused, and nothing is refreshed. \
+                       check the whole tree; a path that is absolute, starts with a drive such as C:, or holds a \
+                       backslash or a .. name is refused, and nothing is refreshed. \
                        Returns a <refresh> envelope: walked= the parts walked again (\"tree\" for all), then each \
                        only when it is not zero - added and removed files, extracted (files parsed again), \
                        resolved_again (other files whose calls or includes bind anew), dropped (files no graph holds \
@@ -595,14 +595,11 @@ impl Server {
             None
         };
         let path = p.path.unwrap_or_default();
-        if path.starts_with('/') {
-            return Err(format!(
-                "{path:?} is absolute - pass a repo-relative directory path as printed by find_files; \".\" lists the root"
-            ));
-        }
-        let dir = match relative(&path).trim_end_matches('/') {
+        let asked = relative(&path);
+        let dir = match asked.trim_end_matches('/') {
+            "" if asked.starts_with('/') => asked.to_owned(),
             "." => String::new(),
-            path => path.to_owned(),
+            dir => dir.to_owned(),
         };
         self.answer(move |indexed| {
             let mut options = ListOptions::default()
@@ -614,11 +611,11 @@ impl Server {
             if let Some(dotfiles) = &dotfiles {
                 options = options.exclude(dotfiles);
             }
-            let listing = indexed
-                .engine
-                .index()
+            let index = indexed.engine.index();
+            let listing = index
                 .list(&dir, &options)
                 .map_err(|error| match error {
+                    ListError::NotFound { .. } => paths::unheld(index, &dir, Wanted::Dir),
                     ListError::NotADirectory { .. } => format!("{error} - list its parent directory instead"),
                     error => format!(
                         "{error} - pass a repo-relative directory path as printed by find_files; \".\" lists the root"
@@ -781,7 +778,12 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limit = p.limit.map_or(DEFINITIONS, NonZeroUsize::get);
-            let from = p.from.as_deref().map(relative);
+            let from = p
+                .from
+                .as_deref()
+                .map(|from| held_file(indexed.engine.index(), from))
+                .transpose()
+                .map_err(|error| format!("from: {error}"))?;
             let searched = selected(indexed, p.languages.as_deref());
             let per_name: Vec<(usize, Vec<Nearest<'_>>, Option<String>)> = p
                 .names
@@ -879,8 +881,9 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let searched = selected(indexed, p.languages.as_deref());
-            let written = Selector::new(&p.name, p.path_prefix.as_deref().map(relative))
-                .with_line(p.line.map(NonZeroU32::get));
+            let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
+            let written =
+                Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
             let (mut found, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [written],
@@ -930,7 +933,7 @@ impl Server {
         Parameters(p): Parameters<FileParams>,
     ) -> Result<String, String> {
         self.answer(move |indexed| {
-            let file = relative(&p.file);
+            let file = held_file(indexed.engine.index(), &p.file)?;
             let dependents = indexed
                 .engine
                 .graph_of(file)
@@ -952,13 +955,13 @@ impl Server {
                        signature; a definition with neither starts outside every other listed one or on such a line; \
                        kind; lines=\"start-end\" (the definition's full span, nested definitions inside their \
                        enclosing one's span); and sig, the declaration, omitted when none was captured. Read the one \
-                       span you need instead of the whole file or a guessed window. A path no code graph holds and a \
-                       held file with no recorded definition both report symbols=\"0\", told apart by the note. For \
+                       span you need instead of the whole file or a guessed window. A file no code graph holds and a \
+                       file with no recorded definition both report symbols=\"0\", told apart by the note. For \
                        callers and reach of a range use impact_of_edit. Requires index_repo first."
     )]
     async fn file_outline(&self, Parameters(p): Parameters<FileParams>) -> Result<String, String> {
         self.answer(move |indexed| {
-            let file = relative(&p.file);
+            let file = held_file(indexed.engine.index(), &p.file)?;
             let outline = indexed
                 .engine
                 .graph_of(file)
@@ -1004,10 +1007,16 @@ impl Server {
                 .with_max_symbols(PATH_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let written = [
-                Selector::new(&p.from, p.from_path_prefix.as_deref().map(relative))
-                    .with_line(p.from_line.map(NonZeroU32::get)),
-                Selector::new(&p.to, p.to_path_prefix.as_deref().map(relative))
-                    .with_line(p.to_line.map(NonZeroU32::get)),
+                Selector::new(
+                    &p.from,
+                    prefix_of(indexed, "from_path_prefix", p.from_path_prefix.as_deref())?,
+                )
+                .with_line(p.from_line.map(NonZeroU32::get)),
+                Selector::new(
+                    &p.to,
+                    prefix_of(indexed, "to_path_prefix", p.to_path_prefix.as_deref())?,
+                )
+                .with_line(p.to_line.map(NonZeroU32::get)),
             ];
             let (paths, [from_read_as, to_read_as]) = ask_reading(
                 searched.iter().copied(),
@@ -1095,8 +1104,9 @@ impl Server {
         self.answer(move |indexed| {
             let floor = p.min_confidence.unwrap_or_default().floor();
             let searched = selected(indexed, p.languages.as_deref());
-            let written = Selector::new(&p.name, p.path_prefix.as_deref().map(relative))
-                .with_line(p.line.map(NonZeroU32::get));
+            let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
+            let written =
+                Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
             let (found, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [written],
@@ -1167,7 +1177,7 @@ impl Server {
         }
         self.answer(move |indexed| {
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
-            let file = relative(&p.file);
+            let file = held_file(indexed.engine.index(), &p.file)?;
             let segment = indexed
                 .engine
                 .graph_of(file)
@@ -1216,8 +1226,14 @@ impl Server {
         Parameters(p): Parameters<ImpactOfChangeParams>,
     ) -> Result<String, String> {
         let limit = p.limit.map_or(CHANGE_LISTED, NonZeroUsize::get);
-        let changed = changed_regions(p.regions.unwrap_or_default(), p.diff.as_deref())?;
+        let regions = p.regions.unwrap_or_default();
+        let named = regions.len();
+        let changed = changed_regions(regions, p.diff.as_deref())?;
         self.answer(move |indexed| {
+            for (at, region) in changed.iter().take(named).enumerate() {
+                held_file(indexed.engine.index(), &region.path)
+                    .map_err(|error| format!("regions[{at}]: {error}"))?;
+            }
             let regions: Vec<Region<'_>> = changed
                 .iter()
                 .map(|changed| Region::new(&changed.path, changed.lines.clone()))
@@ -1258,7 +1274,7 @@ impl Server {
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limit = p.limit.map_or(UNUSED, NonZeroUsize::get);
-            let path_prefix = p.path_prefix.as_deref().map(relative);
+            let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
             let judged: Vec<_> = selected(indexed, p.languages.as_deref())
                 .into_iter()
                 .map(|(family, graph)| (family, graph.dead_code(&[], path_prefix, limit)))
@@ -1333,8 +1349,9 @@ impl Server {
                 .with_min_confidence(p.min_confidence.unwrap_or_default().floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
-            let written = Selector::new(&p.name, p.path_prefix.as_deref().map(relative))
-                .with_line(p.line.map(NonZeroU32::get));
+            let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
+            let written =
+                Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [written],
@@ -1401,8 +1418,9 @@ impl Server {
                 .with_min_confidence(p.min_confidence.unwrap_or_default().floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
-            let written = Selector::new(&p.name, p.path_prefix.as_deref().map(relative))
-                .with_line(p.line.map(NonZeroU32::get));
+            let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
+            let written =
+                Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [written],
@@ -1449,7 +1467,9 @@ impl ServerHandler for Server {
              answer - and cross-language links (e.g. FFI) are not traced. The file tools (find_files, glob_files, \
              grep, list_dir, find_importers, file_outline, impact_of_edit, impact_of_change) span all languages \
              and take \
-             repo-relative paths as returned by find_files / glob_files. An answer a cap, a depth limit or a filter \
+             repo-relative paths as returned by find_files / glob_files; a path or a path_prefix the index does not \
+             hold is a tool error naming what is wrong with it and the nearest paths it holds. An answer a cap, a \
+             depth limit or a filter \
              cut says how much it left out in its attributes. Intent map: locate a file by name -> find_files; list \
              files matching a glob -> glob_files; see what one directory contains -> list_dir; find lines of text \
              by regex / quote the exact code -> grep; where is X defined -> find_symbols; where in this known file \
@@ -1504,22 +1524,17 @@ fn changed_regions(
     Ok(changed)
 }
 
-/// What keeps `path` from naming a part of the tree, which the index spells from the root with `/` between names: a
-/// leading `/` or `\`, a drive such as `C:`, or a `\` between names. `None` when it has none of them.
-fn misspelled(path: &str) -> Option<String> {
-    if path.starts_with(['/', '\\']) {
-        return Some(format!("{path:?} is absolute"));
-    }
-    if let [drive, b':', ..] = path.as_bytes()
-        && drive.is_ascii_alphabetic()
-    {
-        return Some(format!(
-            "{path:?} starts with the drive {}:",
-            char::from(*drive)
-        ));
-    }
-    path.contains('\\')
-        .then(|| format!("{path:?} separates its names with \\"))
+/// The path prefix a call names in its parameter `parameter`, read as [`held_prefix`] reads it, or `None` when it names
+/// none.
+fn prefix_of<'p>(
+    indexed: &Indexed,
+    parameter: &str,
+    prefix: Option<&'p str>,
+) -> Result<Option<&'p str>, String> {
+    prefix
+        .map(|prefix| held_prefix(indexed.engine.index(), prefix))
+        .transpose()
+        .map_err(|error| format!("{parameter}: {error}"))
 }
 
 /// `name` as a glob that matches it literally: each character the glob dialect gives a meaning to is escaped.
