@@ -12,7 +12,7 @@ use kartta::{Definition, Hit, Resolution, Selector, SymbolFlags, SymbolKind, Unm
 pub(crate) use self::calls::{
     CallersAsk, PathAsk, call_path, callees, callers, change, impact, references,
 };
-pub(crate) use self::files::{dir, globbed, grep, paths};
+pub(crate) use self::files::{Selection, dir, globbed, grep, paths};
 pub(crate) use self::symbols::{
     Found, NameDefinitions, Read, definitions, hits, implementations, importers, outline,
 };

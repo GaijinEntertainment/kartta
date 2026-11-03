@@ -1,19 +1,68 @@
 use std::fmt::Write;
 
-use kartta_fs::{Capped, EntryKind, Failure, Line, LineKind, Listing, Matches, Paths};
+use kartta_fs::{Capped, EntryKind, Failure, Index, Line, LineKind, Listing, Matches, Paths};
 
 use crate::llmxml::{Element, List};
+use crate::paths::GLOB_CHARACTERS;
 
 /// How many unreadable files a `grep` answer lists before it counts the rest.
 const LISTED_FAILURES: usize = 5;
 
+/// The index a file tool searched and the globs that selected its files, which an empty answer reads for a glob that
+/// names a directory.
+pub(crate) struct Selection<'a> {
+    pub(crate) index: &'a Index,
+    pub(crate) globs: &'a [String],
+}
+
+impl Selection<'_> {
+    /// `" - "` and the fix for the globs that hold no glob character and name a directory the index holds, which a
+    /// glob never matches since it selects files alone; empty when no glob does.
+    fn directories(&self) -> String {
+        let dirs: Vec<&str> = self
+            .globs
+            .iter()
+            .map(|glob| glob.strip_suffix('/').unwrap_or(glob))
+            .filter(|glob| {
+                !glob.contains(GLOB_CHARACTERS)
+                    && !glob.contains('\\')
+                    && self
+                        .index
+                        .entry(glob)
+                        .is_some_and(|entry| entry.kind() == EntryKind::Dir)
+            })
+            .collect();
+        let quoted = |suffix: &str| {
+            dirs.iter()
+                .map(|dir| format!("{:?}", format!("{dir}{suffix}")))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let (named, selects, them) = match dirs.len() {
+            0 => return String::new(),
+            1 => ("the directory", "selects", "it"),
+            _ => ("the directories", "select", "them"),
+        };
+        format!(
+            " - a glob matches files alone, so {named} {} {selects} nothing: pass {} for the files beneath {them}",
+            quoted(""),
+            quoted("/**")
+        )
+    }
+}
+
 /// The `find_files` answer: the paths one per line, best first, and a last line counting the `matched` paths when the
 /// cap cut them. The order says the paths left out rank lower; the count says how many, so an agent knows whether to
 /// narrow the pattern.
-pub(crate) fn paths(pattern: &str, paths: List, matched: Option<usize>) -> String {
+pub(crate) fn paths(
+    pattern: &str,
+    paths: List,
+    matched: Option<usize>,
+    includes: &Selection<'_>,
+) -> String {
     let shown = paths.len();
     if shown == 0 {
-        return format!("no files match {pattern:?}");
+        return format!("no files match {pattern:?}{}", includes.directories());
     }
     let mut answer = paths.into_text();
     if let Some(matched) = matched.filter(|&matched| matched > shown) {
@@ -28,16 +77,21 @@ pub(crate) fn paths(pattern: &str, paths: List, matched: Option<usize>) -> Strin
 /// The `glob_files` answer: the paths one per line, in path order, and a last line saying so when the cap cut them,
 /// since paths in path order look the same whether or not more follow, and a last line counting the matches the
 /// excludes removed.
-pub(crate) fn globbed(globs: &str, found: &Capped<'_>, paths: &mut Paths<'_>) -> String {
+pub(crate) fn globbed(globs: &Selection<'_>, found: &Capped<'_>) -> String {
     let excluded = found.excluded();
     let shown = found.items().len();
     if shown == 0 {
+        let joined = globs.globs.join(", ");
+        let directories = globs.directories();
         return if excluded == 0 {
-            format!("no files match {globs}")
+            format!("no files match {joined}{directories}")
         } else {
-            format!("no files match {globs} outside the excludes (excludes removed: {excluded})")
+            format!(
+                "no files match {joined} outside the excludes (excludes removed: {excluded}){directories}"
+            )
         };
     }
+    let mut paths = globs.index.paths();
     let mut listed = List::default();
     for &position in found.items() {
         listed.push(paths.get(position));
@@ -57,7 +111,7 @@ pub(crate) fn globbed(globs: &str, found: &Capped<'_>, paths: &mut Paths<'_>) ->
 
 /// The `grep` answer: a `<file>` block per matched file, in path order, with `N:text` for a match and `N-text` for
 /// context, `--` between regions that do not touch, the unreadable files, and what the search did not cover.
-pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, paths: &mut Paths<'_>) -> String {
+pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, includes: &Selection<'_>) -> String {
     let element = Element::new("grep")
         .attr("patterns", patterns.join(", "))
         .attr("candidates", matches.candidates())
@@ -71,17 +125,26 @@ pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, paths: &mut Paths
         .count("ruled_out", matches.ruled_out())
         .count("symlinks", matches.symlinks());
     if matches.candidates() == 0 {
-        return element.inline(if matches.symlinks() == 0 {
+        let directories = includes.directories();
+        if matches.symlinks() > 0 {
+            return element.inline(&format!(
+                "the include/exclude globs selected symlinks alone, which are never read through - include their \
+                 targets{directories}"
+            ));
+        }
+        return element.inline(&if directories.is_empty() {
             "the include/exclude globs selected no files - glob_files shows what they match"
+                .to_owned()
         } else {
-            "the include/exclude globs selected symlinks alone, which are never read through - include their targets"
+            format!("the include/exclude globs selected no files{directories}")
         });
     }
     if matches.files().is_empty() && matches.failures().is_empty() {
-        return element.inline(&no_match_hint(patterns, matches));
+        return element.inline(&(no_match_hint(patterns, matches) + &includes.directories()));
     }
 
-    let failures = failures_block(matches.failures(), paths);
+    let mut paths = includes.index.paths();
+    let failures = failures_block(matches.failures(), &mut paths);
     let blocks = matches
         .files()
         .iter()
@@ -224,7 +287,7 @@ const fn kind(kind: EntryKind) -> &'static str {
 mod tests {
     use kartta_fs::{BuildOptions, Filter, GlobOptions, Index};
 
-    use super::globbed;
+    use super::{Selection, globbed};
 
     #[test]
     fn a_glob_answer_keeps_a_path_with_a_line_break_on_its_line() {
@@ -235,11 +298,16 @@ mod tests {
         let index = Index::build(dir.path(), &BuildOptions::default())
             .expect("build")
             .index;
-        let every = Filter::new(["**"]).expect("compile");
+        let globs = ["**".to_owned()];
+        let every = Filter::new(&globs).expect("compile");
         let found = index.glob(&every, &GlobOptions::default().limit(2));
+        let selection = Selection {
+            index: &index,
+            globs: &globs,
+        };
 
         assert_eq!(
-            globbed("**", &found, &mut index.paths()),
+            globbed(&selection, &found),
             "a.rs\n\"b\\nc.rs\"\n(truncated: the first 2 matching paths in path order; more match)"
         );
     }
