@@ -234,7 +234,10 @@ fn analyze_change(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         .map(|region| Region::new(&region.file, region.lines()))
         .collect();
     wire::ok(&Wired(
-        built.engine.analyze_change(&regions, params.limits()),
+        built
+            .engine
+            .analyze_change(&regions, params.limits())
+            .change,
     ))
 }
 

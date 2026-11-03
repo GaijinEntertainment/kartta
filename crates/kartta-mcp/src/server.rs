@@ -1289,7 +1289,7 @@ impl Server {
                 .map(|changed| Region::new(&changed.path, changed.lines.clone()))
                 .collect();
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
-            let change = indexed.engine.analyze_change(&regions, limits);
+            let change = indexed.engine.analyze_change(&regions, limits).change;
             Ok(render::change(regions.len(), &change, limit))
         })
         .await
