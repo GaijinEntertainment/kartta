@@ -59,6 +59,12 @@ impl Language for Defs {
         path.ends_with(self.extension)
     }
 
+    fn declines(&self, path: &str) -> Option<&str> {
+        path.strip_suffix(".off")
+            .is_some_and(|path| path.ends_with(self.extension))
+            .then_some("a file switched off is read by no build")
+    }
+
     fn fingerprint(&self) -> &[u8] {
         b"defs 1"
     }
@@ -323,6 +329,33 @@ fn languages_of_one_family_share_a_graph_and_the_first_to_claim_a_file_takes_it(
         .map(|(family, graph)| (family, graph.stats().files))
         .collect();
     assert_eq!(files, [("shared", 2), ("other", 0)]);
+}
+
+#[test]
+fn the_first_language_to_decline_a_file_names_itself_and_its_reason() {
+    let tree = tree(&[
+        ("a.alpha", "def a\n"),
+        ("b.alpha.off", "def b\n"),
+        ("c.md", "def c\n"),
+    ]);
+
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![
+            Box::new(Defs::new("beta", "other", ".beta")),
+            Box::new(Defs::new("alpha", "shared", ".alpha")),
+            Box::new(Defs::new("gamma", "other", ".alpha")),
+        ],
+    );
+
+    assert!(engine.graph_of("b.alpha.off").is_none());
+    assert_eq!(
+        engine.declined("b.alpha.off"),
+        Some(("alpha", "a file switched off is read by no build"))
+    );
+    assert_eq!(engine.declined("a.alpha"), None);
+    assert_eq!(engine.declined("c.md"), None);
 }
 
 fn shared_family() -> (Defs, Defs) {

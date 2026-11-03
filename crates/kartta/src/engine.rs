@@ -524,6 +524,15 @@ impl Engine {
         Some((&family.name, &family.graph))
     }
 
+    /// The name of the first language that leaves the file at `path` out of its graph, a file of its kind it does not
+    /// claim, and the reason it [states](Language::declines); `None` when no language does.
+    #[must_use]
+    pub fn declined(&self, path: &str) -> Option<(&str, &str)> {
+        self.languages
+            .iter()
+            .find_map(|language| Some((language.name(), language.declines(path)?)))
+    }
+
     /// What a change to the lines of `regions` reaches, across the families whose languages claim their files: each
     /// family's graph analyzes the regions of its files as [`Graph::analyze_change`] does, within `limits`, and
     /// [`Change::merge`] ranks the answers together. A region whose file no language claims counts as unheld.
