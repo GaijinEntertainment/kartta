@@ -83,10 +83,11 @@ fn edge(tag: &'static str, reached: &Reached<'_>) -> Element {
 
 /// The `find_call_path` answer: one `<match>` per family graph both names select a symbol in. With none, each end
 /// that selects no symbol in any graph searched lists what its name matches instead, under its own `<from>` or
-/// `<to>`.
+/// `<to>`, and ends that both select name the families each selects in, `selected_in` of from and of to.
 pub(crate) fn call_path(
     ask: &PathAsk<'_>,
     paths: &[(&str, CallPath<'_>)],
+    selected_in: &[Vec<&str>; 2],
     unmatched_ends: &[(&'static str, Selector<'_>, Unmatched<'_>)],
 ) -> String {
     let element = Element::new("call_path")
@@ -101,10 +102,13 @@ pub(crate) fn call_path(
             return element.inline(note);
         }
         if unmatched_ends.is_empty() {
-            return element.inline(
-                "no graph holds both a symbol from selects and one to selects - find_symbols can pin the exact \
-                 names",
-            );
+            let [from, to] = selected_in;
+            return element.inline(&format!(
+                "no graph holds both a symbol from selects and one to selects: from selects in {}, to in {} - a call \
+                 path runs inside one language's graph; find_symbols can pin the exact names",
+                from.join(", "),
+                to.join(", ")
+            ));
         }
         return element.children(
             unmatched_ends
