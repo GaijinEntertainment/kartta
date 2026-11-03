@@ -400,3 +400,58 @@ fn a_name_one_character_from_a_definition_suggests_that_definition_first() {
         "{owned}"
     );
 }
+
+#[test]
+fn a_blank_name_or_query_is_a_wrong_call() {
+    let (_tree, mut client) = indexed();
+    let named = "is blank - pass a symbol's name; find_symbols finds one from a word of it";
+
+    for blank in ["", " \t"] {
+        for (tool, arguments, refusal) in [
+            (
+                "find_symbols",
+                json!({"query": blank}),
+                "query is blank - pass a word of a symbol's name or of its file's path".to_owned(),
+            ),
+            (
+                "find_callers",
+                json!({"name": blank}),
+                format!("name {named}"),
+            ),
+            (
+                "find_callees",
+                json!({"name": blank}),
+                format!("name {named}"),
+            ),
+            (
+                "find_references",
+                json!({"name": blank}),
+                format!("name {named}"),
+            ),
+            (
+                "find_implementations",
+                json!({"name": blank}),
+                format!("name {named}"),
+            ),
+            (
+                "find_call_path",
+                json!({"from": blank, "to": "helper"}),
+                format!("from {named}"),
+            ),
+            (
+                "find_call_path",
+                json!({"from": "helper", "to": blank}),
+                format!("to {named}"),
+            ),
+            (
+                "read_definitions",
+                json!({"names": ["helper", blank]}),
+                "names must not contain a blank name".to_owned(),
+            ),
+        ] {
+            let answer = client.call(tool, &arguments);
+            assert!(answer.is_error, "{tool} {arguments}: {}", answer.text);
+            assert_eq!(answer.text, refusal, "{tool} {arguments}");
+        }
+    }
+}
