@@ -223,6 +223,17 @@ fn globs(patterns: &[String]) -> Result<Option<Filter>, String> {
         .map_err(|error| error.to_string())
 }
 
+/// The tool error for a `parameter` whose name is blank: it names no definition, and a miss would suggest the shortest
+/// names the index holds.
+fn named(parameter: &str, name: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err(format!(
+            "{parameter} is blank - pass a symbol's name; find_symbols finds one from a word of it"
+        ));
+    }
+    Ok(())
+}
+
 /// Up to [`SUGGESTIONS`] close alternatives to `name` from the graphs a query searched, best first, none of them
 /// named `name` itself.
 fn suggestions<'g>(searched: &[(&'g str, &'g Graph)], name: &str) -> Vec<Suggestion<'g>> {
@@ -668,6 +679,11 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindSymbolsParams>,
     ) -> Result<String, String> {
+        if p.query.trim().is_empty() {
+            return Err(
+                "query is blank - pass a word of a symbol's name or of its file's path".to_owned(),
+            );
+        }
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limit = p.limit.map_or(SYMBOLS, NonZeroUsize::get);
@@ -785,8 +801,8 @@ impl Server {
                 p.names.len()
             ));
         }
-        if p.names.iter().any(String::is_empty) {
-            return Err("names must not contain an empty name".to_owned());
+        if p.names.iter().any(|name| name.trim().is_empty()) {
+            return Err("names must not contain a blank name".to_owned());
         }
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
@@ -891,6 +907,7 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindImplementationsParams>,
     ) -> Result<String, String> {
+        named("name", &p.name)?;
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let searched = selected(indexed, p.languages.as_deref());
@@ -1012,6 +1029,8 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindCallPathParams>,
     ) -> Result<String, String> {
+        named("from", &p.from)?;
+        named("to", &p.to)?;
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let hops = p.hops.map_or(PATH_HOPS, NonZeroU32::get);
@@ -1114,6 +1133,7 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindReferencesParams>,
     ) -> Result<String, String> {
+        named("name", &p.name)?;
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let floor = p.min_confidence.unwrap_or_default().floor();
@@ -1365,6 +1385,7 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindCallersParams>,
     ) -> Result<String, String> {
+        named("name", &p.name)?;
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limits = Limits::new(p.hops.map_or(CALLER_HOPS, NonZeroU32::get))
@@ -1434,6 +1455,7 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindCalleesParams>,
     ) -> Result<String, String> {
+        named("name", &p.name)?;
         CATALOG.check(p.languages.as_deref())?;
         self.answer(move |indexed| {
             let limits = Limits::new(p.hops.map_or(CALLEE_HOPS, NonZeroU32::get))

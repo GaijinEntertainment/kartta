@@ -134,7 +134,7 @@ pub(crate) struct FindCallersParams {
     /// names that reading. Where several share the name - a bare name, or overloads of one qualified name - the
     /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
     /// as <candidate/> records; check the match's loc, and pass a candidate's file as path_prefix and its line as line
-    /// to pick it.
+    /// to pick it. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. It is how to reach one of
@@ -186,7 +186,7 @@ pub(crate) struct FindCalleesParams {
     /// names that reading. Where several share the name - a bare name, or overloads of one qualified name - the
     /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
     /// as <candidate/> records; check the match's loc, and pass a candidate's file as path_prefix and its line as line
-    /// to pick it.
+    /// to pick it. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
@@ -363,7 +363,8 @@ pub(crate) struct ListDirParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindSymbolsParams {
     /// Keyword(s) matched against the words of symbol names and of their files' paths, e.g. "BuildConfig" or "parse
-    /// config"; camelCase and snake_case split into words. A bare identifier works best; partial names match.
+    /// config"; camelCase and snake_case split into words. A bare identifier works best; partial names match. A blank
+    /// query is a tool error.
     pub(crate) query: String,
     /// Optional language filter (multiselect). Omit to search every indexed language; name one or more to narrow when
     /// you know where the symbol lives, e.g. ["go"] or ["typescript", "tsx"]. Lowercase language names - the set
@@ -388,7 +389,7 @@ pub(crate) struct FindCallPathParams {
     /// from_read_as= names that reading. Where several share the name - a bare name, or overloads of one qualified
     /// name - the most-called candidate is picked, and the answer counts the others in passed_over_from and lists the
     /// most called of them as <candidate end="from"/> records; pass a candidate's file as from_path_prefix and its line
-    /// as from_line to pick it.
+    /// as from_line to pick it. A blank name is a tool error.
     pub(crate) from: String,
     /// Repo-relative path prefix with forward slashes: from is picked only among the symbols in files whose path
     /// starts with it. Omitted picks from every file.
@@ -401,7 +402,7 @@ pub(crate) struct FindCallPathParams {
     pub(crate) from_line: Option<NonZeroU32>,
     /// The symbol the chain ends at: the last callee, named, read and picked the same way as from, its reading named
     /// in to_read_as= and the others that share its name counted in passed_over_to and listed as <candidate end="to"/>
-    /// records, which to_path_prefix and to_line pick.
+    /// records, which to_path_prefix and to_line pick. A blank name is a tool error.
     pub(crate) to: String,
     /// Repo-relative path prefix with forward slashes: to is picked only among the symbols in files whose path starts
     /// with it. Omitted picks from every file.
@@ -440,7 +441,8 @@ pub(crate) struct FindReferencesParams {
     /// name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names
     /// that reading. Where several share the name - a bare name, or overloads of one qualified name - the candidate
     /// with the most recorded sites is picked, the answer counts the others in passed_over and lists the most used of
-    /// them as <candidate/> records; pass a candidate's file as path_prefix and its line as line to pick it.
+    /// them as <candidate/> records; pass a candidate's file as path_prefix and its line as line to pick it. A blank
+    /// name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. Omitted picks from every
@@ -501,7 +503,7 @@ pub(crate) struct ReadDefinitionsParams {
     /// name selects every definition whose qualified name equals it or ends with it at a separator, and every
     /// definition named by its last segment whose own qualified name the name ends with, so "ns::Service::Greet" also
     /// selects "Service::Greet". A name that selects nothing as written is read with each "." as "::", or each "::" as
-    /// ".", and read_as= on its <name> names that reading. An empty list or an empty name is a tool error.
+    /// ".", and read_as= on its <name> names that reading. An empty list or a blank name is a tool error.
     #[schemars(length(min = 1, max = 10), inner(length(min = 1)))]
     pub(crate) names: Vec<String>,
     /// Repository-relative path of the file the names are read for, as returned by find_files. Definitions in its
@@ -528,7 +530,8 @@ pub(crate) struct FindImplementationsParams {
     /// from a find_symbols hit when unsure. Where several types share the name, the most implemented is picked: the
     /// answer names it in <root/>, counts the others in passed_over and lists the most implemented of them as
     /// <candidate/> records, which path_prefix with a candidate's file and line with its line pick. A type alias
-    /// answers the types whose parent names the alias, not those whose parent names its target.
+    /// answers the types whose parent names the alias, not those whose parent names its target. A blank name is a
+    /// tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the types in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
