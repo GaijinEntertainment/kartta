@@ -140,6 +140,7 @@ impl Indexed {
 pub(crate) struct Served {
     indexed: RwLock<Indexed>,
     cancel: CancelToken,
+    request: Request,
 }
 
 impl Served {
@@ -324,21 +325,24 @@ impl Slot {
 
     /// Starts building `request` on a blocking thread and returns where its outcome arrives.
     ///
-    /// A build of the same request already under way is joined rather than started again. A build of another one is
-    /// cancelled, and so is a refresh of the engine this one replaces. The new build starts once the engine it replaces
-    /// is gone, the cancelled build's included, and once every query that was answering from it has answered, so a
-    /// rebuild never holds two engines.
+    /// A build of the same request already under way is joined rather than started again, and the index the same
+    /// request built is answered as it is held, brought up to its tree first when it does not follow the tree, unless
+    /// a refresh broke it. A build of another one is cancelled, and so is a refresh of the engine this one replaces.
+    /// The new build starts once the engine it replaces is gone, the cancelled build's included, and once every query
+    /// that was answering from it has answered, so a rebuild never holds two engines.
     pub(crate) fn start(
         self: &Arc<Self>,
         request: Request,
         options: BuildOptions,
     ) -> watch::Receiver<Option<Outcome>> {
         let mut state = self.lock();
-        if let State::Building(build) = &*state {
-            if build.request == request {
-                return build.outcome.clone();
+        match &*state {
+            State::Building(build) if build.request == request => return build.outcome.clone(),
+            State::Building(build) => build.cancel.cancel(),
+            State::Ready(served) if served.request == request && !served.indexed.is_poisoned() => {
+                return held(Arc::clone(served));
             }
-            build.cancel.cancel();
+            State::Empty | State::Ready(_) | State::Failed { .. } => {}
         }
         let id = self.builds.fetch_add(1, Ordering::Relaxed);
         let (sender, outcome) = watch::channel(None);
@@ -432,6 +436,22 @@ impl Slot {
     }
 }
 
+/// Answers `served` on a blocking thread: at once while it follows its tree, and after a whole refresh while it does
+/// not.
+fn held(served: Arc<Served>) -> watch::Receiver<Option<Outcome>> {
+    let (sender, outcome) = watch::channel(None);
+    tokio::task::spawn_blocking(move || {
+        let following = served.read().map(|indexed| indexed.watch.off.is_none());
+        let held = match following {
+            Ok(true) => Ok(served),
+            Ok(false) => served.refresh(std::iter::empty()).map(|_| served),
+            Err(error) => Err(error),
+        };
+        sender.send_replace(Some(held));
+    });
+    outcome
+}
+
 /// Waits until nothing else holds `served`, then drops it: a query answering from it keeps it until it answers.
 fn release(mut served: Arc<Served>) {
     loop {
@@ -501,6 +521,7 @@ impl Served {
                 watch,
             }),
             cancel: cancel.clone(),
+            request: request.clone(),
         }
     }
 }
@@ -544,6 +565,99 @@ mod tests {
             watched.upgrade().is_none(),
             "the first index outlived the rebuild"
         );
+    }
+
+    /// The outcome a build sends, once it sends one.
+    fn settled(
+        runtime: &tokio::runtime::Runtime,
+        mut outcome: watch::Receiver<Option<Outcome>>,
+    ) -> Outcome {
+        runtime
+            .block_on(outcome.wait_for(Option::is_some))
+            .unwrap()
+            .clone()
+            .unwrap()
+    }
+
+    /// A Go file's tree, a runtime entered for the slot's blocking work, and the request of that tree.
+    fn go_tree() -> (tempfile::TempDir, tokio::runtime::Runtime, Request) {
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("a.go"), "package a\n\nfunc A() {}\n").unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let request = Request {
+            root: tree.path().to_owned(),
+            languages: vec!["go"],
+            index_ignored: false,
+        };
+        (tree, runtime, request)
+    }
+
+    #[test]
+    fn a_repeat_of_the_request_held_answers_the_followed_index() {
+        let (_tree, runtime, request) = go_tree();
+        let _entered = runtime.enter();
+        let slot = Arc::new(Slot::new(true));
+        let options = crate::Config::default().build_options(false);
+
+        let first = Arc::downgrade(
+            &settled(&runtime, slot.start(request.clone(), options.clone())).unwrap(),
+        );
+        let again = settled(&runtime, slot.start(request, options)).unwrap();
+
+        assert!(
+            first
+                .upgrade()
+                .is_some_and(|first| Arc::ptr_eq(&first, &again)),
+            "the repeat built again"
+        );
+    }
+
+    #[test]
+    fn a_repeat_of_the_request_held_refreshes_the_unwatched_index() {
+        let (tree, runtime, request) = go_tree();
+        let _entered = runtime.enter();
+        let slot = Arc::new(Slot::new(false));
+        let options = crate::Config::default().build_options(false);
+
+        let first = Arc::downgrade(
+            &settled(&runtime, slot.start(request.clone(), options.clone())).unwrap(),
+        );
+        std::fs::write(tree.path().join("b.go"), "package a\n\nfunc B() {}\n").unwrap();
+        let again = settled(&runtime, slot.start(request, options)).unwrap();
+
+        assert!(
+            first
+                .upgrade()
+                .is_some_and(|first| Arc::ptr_eq(&first, &again)),
+            "the repeat built again"
+        );
+        assert_eq!(again.read().unwrap().files(), 2, "the refresh took in b.go");
+    }
+
+    #[test]
+    fn a_repeat_of_the_request_held_rebuilds_a_broken_index() {
+        let (_tree, runtime, request) = go_tree();
+        let _entered = runtime.enter();
+        let slot = Arc::new(Slot::new(false));
+        let options = crate::Config::default().build_options(false);
+        let broken = settled(&runtime, slot.start(request.clone(), options.clone())).unwrap();
+        let first = Arc::downgrade(&broken);
+        std::thread::spawn(move || {
+            let _held = broken.indexed.write().unwrap();
+            panic!("a refresh panics while it holds the index");
+        })
+        .join()
+        .unwrap_err();
+
+        let again = settled(&runtime, slot.start(request, options)).unwrap();
+
+        assert!(
+            first.upgrade().is_none(),
+            "the broken index outlived the rebuild"
+        );
+        assert_eq!(again.read().unwrap().files(), 1);
     }
 
     #[test]
