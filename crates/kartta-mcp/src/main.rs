@@ -72,6 +72,12 @@ fn warn(message: &str) {
     eprintln!("kartta-mcp: {message}");
 }
 
+async fn warn_unbuilt(launched: impl Future<Output = Option<String>>) {
+    if let Some(error) = launched.await {
+        warn(&format!("the launch build ended without an index: {error}"));
+    }
+}
+
 #[expect(
     clippy::print_stdout,
     reason = "help and version are the answer to the command line, not a frame"
@@ -100,7 +106,7 @@ async fn main() -> ExitCode {
 
     let server = Server::with_config(config);
     if let Some(root) = root {
-        server.index_at_launch(root);
+        tokio::spawn(warn_unbuilt(server.index_at_launch(root)));
     }
     let service = match server.serve(stdio()).await {
         Ok(service) => service,

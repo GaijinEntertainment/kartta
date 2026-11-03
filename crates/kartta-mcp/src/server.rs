@@ -135,14 +135,30 @@ impl Server {
     /// returns without waiting for it. Until the build finishes, `index_stats` answers that it is building and every
     /// other query answers an error saying so; an `index_repo` of the same root waits for it.
     ///
+    /// The future it returns resolves once the build ends, to why it built no index, or `None` when it built one. The
+    /// build runs whether or not the future is awaited.
+    ///
     /// The build runs on the Tokio runtime's blocking threads, so this is called from within that runtime.
-    pub fn index_at_launch(&self, root: PathBuf) {
+    pub fn index_at_launch(
+        &self,
+        root: PathBuf,
+    ) -> impl Future<Output = Option<String>> + Send + 'static {
         let request = Request {
             root,
             languages: CATALOG.to_build(None),
             index_ignored: false,
         };
-        drop(self.slot.start(request, self.config.build_options(false)));
+        let mut outcome = self.slot.start(request, self.config.build_options(false));
+        async move {
+            outcome.wait_for(Option::is_some).await.map_or_else(
+                |_| Some("the build stopped before it answered".to_owned()),
+                |built| {
+                    built
+                        .as_ref()
+                        .and_then(|built| built.as_ref().err().cloned())
+                },
+            )
+        }
     }
 
     /// Answers a query from the current index on a blocking thread, and on the index's own threads.

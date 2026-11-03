@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -38,6 +39,23 @@ impl Client {
             .env("KARTTA_GREP_INDEX", "file")
             .env("KARTTA_GREP_INDEX_DIR", dir);
         Self::launch(command)
+    }
+
+    /// Starts the server with `arguments` and its stderr piped, completes the MCP handshake, and returns each line the
+    /// server writes to stderr as it arrives.
+    pub(crate) fn with_stderr(arguments: &[&Path]) -> (Self, mpsc::Receiver<String>) {
+        let mut command = Self::command(arguments, "on");
+        command.stderr(Stdio::piped());
+        let mut client = Self::launch(command);
+        let stderr = client.child.stderr.take().expect("stderr is piped");
+        let (sender, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            BufReader::new(stderr)
+                .lines()
+                .map_while(Result::ok)
+                .try_for_each(|line| sender.send(line))
+        });
+        (client, lines)
     }
 
     fn command(arguments: &[&Path], watch: &str) -> Command {
