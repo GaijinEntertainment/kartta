@@ -402,6 +402,18 @@ fn a_name_one_character_from_a_definition_suggests_that_definition_first() {
 }
 
 #[test]
+fn a_call_path_whose_ends_select_in_different_graphs_names_each_ones_languages() {
+    let (_tree, mut client) = indexed();
+
+    assert_eq!(
+        client.answer("find_call_path", &json!({"from": "Greet", "to": "paint"})),
+        "<call_path from=\"Greet\" to=\"paint\" matches=\"0\">no graph holds both a symbol from selects and one to \
+         selects: from selects in go, to in cpp, rust - a call path runs inside one language's graph; find_symbols \
+         can pin the exact names</call_path>"
+    );
+}
+
+#[test]
 fn a_blank_name_or_query_is_a_wrong_call() {
     let (_tree, mut client) = indexed();
     let named = "is blank - pass a symbol's name; find_symbols finds one from a word of it";

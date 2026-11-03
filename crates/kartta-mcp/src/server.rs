@@ -1,8 +1,8 @@
-use std::fmt;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::pin;
 use std::sync::Arc;
+use std::{fmt, iter};
 
 use kartta::{
     CancelToken, Graph, Hit, Limits, Region, Search, Selector, SiteQuery, SourceOptions,
@@ -1069,6 +1069,17 @@ impl Server {
             } else {
                 Vec::new()
             };
+            let selected_in: [Vec<&str>; 2] = if paths.is_empty() && unmatched_ends.is_empty() {
+                [from, to].map(|end| {
+                    searched
+                        .iter()
+                        .filter(|&&pair| selects_as_callers(iter::once(pair), end))
+                        .map(|&(family, _)| family)
+                        .collect()
+                })
+            } else {
+                Default::default()
+            };
             let languages = p.languages.as_deref().map(echo);
             let ask = PathAsk {
                 from: &p.from,
@@ -1078,7 +1089,12 @@ impl Server {
                 languages: languages.as_deref(),
                 hops,
             };
-            Ok(render::call_path(&ask, &paths, &unmatched_ends))
+            Ok(render::call_path(
+                &ask,
+                &paths,
+                &selected_in,
+                &unmatched_ends,
+            ))
         })
         .await
     }
