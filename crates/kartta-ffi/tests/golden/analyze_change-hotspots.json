@@ -3,6 +3,7 @@
     "ok": {
       "changed_files": 1,
       "changed_symbols": 2,
+      "declined": [],
       "footprint": 2,
       "footprint_files": 2,
       "hotspots": [
@@ -25,6 +26,7 @@
           }
         }
       ],
+      "missing_regions": 0,
       "regions_outside_symbols": 0,
       "seeds": [
         {
@@ -108,6 +110,7 @@
       "total_hotspots": 1,
       "transitive_sum": 3,
       "truncated_seeds": 0,
+      "unclaimed_regions": 0,
       "unheld_regions": 0
     }
   },
