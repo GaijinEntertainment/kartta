@@ -213,6 +213,7 @@ const CONVENTIONS: Conventions = {
     conventions.receivers = kartta_lang::Receivers::ReturnPaths;
     conventions.unrecorded_data = &[SymbolKind::Field];
     conventions.calls_apart = kartta_lang::CallsApart::Marked;
+    conventions.implements = kartta_lang::Implements::Traits;
     conventions.twins = kartta_lang::Twins::Every;
     conventions.included_runtime_members =
         kartta_lang::IncludedRuntimeMembers::SpelledOwnOrExported;

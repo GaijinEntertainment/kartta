@@ -203,14 +203,16 @@
 //! assert_eq!(keys, ["gfx::area(int,int)"]);
 //! ```
 
+mod overrides;
 mod repair;
 mod resolve;
 mod walk;
 
 use kartta_lang::tree::parse;
 use kartta_lang::{
-    CallsOnValues, Conventions, DocComments, IncludeReach, InheritedMembers, Language, OwnMembers,
-    RawExtraction, Repository, Resolver, TypeUses, UntypedMembers, ValueUses,
+    CallsOnValues, Conventions, DocComments, Implements, IncludeReach, InheritedMembers, Language,
+    OwnMembers, RawExtraction, Repository, Resolver, SameMethod, TypeUses, UntypedMembers,
+    ValueUses,
 };
 
 const EXTENSIONS: [&str; 10] = [
@@ -247,6 +249,7 @@ const CONVENTIONS: Conventions = {
     conventions.value_uses = ValueUses::Included;
     conventions.untyped_members = UntypedMembers::IncludedField;
     conventions.type_uses = TypeUses::Nowhere;
+    conventions.implements = Implements::Overrides(SameMethod(overrides::overrides));
     conventions
 };
 

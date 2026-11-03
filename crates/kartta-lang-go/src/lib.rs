@@ -114,13 +114,14 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    BuiltApart, Conventions, DataUses, DocComments, Language, MemberCalls, OwnMembers,
-    RawExtraction, Receivers, Repository, Resolver, Twins, TypeUses,
+    BuiltApart, Conventions, DataUses, DocComments, Implements, Language, MemberCalls, OwnMembers,
+    RawExtraction, Receivers, Repository, Resolver, SameMethod, Twins, TypeUses,
 };
 
 use crate::resolve::GoResolver;
 
 mod build;
+mod method_type;
 mod resolve;
 mod runtime;
 mod walk;
@@ -148,6 +149,7 @@ const CONVENTIONS: Conventions = {
     conventions.data_uses = DataUses::Every;
     conventions.twins = Twins::Package(BuiltApart(build::built_apart));
     conventions.library_interface_methods = runtime::INTERFACE_METHODS;
+    conventions.implements = Implements::MethodSets(SameMethod(method_type::same_method));
     conventions
 };
 

@@ -521,6 +521,10 @@ fn a_qualifier_that_names_a_required_file_with_no_module_clause_binds_its_defini
     );
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "Graph::new keeps the conventions it is handed by value"
+)]
 fn with_macro(conventions: Conventions, files: &[Extraction]) -> Graph {
     let mut quoting = file(
         "boost.das",
