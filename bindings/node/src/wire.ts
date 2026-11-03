@@ -356,8 +356,8 @@ export type Matches<T> = {
 	to_read_as?: string;
 	/**
 	 * Why `matches` is empty when the name, or its reading, names definitions of the kinds the method selects and picks
-	 * none of them, or names no definition while names one edit from it do; absent for a name that matched or for which
-	 * neither holds. `callers`, `callees`, `references`, `implementations`, `definitions` and `sources` carry it.
+	 * none of them, names definitions none of which is of such a kind, or names no definition while names one edit from
+	 * it do; absent for a name that matched or for which none holds. `callers`, `callees`, `references`, `implementations`, `definitions` and `sources` carry it.
 	 */
 	unmatched?: Unmatched;
 	/** The same for a `call_path`'s `from`, carried only when that end selects no symbol. */
@@ -375,13 +375,16 @@ export type Unmatched = {
 	 * prefix that start off the line and at most one on it, these counting and listing those outside the prefix too;
 	 * `one_edit` when the name names no definition of any kind, and these are named one edit from it: one character
 	 * swapped with the next, dropped, replaced or added, a replacing or added one being an ASCII letter, a digit, `_`
-	 * or one the name holds.
+	 * or one the name holds; `other_kind` when the name names definitions and none is of a kind the method selects,
+	 * these being every one of them, wherever it lies.
 	 */
 	kind: string;
 	/** How many definitions the name names so. */
 	total: number;
 	/** The first five of them. */
 	listed: GraphDefinition[];
+	/** How many of them are of each kind, by its label, for `other_kind`; absent for every other kind. */
+	kinds?: Record<string, number>;
 };
 
 /** A definition and the graph that holds it. */

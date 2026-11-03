@@ -381,7 +381,53 @@ fn a_name_two_edits_from_every_definition_names_nothing_instead() {
 }
 
 #[test]
-fn a_name_that_names_a_definition_of_another_kind_names_nothing_one_edit_from_it() {
+fn a_name_held_only_as_other_kinds_lists_those_definitions_not_the_names_one_edit_from_it() {
+    let go = graph(&[
+        (
+            "a.go",
+            vec![
+                qualified("Node", "a.Node", SymbolKind::Function),
+                qualified("Node", "a.x.Node", SymbolKind::Variable),
+            ],
+        ),
+        (
+            "b.go",
+            vec![qualified("Nodes", "b.Nodes", SymbolKind::Struct)],
+        ),
+        (
+            "c.go",
+            vec![qualified("Node", "c.Node", SymbolKind::Function)],
+        ),
+    ]);
+
+    let named = unmatched(
+        [("go", &go)].into_iter(),
+        Selector::new("Node", Some("b.go")),
+        is_parent,
+        2,
+    )
+    .expect("Node is held, though no parent");
+
+    assert_eq!(
+        (named.kind, named.total),
+        (UnmatchedKind::OtherKind, 3),
+        "every definition, wherever it lies"
+    );
+    assert_eq!(
+        named.kinds,
+        [(SymbolKind::Function, 2), (SymbolKind::Variable, 1)],
+        "counted past the limit"
+    );
+    let listed: Vec<&str> = named
+        .listed
+        .iter()
+        .map(|(_, definition)| definition.qualified_name)
+        .collect();
+    assert_eq!(listed, ["a.Node", "a.x.Node"], "the first two");
+}
+
+#[test]
+fn a_name_that_selects_one_definition_among_others_of_refused_kinds_names_nothing_instead() {
     let go = graph(&[
         (
             "a.go",
@@ -389,7 +435,7 @@ fn a_name_that_names_a_definition_of_another_kind_names_nothing_one_edit_from_it
         ),
         (
             "b.go",
-            vec![qualified("Nodes", "b.Nodes", SymbolKind::Struct)],
+            vec![qualified("Node", "b.Node", SymbolKind::Struct)],
         ),
     ]);
 
@@ -400,7 +446,7 @@ fn a_name_that_names_a_definition_of_another_kind_names_nothing_one_edit_from_it
         5,
     );
 
-    assert_eq!(named, None, "Node is no misspelling, though no parent");
+    assert_eq!(named, None, "the struct is the one the query selects");
 }
 
 #[test]

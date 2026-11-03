@@ -778,6 +778,8 @@ struct UnmatchedDef<'g> {
     total: usize,
     #[serde(serialize_with = "graphed")]
     listed: Vec<(&'g str, Definition<'g>)>,
+    #[serde(serialize_with = "label::kinds", skip_serializing_if = "Vec::is_empty")]
+    kinds: Vec<(SymbolKind, usize)>,
 }
 
 fn graphed<S: Serializer>(

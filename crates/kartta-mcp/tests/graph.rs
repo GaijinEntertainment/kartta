@@ -4862,6 +4862,91 @@ fn implementations_of_a_cpp_enum_answer_that_nothing_implements_it() {
 }
 
 #[test]
+fn a_name_held_only_as_kinds_a_tool_refuses_names_its_kinds_and_definitions() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            (
+                "g/g.go",
+                "package g\n\ntype Celsius float64\n\ntype Base struct{}\n\ntype Boxed struct{ Base }\n\nfunc shared() {}\n",
+            ),
+            ("f.cpp", "void cfree() {}\nint cvar;\nint shared;\n"),
+            (
+                "Cargo.toml",
+                "[package]\nname = \"r\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+            ),
+            ("src/lib.rs", "pub enum Colour {\n    Crimson,\n}\n"),
+            ("d/1.cpp", "void dup() {}\n"),
+            ("d/2.cpp", "void dup() {}\n"),
+            ("d/3.cpp", "void dup() {}\n"),
+            ("d/4.cpp", "void dup() {}\n"),
+            ("d/5.cpp", "void dup() {}\n"),
+            ("d/6.cpp", "void dup() {}\n"),
+        ],
+        &[
+            ("find_implementations", json!({"name": "cfree"})),
+            (
+                "find_implementations",
+                json!({"name": "Celsius", "path_prefix": "f.cpp"}),
+            ),
+            ("find_implementations", json!({"name": "shared"})),
+            ("find_references", json!({"name": "Crimson"})),
+            ("find_implementations", json!({"name": "dup"})),
+            ("find_implementations", json!({"name": "Base"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<implementations of="cfree" count="0">"#,
+                "the name is held only as function (1) - this tool takes no root of that kind:",
+                r#"<candidate name="cfree" kind="function" loc="f.cpp:1" lang="cpp"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<implementations of="Celsius" count="0">"#,
+                "the name is held only as defined-type (1) - this tool takes no root of that kind:",
+                r#"<candidate name="Celsius" qn="g.Celsius" kind="defined-type" loc="g/g.go:3" lang="go"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<implementations of="shared" count="0">"#,
+                "the name is held only as function (1), variable (1) - this tool takes no root of those kinds:",
+                r#"<candidate name="shared" qn="g.shared" kind="function" loc="g/g.go:9" lang="go"/>"#,
+                r#"<candidate name="shared" kind="variable" loc="f.cpp:3" lang="cpp"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<references of="Crimson" matches="0">"#,
+                "the name is held only as enum-variant (1) - this tool takes no root of that kind:",
+                r#"<candidate name="Crimson" qn="Colour::Crimson" kind="enum-variant" loc="src/lib.rs:2" lang="rust"/>"#,
+                "</references>",
+            ]),
+            lines(&[
+                r#"<implementations of="dup" count="0">"#,
+                concat!(
+                    "the name is held only as function (6) - this tool takes no root of that kind, the first 5 of 6 ",
+                    "listed:",
+                ),
+                r#"<candidate name="dup" kind="function" loc="d/1.cpp:1" lang="cpp"/>"#,
+                r#"<candidate name="dup" kind="function" loc="d/2.cpp:1" lang="cpp"/>"#,
+                r#"<candidate name="dup" kind="function" loc="d/3.cpp:1" lang="cpp"/>"#,
+                r#"<candidate name="dup" kind="function" loc="d/4.cpp:1" lang="cpp"/>"#,
+                r#"<candidate name="dup" kind="function" loc="d/5.cpp:1" lang="cpp"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<implementations of="Base" count="1">"#,
+                r#"<type name="Boxed" qn="g.Boxed" lang="go" loc="g/g.go:7"/>"#,
+                "</implementations>",
+            ]),
+        ]
+    );
+}
+
+#[test]
 fn an_impl_of_an_outside_trait_does_not_implement_an_enum_of_its_name() {
     let answers = answers_over(
         &[

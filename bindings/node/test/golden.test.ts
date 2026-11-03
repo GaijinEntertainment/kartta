@@ -42,6 +42,7 @@ import grepCut from '../../../crates/kartta-ffi/tests/golden/grep-cut.json' with
 import grepInvalidPattern from '../../../crates/kartta-ffi/tests/golden/grep-invalid_pattern.json' with {type: 'json'};
 import grep from '../../../crates/kartta-ffi/tests/golden/grep.json' with {type: 'json'};
 import implementationsCandidates from '../../../crates/kartta-ffi/tests/golden/implementations-candidates.json' with {type: 'json'};
+import implementationsOtherKind from '../../../crates/kartta-ffi/tests/golden/implementations-other_kind.json' with {type: 'json'};
 import implementations from '../../../crates/kartta-ffi/tests/golden/implementations.json' with {type: 'json'};
 import listCollapse from '../../../crates/kartta-ffi/tests/golden/list-collapse.json' with {type: 'json'};
 import listNotADirectory from '../../../crates/kartta-ffi/tests/golden/list-not_a_directory.json' with {type: 'json'};
@@ -118,6 +119,7 @@ const laterGoldens = {
 	'fuzzy-globs': fuzzyGlobs,
 	'grep-cut': grepCut,
 	'implementations-candidates': implementationsCandidates,
+	'implementations-other_kind': implementationsOtherKind,
 	'list-collapse': listCollapse,
 	'references-access': referencesAccess,
 	'references-type': referencesType,

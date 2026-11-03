@@ -1,0 +1,33 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [],
+      "unmatched": {
+        "kind": "other_kind",
+        "kinds": {
+          "func": 1
+        },
+        "listed": [
+          {
+            "definition": {
+              "end_line": 6,
+              "exported": false,
+              "file": "go/run.go",
+              "kind": "func",
+              "line": 4,
+              "name": "run",
+              "qualified_name": "main.run",
+              "signature": "func run()"
+            },
+            "graph": "go"
+          }
+        ],
+        "total": 1
+      }
+    }
+  },
+  "method": "implementations",
+  "params": {
+    "name": "run"
+  }
+}
