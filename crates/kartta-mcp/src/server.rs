@@ -29,8 +29,8 @@ use crate::params::{
 };
 use crate::paths::{self, Wanted, held_file, held_prefix, misspelled, relative};
 use crate::render::{
-    self, CallersAsk, Found, NameDefinitions, PathAsk, Read, SUGGESTIONS, Suggestion, Unmatched,
-    UnusedAsk,
+    self, CallersAsk, Found, NameDefinitions, PathAsk, Read, SUGGESTIONS, Selection, Suggestion,
+    Unmatched, UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
@@ -444,7 +444,16 @@ impl Server {
             for found in ranked.items() {
                 listed.push(paths.get(found.position));
             }
-            Ok(render::paths(&p.pattern, listed, ranked.matched()))
+            let includes = Selection {
+                index,
+                globs: p.includes.as_deref().unwrap_or_default(),
+            };
+            Ok(render::paths(
+                &p.pattern,
+                listed,
+                ranked.matched(),
+                &includes,
+            ))
         })
         .await
     }
@@ -478,11 +487,11 @@ impl Server {
                 options = options.exclude(excludes);
             }
             let found = index.glob(&filter, &options);
-            Ok(render::globbed(
-                &p.globs.join(", "),
-                &found,
-                &mut index.paths(),
-            ))
+            let globs = Selection {
+                index,
+                globs: &p.globs,
+            };
+            Ok(render::globbed(&globs, &found))
         })
         .await
     }
@@ -552,7 +561,11 @@ impl Server {
                     options = options.exclude(excludes);
                 }
                 let matches = index.grep(&patterns, &options);
-                Ok(render::grep(&p.patterns, &matches, &mut index.paths()))
+                let includes = Selection {
+                    index,
+                    globs: p.includes.as_deref().unwrap_or_default(),
+                };
+                Ok(render::grep(&p.patterns, &matches, &includes))
             })
         })
         .await
