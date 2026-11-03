@@ -160,6 +160,11 @@ impl Language for Go {
         has_extension(path, &["go"]) && !build::is_skipped(path)
     }
 
+    fn declines(&self, path: &str) -> Option<&str> {
+        (has_extension(path, &["go"]) && build::is_skipped(path))
+            .then_some("no Go build reads a file whose name starts with _ or .")
+    }
+
     fn fingerprint(&self) -> &[u8] {
         kartta_lang::tree_sitter_fingerprint!(grammar(), tree_sitter_golang::NODE_TYPES)
     }
