@@ -3605,7 +3605,7 @@ diff --git a/README.md b/README.md
                     &[
                         concat!(
                             r#"<change regions="3" changed_symbols="2" changed_files="1" footprint="2" "#,
-                            r#"footprint_files="1" unheld_regions="1">"#,
+                            r#"footprint_files="1" unheld_regions="1" unclaimed_regions="1">"#,
                         ),
                         r#"<seeds shown="1" of="2">"#,
                     ][..],
@@ -3618,11 +3618,89 @@ diff --git a/README.md b/README.md
             ),
             concat!(
                 r#"<change regions="1" changed_symbols="0" changed_files="0" footprint="0" footprint_files="0" "#,
-                r#"unheld_regions="1">no symbols in these regions - they cover only file-scope code (imports, "#,
-                "comments) or files no code graph holds (counted in unheld_regions); zero symbols is not proof the ",
-                "change is safe, and find_importers lists the files that include a changed file</change>",
+                r#"unheld_regions="1" unclaimed_regions="1">no symbols in these regions - they cover only "#,
+                "file-scope code (imports, comments) or files no code graph holds (counted in unheld_regions); zero ",
+                "symbols is not proof the change is safe, and find_importers lists the files that include a changed ",
+                "file</change>",
             )
             .to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn impact_of_change_names_the_language_that_leaves_a_region_s_file_out_and_counts_the_paths_it_lacks()
+ {
+    let files = [
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        ("a.go", "package app\n\nfunc A() {}\n"),
+        ("_skip.go", "package app\n\nfunc Skipped() {}\n"),
+        (".hidden.go", "package app\n\nfunc Hidden() {}\n"),
+        ("notes.txt", "notes\n"),
+    ];
+    let diff = "\
+diff --git a/_skip.go b/_skip.go
+--- a/_skip.go
++++ b/_skip.go
+@@ -3 +3 @@
+-func Skipped() {}
++func Skipped() { _ = 1 }
+diff --git a/gone.go b/gone.go
+--- a/gone.go
++++ b/gone.go
+@@ -1 +1 @@
+-package app
++package gone
+";
+    let answers = answers_over(
+        &files,
+        &[
+            ("impact_of_change", json!({"diff": diff})),
+            (
+                "impact_of_change",
+                json!({"regions": [
+                    {"file": "a.go"},
+                    {"file": "_skip.go"},
+                    {"file": ".hidden.go"},
+                    {"file": "notes.txt"},
+                ]}),
+            ),
+        ],
+    );
+    let declined = |regions: usize| {
+        format!(
+            "<declined language=\"go\" regions=\"{regions}\">the go language leaves these regions' files out of its \
+             graph: no Go build reads a file whose name starts with _ or . - read or grep them</declined>"
+        )
+    };
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                concat!(
+                    r#"<change regions="2" changed_symbols="0" changed_files="0" footprint="0" footprint_files="0" "#,
+                    r#"unheld_regions="2" missing_regions="1">"#,
+                ),
+                concat!(
+                    "no symbols in these regions - they cover only file-scope code (imports, comments) or files no ",
+                    "code graph holds (counted in unheld_regions); zero symbols is not proof the change is safe, and ",
+                    "find_importers lists the files that include a changed file",
+                ),
+                &declined(1),
+                "</change>",
+            ]),
+            lines(&[
+                concat!(
+                    r#"<change regions="4" changed_symbols="1" changed_files="1" footprint="0" footprint_files="0" "#,
+                    r#"unheld_regions="3" unclaimed_regions="1">"#,
+                ),
+                r#"<seeds shown="1" of="1">"#,
+                r#"<seed name="A" qn="app.A" kind="function" loc="a.go:3" callers="0" reach="0" reach_band="low"/>"#,
+                "</seeds>",
+                &declined(2),
+                "</change>",
+            ]),
         ]
     );
 }
