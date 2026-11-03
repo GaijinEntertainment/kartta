@@ -100,6 +100,35 @@ pub struct Widened {
     pub limit: usize,
 }
 
+/// What one [`Engine::analyze_change`] answers: what the change reaches across the families, and why no graph holds
+/// each region it counts in [`Change::unheld_regions`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct EngineChange<'e> {
+    /// What the change reaches, the families' answers [merged](Change::merge).
+    pub change: Change<'e>,
+    /// The regions whose path the index does not hold.
+    pub missing_regions: usize,
+    /// The regions of held files that no language claims or declines.
+    pub unclaimed_regions: usize,
+    /// The regions of held files that a language leaves out of its graph, counted per language and reason in the order
+    /// the regions first name them. The rest of `change`'s unheld regions are of held files the graph that claims them
+    /// holds no record of.
+    pub declined: Vec<DeclinedRegions<'e>>,
+}
+
+/// The regions of held files that one language leaves out of its graph for one reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct DeclinedRegions<'e> {
+    /// The first language that [declines](Language::declines) their files.
+    pub language: &'e str,
+    /// The reason it states.
+    pub reason: &'e str,
+    /// How many regions name such a file.
+    pub regions: usize,
+}
+
 impl EngineRefresh {
     /// The failures the refresh collected rather than returned: those of the index's walk, then the files a graph
     /// could not read again, each listed as [`BuildError::Read`] and held by no graph.
@@ -538,26 +567,50 @@ impl Engine {
 
     /// What a change to the lines of `regions` reaches, across the families whose languages claim their files: each
     /// family's graph analyzes the regions of its files as [`Graph::analyze_change`] does, within `limits`, and
-    /// [`Change::merge`] ranks the answers together. A region whose file no language claims counts as unheld.
+    /// [`Change::merge`] ranks the answers together. A region whose path the index does not hold, or whose held file no
+    /// language claims, counts as unheld, and the answer says which of the two it is and, for a file a language
+    /// declines, the language and its reason.
     #[must_use]
-    pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> Change<'_> {
+    pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> EngineChange<'_> {
         let mut by_family: Vec<Vec<Region<'_>>> = vec![Vec::new(); self.families.len()];
-        let mut unclaimed = 0;
+        let mut answer = EngineChange::default();
         for region in regions {
-            match self.family_claiming(region.path) {
-                Some(family) => by_family[family].push(region.clone()),
-                None => unclaimed += 1,
+            if self.index.entry(region.path).is_none() {
+                answer.missing_regions += 1;
+            } else if let Some(family) = self.family_claiming(region.path) {
+                by_family[family].push(region.clone());
+            } else if let Some((language, reason)) = self.declined(region.path) {
+                let met = answer
+                    .declined
+                    .iter_mut()
+                    .find(|met| met.language == language && met.reason == reason);
+                match met {
+                    Some(met) => met.regions += 1,
+                    None => answer.declined.push(DeclinedRegions {
+                        language,
+                        reason,
+                        regions: 1,
+                    }),
+                }
+            } else {
+                answer.unclaimed_regions += 1;
             }
         }
-        let mut change = Change::merge(
+        answer.change = Change::merge(
             self.families
                 .iter()
                 .zip(&by_family)
                 .filter(|(_, regions)| !regions.is_empty())
                 .map(|(family, regions)| family.graph.analyze_change(regions, limits)),
         );
-        change.unheld_regions += unclaimed;
-        change
+        let declined: usize = answer
+            .declined
+            .iter()
+            .map(|declined| declined.regions)
+            .sum();
+        answer.change.unheld_regions +=
+            answer.missing_regions + answer.unclaimed_regions + declined;
+        answer
     }
 
     /// What the build made of each language's files, and what each family's graph holds, as [`Graph::stats`] counts

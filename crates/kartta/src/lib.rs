@@ -116,7 +116,9 @@ pub use kartta_lang::{
     Repository, Resolver, Symbol, SymbolFlags, SymbolKind, TypeUses,
 };
 
-pub use crate::engine::{Engine, EngineOutcome, EngineRefresh, Widened, replace_failures};
+pub use crate::engine::{
+    DeclinedRegions, Engine, EngineChange, EngineOutcome, EngineRefresh, Widened, replace_failures,
+};
 #[cfg(feature = "watch")]
 pub use crate::follow::{Followed, Follower, Watch};
 pub use crate::reading::{Unmatched, UnmatchedKind, ask_reading, selects_as_callers, unmatched};
