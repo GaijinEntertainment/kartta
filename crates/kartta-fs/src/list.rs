@@ -214,7 +214,7 @@ pub enum ListError {
         name: String,
     },
     /// The path is indexed, as something the index holds no children for.
-    #[error("{path:?} is indexed as {kind:?}, which has no listing")]
+    #[error("{path:?} is indexed as {}, which has no listing", described(*kind))]
     NotADirectory {
         /// The path that was asked for.
         path: String,
@@ -222,6 +222,16 @@ pub enum ListError {
         /// never descended it, so the index holds nothing beneath it to list.
         kind: EntryKind,
     },
+}
+
+/// What an entry of `kind` is, in the words of a sentence.
+const fn described(kind: EntryKind) -> &'static str {
+    match kind {
+        EntryKind::Dir => "a directory",
+        EntryKind::File => "a file",
+        EntryKind::Symlink => "a symlink",
+        EntryKind::Other => "a special file",
+    }
 }
 
 impl ListError {
