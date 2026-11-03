@@ -2,7 +2,7 @@
   "answer": {
     "err": {
       "code": "not_a_directory",
-      "message": "\"notes.txt\" is indexed as File, which has no listing"
+      "message": "\"notes.txt\" is indexed as a file, which has no listing"
     }
   },
   "method": "list",

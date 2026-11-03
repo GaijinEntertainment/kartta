@@ -1723,12 +1723,18 @@ fn listing_a_file_reports_what_is_indexed_there_instead() {
     let dir = tree(&[("main.rs", "m")]);
     let index = default_index(dir.path());
 
+    let error = index.list("main.rs", &ListOptions::default()).unwrap_err();
+
     assert_eq!(
-        index.list("main.rs", &ListOptions::default()).unwrap_err(),
+        error,
         ListError::NotADirectory {
             path: "main.rs".to_owned(),
             kind: EntryKind::File,
         }
+    );
+    assert_eq!(
+        error.to_string(),
+        "\"main.rs\" is indexed as a file, which has no listing"
     );
 }
 
@@ -1741,13 +1747,19 @@ fn listing_a_symlink_to_a_directory_is_not_a_listing_of_its_target() {
 
     let index = default_index(dir.path());
 
+    let error = index.list("link", &ListOptions::default()).unwrap_err();
+
     assert_eq!(
-        index.list("link", &ListOptions::default()).unwrap_err(),
+        error,
         ListError::NotADirectory {
             path: "link".to_owned(),
             kind: EntryKind::Symlink,
         },
         "the walk never descended the link, so the index holds nothing under it"
+    );
+    assert_eq!(
+        error.to_string(),
+        "\"link\" is indexed as a symlink, which has no listing"
     );
 }
 
