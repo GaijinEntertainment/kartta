@@ -26,6 +26,7 @@ mod diff;
 mod languages;
 mod llmxml;
 mod params;
+mod paths;
 mod render;
 mod server;
 mod state;
