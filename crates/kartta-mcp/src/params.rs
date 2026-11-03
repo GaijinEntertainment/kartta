@@ -562,12 +562,10 @@ pub(crate) struct ImpactOfEditParams {
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.
     pub(crate) file: String,
-    /// First line of the span, 1-based inclusive - e.g. the first changed line of a diff hunk. Must be >= 1.
-    #[schemars(range(min = 1))]
-    pub(crate) start_line: u32,
-    /// Last line of the span, 1-based inclusive. 0 or omitted means through the end of the file; a value before
-    /// start_line is a tool error. A symbol counts as in-span when its definition overlaps the range at all. Null is
-    /// rejected; omit the argument to include the rest of the file.
+    /// First line of the span, 1-based inclusive - e.g. the first changed line of a diff hunk.
+    pub(crate) start_line: NonZeroU32,
+    /// Last line of the span, 1-based inclusive. Omitted or null = the end of the file; a value before start_line is a
+    /// tool error. A symbol counts as in-span when its definition overlaps the range at all.
     #[serde(default)]
-    pub(crate) end_line: u32,
+    pub(crate) end_line: Option<NonZeroU32>,
 }
