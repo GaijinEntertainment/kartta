@@ -9,6 +9,7 @@ import analyzeChangeUsers from '../../../crates/kartta-ffi/tests/golden/analyze_
 import analyzeChange from '../../../crates/kartta-ffi/tests/golden/analyze_change.json' with {type: 'json'};
 import analyzeSegmentBounds from '../../../crates/kartta-ffi/tests/golden/analyze_segment-bounds.json' with {type: 'json'};
 import analyzeSegmentDeclined from '../../../crates/kartta-ffi/tests/golden/analyze_segment-declined.json' with {type: 'json'};
+import analyzeSegmentDirectory from '../../../crates/kartta-ffi/tests/golden/analyze_segment-directory.json' with {type: 'json'};
 import analyzeSegmentMissing from '../../../crates/kartta-ffi/tests/golden/analyze_segment-missing.json' with {type: 'json'};
 import analyzeSegmentUsers from '../../../crates/kartta-ffi/tests/golden/analyze_segment-users.json' with {type: 'json'};
 import analyzeSegment from '../../../crates/kartta-ffi/tests/golden/analyze_segment.json' with {type: 'json'};
@@ -37,6 +38,7 @@ import definitionsOneEdit from '../../../crates/kartta-ffi/tests/golden/definiti
 import definitions from '../../../crates/kartta-ffi/tests/golden/definitions.json' with {type: 'json'};
 import dependentsBounds from '../../../crates/kartta-ffi/tests/golden/dependents-bounds.json' with {type: 'json'};
 import dependentsDeclined from '../../../crates/kartta-ffi/tests/golden/dependents-declined.json' with {type: 'json'};
+import dependentsDirectory from '../../../crates/kartta-ffi/tests/golden/dependents-directory.json' with {type: 'json'};
 import dependentsMissing from '../../../crates/kartta-ffi/tests/golden/dependents-missing.json' with {type: 'json'};
 import dependents from '../../../crates/kartta-ffi/tests/golden/dependents.json' with {type: 'json'};
 import fuzzyGlobs from '../../../crates/kartta-ffi/tests/golden/fuzzy-globs.json' with {type: 'json'};
@@ -54,6 +56,7 @@ import listNotADirectory from '../../../crates/kartta-ffi/tests/golden/list-not_
 import listNotFound from '../../../crates/kartta-ffi/tests/golden/list-not_found.json' with {type: 'json'};
 import list from '../../../crates/kartta-ffi/tests/golden/list.json' with {type: 'json'};
 import outlineDeclined from '../../../crates/kartta-ffi/tests/golden/outline-declined.json' with {type: 'json'};
+import outlineDirectory from '../../../crates/kartta-ffi/tests/golden/outline-directory.json' with {type: 'json'};
 import outlineMissing from '../../../crates/kartta-ffi/tests/golden/outline-missing.json' with {type: 'json'};
 import outline from '../../../crates/kartta-ffi/tests/golden/outline.json' with {type: 'json'};
 import referencesAccess from '../../../crates/kartta-ffi/tests/golden/references-access.json' with {type: 'json'};
@@ -109,6 +112,7 @@ const laterGoldens = {
 	'analyze_change-users': analyzeChangeUsers,
 	'analyze_segment-bounds': analyzeSegmentBounds,
 	'analyze_segment-declined': analyzeSegmentDeclined,
+	'analyze_segment-directory': analyzeSegmentDirectory,
 	'analyze_segment-missing': analyzeSegmentMissing,
 	'analyze_segment-users': analyzeSegmentUsers,
 	'build-every_option': buildEveryOption,
@@ -128,6 +132,7 @@ const laterGoldens = {
 	'definitions-one_edit': definitionsOneEdit,
 	'dependents-bounds': dependentsBounds,
 	'dependents-declined': dependentsDeclined,
+	'dependents-directory': dependentsDirectory,
 	'dependents-missing': dependentsMissing,
 	'fuzzy-globs': fuzzyGlobs,
 	'grep-cut': grepCut,
@@ -135,6 +140,7 @@ const laterGoldens = {
 	'implementations-other_kind': implementationsOtherKind,
 	'list-collapse': listCollapse,
 	'outline-declined': outlineDeclined,
+	'outline-directory': outlineDirectory,
 	'outline-missing': outlineMissing,
 	'references-access': referencesAccess,
 	'references-file_scope': referencesFileScope,
