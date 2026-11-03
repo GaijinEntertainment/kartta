@@ -586,7 +586,7 @@ fn a_change_across_families_is_analyzed_by_each_graph_and_answered_as_one() {
         Region::new("absent.alpha", 1..=1),
     ];
 
-    let change = engine.analyze_change(&regions, Limits::new(3));
+    let change = engine.analyze_change(&regions, Limits::new(3)).change;
     let mut seeds: Vec<&str> = change.seeds.iter().map(|seed| seed.symbol.name).collect();
     seeds.sort_unstable();
 
@@ -596,6 +596,59 @@ fn a_change_across_families_is_analyzed_by_each_graph_and_answered_as_one() {
     assert_eq!(
         change.unheld_regions, 2,
         "notes.md no language claims, absent.alpha no graph holds"
+    );
+}
+
+#[test]
+fn a_change_says_why_no_graph_holds_each_region_it_counts_as_unheld() {
+    let tree = tree(&[
+        ("one.alpha", "def one\n"),
+        ("notes.md", "def notes\n"),
+        ("old.alpha.off", "def old\n"),
+        ("older.alpha.off", "def older\n"),
+        ("old.beta.off", "def old\n"),
+    ]);
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![
+            Box::new(Defs::new("alpha", "first", ".alpha")),
+            Box::new(Defs::new("beta", "second", ".beta")),
+        ],
+    );
+    let regions = [
+        Region::new("one.alpha", 1..=1),
+        Region::new("notes.md", 1..=1),
+        Region::new("old.alpha.off", 1..=1),
+        Region::new("old.beta.off", 1..=1),
+        Region::new("absent.alpha", 1..=1),
+        Region::new("older.alpha.off", 1..=1),
+        Region::new("absent.md", 1..=1),
+        Region::new("absent.alpha.off", 1..=1),
+    ];
+
+    let answer = engine.analyze_change(&regions, Limits::new(3));
+    let declined: Vec<(&str, &str, usize)> = answer
+        .declined
+        .iter()
+        .map(|declined| (declined.language, declined.reason, declined.regions))
+        .collect();
+
+    assert_eq!(answer.change.changed_symbols, 1);
+    assert_eq!(answer.change.unheld_regions, 7);
+    assert_eq!(
+        answer.missing_regions, 3,
+        "absent.alpha, absent.md and absent.alpha.off the index does not hold, claimed, declined or neither"
+    );
+    assert_eq!(answer.unclaimed_regions, 1, "notes.md");
+    assert_eq!(
+        declined,
+        [
+            ("alpha", "a file switched off is read by no build", 2),
+            ("beta", "a file switched off is read by no build", 1),
+        ],
+        "old.alpha.off and older.alpha.off under one language, old.beta.off under the next, as the regions first name \
+         them"
     );
 }
 
@@ -625,7 +678,7 @@ fn the_seeds_of_several_families_compete_for_one_limit() {
         Region::new("many.alpha", 1..=u32::MAX),
     ];
 
-    let change = engine.analyze_change(&regions, Limits::new(1));
+    let change = engine.analyze_change(&regions, Limits::new(1)).change;
     let seeds: Vec<&str> = change.seeds.iter().map(|seed| seed.symbol.name).collect();
 
     assert_eq!(change.changed_symbols, 400);
