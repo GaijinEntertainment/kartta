@@ -117,7 +117,8 @@ pub use kartta_lang::{
 };
 
 pub use crate::engine::{
-    DeclinedRegions, Engine, EngineChange, EngineOutcome, EngineRefresh, Widened, replace_failures,
+    DeclinedRegions, Engine, EngineChange, EngineOutcome, EngineRefresh, Symlink, Widened,
+    replace_failures,
 };
 #[cfg(feature = "watch")]
 pub use crate::follow::{Followed, Follower, Watch};
