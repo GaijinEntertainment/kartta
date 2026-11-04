@@ -652,6 +652,96 @@ fn a_change_says_why_no_graph_holds_each_region_it_counts_as_unheld() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_change_counts_its_regions_of_symlinks_apart() {
+    let tree = tree(&[("one.alpha", "def one\n"), ("notes.md", "notes\n")]);
+    std::os::unix::fs::symlink("one.alpha", tree.path().join("link.alpha")).expect("link.alpha");
+    std::os::unix::fs::symlink("notes.md", tree.path().join("link.md")).expect("link.md");
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![Box::new(Defs::new("alpha", "first", ".alpha"))],
+    );
+    let regions = [
+        Region::new("one.alpha", 1..=1),
+        Region::new("link.alpha", 1..=1),
+        Region::new("link.md", 1..=1),
+    ];
+
+    let answer = engine.analyze_change(&regions, Limits::new(3));
+
+    assert_eq!(answer.change.unheld_regions, 2);
+    assert_eq!(
+        answer.symlink_regions, 2,
+        "link.alpha, which the alpha graph claims, and link.md, which no language claims"
+    );
+    assert_eq!(answer.unclaimed_regions, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_names_the_held_entry_its_target_points_to() {
+    let tree = tree(&[
+        ("a.alpha", "def a\n"),
+        ("pkg/a.alpha", "def a\n"),
+        ("pkg/sub/b.alpha", "def b\n"),
+    ]);
+    let root = tree.path();
+    let absolute = root.join("pkg/a.alpha").display().to_string();
+    let canonical = fs::canonicalize(root).expect("the root");
+    let through_canonical = canonical.join("pkg/a.alpha").display().to_string();
+    let links = [
+        (
+            "canonical.alpha",
+            through_canonical.as_str(),
+            Some("pkg/a.alpha"),
+        ),
+        ("link.alpha", "pkg/a.alpha", Some("pkg/a.alpha")),
+        ("pkg/sub/up.alpha", "../a.alpha", Some("pkg/a.alpha")),
+        ("pkg/here.alpha", "./sub/../a.alpha", Some("pkg/a.alpha")),
+        ("dir", "pkg/sub", Some("pkg/sub")),
+        ("chained.alpha", "link.alpha", Some("link.alpha")),
+        ("absolute.alpha", absolute.as_str(), Some("pkg/a.alpha")),
+        ("through.alpha", "dir/../a.alpha", None),
+        ("inside.alpha", "dir/b.alpha", None),
+        ("outside.alpha", "../a.alpha", None),
+        ("gone.alpha", "pkg/none.alpha", None),
+    ];
+    for (link, target, _) in links {
+        std::os::unix::fs::symlink(target, root.join(link)).expect("a symlink");
+    }
+    let engine = build(
+        root,
+        &BuildOptions::default(),
+        vec![Box::new(Defs::new("alpha", "first", ".alpha"))],
+    );
+
+    for (link, target, expected) in links {
+        let symlink = engine.symlink(link).expect("a held symlink");
+        let resolved = symlink.resolved.as_ref().map(kartta::Entry::path);
+        assert_eq!(symlink.target, Some(target), "{link}");
+        assert_eq!(resolved, expected, "{link}");
+        if let Some(resolved) = resolved {
+            assert_eq!(
+                fs::canonicalize(root.join(link)).expect("a link the kernel follows"),
+                fs::canonicalize(canonical.join(resolved)).expect("the resolved entry"),
+                "{link} resolves where the kernel's own lookup lands"
+            );
+        }
+    }
+    assert_eq!(
+        fs::canonicalize(root.join("through.alpha")).expect("through.alpha"),
+        canonical.join("pkg/a.alpha"),
+        "the kernel reads `dir/..` as pkg, where a lexical reading of the target names the root's a.alpha"
+    );
+    assert!(engine.symlink("a.alpha").is_none(), "a file is no symlink");
+    assert!(
+        engine.symlink("absent.alpha").is_none(),
+        "nor is a path the index lacks"
+    );
+}
+
 fn two_hundred_defs(prefix: &str) -> String {
     let mut source = String::new();
     for index in 0..200 {
