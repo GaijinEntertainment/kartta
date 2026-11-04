@@ -815,9 +815,10 @@ fn every_key_of_a_golden_is_a_name_of_the_reference() {
 /// The keys no golden holds, because what answers them is no file of a fixture: an unreadable or removed file, a
 /// symlink a Windows checkout does not make, a machine's own path, a watcher that failed. Each comes with the file
 /// whose test pins it.
-const PINNED_ELSEWHERE: [(&str, &str, &str); 20] = [
+const PINNED_ELSEWHERE: [(&str, &str, &str); 22] = [
     ("BuildParams", "content_cache", "tests/dispatch.rs"),
     ("ContentIndexView", "unindexed", "tests/dispatch.rs"),
+    ("FileView", "symlink", "tests/dispatch.rs"),
     ("FoundView", "error", "tests/dispatch.rs"),
     ("FuzzyView", "stopped_build", "src/handle.rs"),
     ("GlobView", "stopped_build", "src/handle.rs"),
@@ -834,6 +835,7 @@ const PINNED_ELSEWHERE: [(&str, &str, &str); 20] = [
     ("StoredError", "kind", "tests/dispatch.rs"),
     ("StoredError", "message", "tests/dispatch.rs"),
     ("StoredError", "path", "tests/dispatch.rs"),
+    ("SymlinkView", "target", "tests/dispatch.rs"),
     ("WatchView", "reason", "src/wire/build.rs"),
     ("WatchView", "restarts", "src/wire/build.rs"),
 ];
@@ -922,9 +924,10 @@ fn every_key_of_the_wire_is_in_a_golden_or_listed_with_the_test_that_pins_it() {
 }
 
 /// The Go and the Node type of each object [`PINNED_ELSEWHERE`] names.
-const BINDING_TYPES: [(&str, &str, &str); 13] = [
+const BINDING_TYPES: [(&str, &str, &str); 15] = [
     ("BuildParams", "BuildOptions", "BuildParams"),
     ("ContentIndexView", "ContentIndexStats", "ContentIndexStats"),
+    ("FileView", "fileState", "FileState"),
     ("FoundView", "Found", "Found"),
     ("FuzzyView", "Fuzzy", "Fuzzy"),
     ("GlobView", "Glob", "Glob"),
@@ -935,6 +938,7 @@ const BINDING_TYPES: [(&str, &str, &str); 13] = [
     ("StatsAnswer", "Stats", "Stats"),
     ("StoppedView", "StoppedBuild", "StoppedBuild"),
     ("StoredError", "BuildFailure", "BuildFailure"),
+    ("SymlinkView", "Symlink", "Symlink"),
     ("WatchView", "Watch", "Watch"),
 ];
 

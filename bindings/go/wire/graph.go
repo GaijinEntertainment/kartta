@@ -432,14 +432,16 @@ type OutlineParams struct {
 // Outline is the answer of outline: the definitions of one file. Graph is the graph of the language that claims the
 // file, empty when none does or when Missing or Directory is true; when that graph does not hold the file, Held is
 // false and the rest is empty. Missing is true when the index holds no such path, Directory when it holds the path as
-// a directory, whose files are the ones to ask about, and Declined names the language that leaves the held file out
-// of its graph; a held file with neither Graph nor Declined is one no language claims.
+// a directory, whose files are the ones to ask about, Symlink names where a path the index holds as a symlink points,
+// which no graph holds, and Declined names the language that leaves the held file out of its graph; a held file with
+// neither Graph nor Declined is one no language claims.
 type Outline struct {
 	File      string       `json:"file"`
 	Graph     string       `json:"graph,omitempty"`
 	Held      bool         `json:"held"`
 	Missing   bool         `json:"missing,omitempty"`
 	Directory bool         `json:"directory,omitempty"`
+	Symlink   *Symlink     `json:"symlink,omitempty"`
 	Declined  *Declined    `json:"declined,omitempty"`
 	Symbols   []Definition `json:"symbols"`
 }
@@ -447,10 +449,20 @@ type Outline struct {
 // MarshalJSON writes the outline as the wire answers it, with the symbols only where Held is true.
 func (o Outline) MarshalJSON() ([]byte, error) {
 	if !o.Held {
-		return json.Marshal(fileState{o.File, o.Graph, o.Held, o.Missing, o.Directory, o.Declined})
+		return json.Marshal(fileState{o.File, o.Graph, o.Held, o.Missing, o.Directory, o.Symlink, o.Declined})
 	}
 	type outline Outline
 	return json.Marshal(outline(o))
+}
+
+// Symlink is where a held symlink points. Target is what the link stores, relative to its directory unless absolute,
+// and empty when the walk could not read it. Path is the held entry the target names, as the index spells it, and
+// Kind what that entry is, as Listed's Kind names it; both are empty when the target leaves the root, names nothing
+// the index holds, or passes through a symlink on its way.
+type Symlink struct {
+	Target string `json:"target,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Kind   string `json:"kind,omitempty"`
 }
 
 // Declined is the language that leaves a held file of its kind out of its graph, and the reason it states.
@@ -466,6 +478,7 @@ type fileState struct {
 	Held      bool      `json:"held"`
 	Missing   bool      `json:"missing,omitempty"`
 	Directory bool      `json:"directory,omitempty"`
+	Symlink   *Symlink  `json:"symlink,omitempty"`
 	Declined  *Declined `json:"declined,omitempty"`
 }
 
@@ -479,13 +492,14 @@ type DependentsParams struct {
 }
 
 // Dependents is the answer of dependents: the files that include a file, directly or through others. Graph, Held,
-// Missing, Directory and Declined are as Outline's.
+// Missing, Directory, Symlink and Declined are as Outline's.
 type Dependents struct {
 	File       string      `json:"file"`
 	Graph      string      `json:"graph,omitempty"`
 	Held       bool        `json:"held"`
 	Missing    bool        `json:"missing,omitempty"`
 	Directory  bool        `json:"directory,omitempty"`
+	Symlink    *Symlink    `json:"symlink,omitempty"`
 	Declined   *Declined   `json:"declined,omitempty"`
 	Found      []Dependent `json:"found"`
 	Truncated  bool        `json:"truncated"`
@@ -496,7 +510,7 @@ type Dependents struct {
 // MarshalJSON writes the dependents as the wire answers them, with the files and counts only where Held is true.
 func (d Dependents) MarshalJSON() ([]byte, error) {
 	if !d.Held {
-		return json.Marshal(fileState{d.File, d.Graph, d.Held, d.Missing, d.Directory, d.Declined})
+		return json.Marshal(fileState{d.File, d.Graph, d.Held, d.Missing, d.Directory, d.Symlink, d.Declined})
 	}
 	type dependents Dependents
 	return json.Marshal(dependents(d))
@@ -523,14 +537,15 @@ type SegmentParams struct {
 }
 
 // Segment is the answer of analyze_segment: what a change to a range of a file's lines reaches. Graph, Held, Missing,
-// Directory and Declined are as Outline's. Where the params left EndLine at 0, it is the last line a symbol of the
-// file reaches, and never before StartLine.
+// Directory, Symlink and Declined are as Outline's. Where the params left EndLine at 0, it is the last line a symbol of
+// the file reaches, and never before StartLine.
 type Segment struct {
 	File       string          `json:"file"`
 	Graph      string          `json:"graph,omitempty"`
 	Held       bool            `json:"held"`
 	Missing    bool            `json:"missing,omitempty"`
 	Directory  bool            `json:"directory,omitempty"`
+	Symlink    *Symlink        `json:"symlink,omitempty"`
 	Declined   *Declined       `json:"declined,omitempty"`
 	StartLine  int             `json:"start_line"`
 	EndLine    int             `json:"end_line"`
@@ -542,7 +557,7 @@ type Segment struct {
 // MarshalJSON writes the segment as the wire answers it, with the lines, symbols and includes only where Held is true.
 func (s Segment) MarshalJSON() ([]byte, error) {
 	if !s.Held {
-		return json.Marshal(fileState{s.File, s.Graph, s.Held, s.Missing, s.Directory, s.Declined})
+		return json.Marshal(fileState{s.File, s.Graph, s.Held, s.Missing, s.Directory, s.Symlink, s.Declined})
 	}
 	type segment Segment
 	return json.Marshal(segment(s))
@@ -609,8 +624,9 @@ type Region struct {
 
 // Change is the answer of analyze_change: what a change to regions across files reaches. UnheldRegions counts the
 // regions whose file no graph holds; of them, MissingRegions counts those whose path the index does not hold,
-// UnclaimedRegions those of held files no language claims or declines, and Declined those of held files a language
-// leaves out of its graph. The rest are regions of held files the graph claiming them holds no record of.
+// SymlinkRegions those whose path it holds as a symlink, UnclaimedRegions those of held files no language claims or
+// declines, and Declined those of held files a language leaves out of its graph. The rest are regions of held files
+// the graph claiming them holds no record of.
 type Change struct {
 	ChangedSymbols        int               `json:"changed_symbols"`
 	ChangedFiles          int               `json:"changed_files"`
@@ -624,6 +640,7 @@ type Change struct {
 	Seeds                 []Seed            `json:"seeds"`
 	TruncatedSeeds        int               `json:"truncated_seeds"`
 	MissingRegions        int               `json:"missing_regions"`
+	SymlinkRegions        int               `json:"symlink_regions"`
 	UnclaimedRegions      int               `json:"unclaimed_regions"`
 	Declined              []DeclinedRegions `json:"declined"`
 }
