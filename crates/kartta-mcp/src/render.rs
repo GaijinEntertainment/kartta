@@ -8,7 +8,8 @@ mod unused;
 use std::fmt::Display;
 
 use kartta::{
-    Definition, Engine, Hit, Resolution, Selector, SymbolFlags, SymbolKind, UnmatchedKind,
+    Definition, Engine, Entry, EntryKind, Hit, Resolution, Selector, SymbolFlags, SymbolKind,
+    Symlink, UnmatchedKind,
 };
 
 pub(crate) use self::calls::{
@@ -51,8 +52,10 @@ fn span(definition: &Definition<'_>) -> String {
 }
 
 /// Why no code graph answers for a file the index holds.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) enum Graphless<'e> {
+    /// The index holds the path as a symlink, which no graph holds whatever it points at.
+    Symlink(Symlink<'e>),
     /// No indexed language claims the file or declines it.
     Unclaimed,
     /// `language` leaves the file, one of its kind, out of its graph for `reason`.
@@ -64,6 +67,9 @@ pub(crate) enum Graphless<'e> {
 impl<'e> Graphless<'e> {
     /// Why no graph answers for `file`, which the graph of `family` claims, or no graph when `family` is `None`.
     pub(crate) fn of(engine: &'e Engine, file: &str, family: Option<&'e str>) -> Self {
+        if let Some(symlink) = engine.symlink(file) {
+            return Self::Symlink(symlink);
+        }
         family.map_or_else(
             || {
                 engine
@@ -79,6 +85,7 @@ impl<'e> Graphless<'e> {
 
     fn note(self) -> String {
         let why = match self {
+            Self::Symlink(symlink) => return symlink_note(&symlink),
             Self::Unclaimed => {
                 "no indexed language claims this file, so no code graph holds it".to_owned()
             }
@@ -91,6 +98,51 @@ impl<'e> Graphless<'e> {
             ),
         };
         format!("{why} - read or grep it")
+    }
+}
+
+/// What a file answer says of a symlink: where it points and which path to pass instead.
+fn symlink_note(symlink: &Symlink<'_>) -> String {
+    const HOLDS_NONE: &str = "no code graph holds a symlink";
+    let Some(target) = symlink.target else {
+        return format!("this path is a symlink whose target could not be read, and {HOLDS_NONE}");
+    };
+    let (place, next) = symlink.resolved.as_ref().map_or_else(
+        || {
+            (
+                "which names nothing the index holds".to_owned(),
+                Some("read it".to_owned()),
+            )
+        },
+        held_place,
+    );
+    let note = format!("this path is a symlink to {target:?}, {place}, and {HOLDS_NONE}");
+    match next {
+        Some(next) => format!("{note} - {next}"),
+        None => note,
+    }
+}
+
+/// The held entry a symlink points to, as its note names it, and the call to make instead, if any.
+fn held_place(entry: &Entry<'_>) -> (String, Option<String>) {
+    let path = entry.path();
+    match entry.kind() {
+        EntryKind::Dir => (
+            format!("the indexed directory {path:?}"),
+            Some("pass one of that directory's files, which list_dir lists".to_owned()),
+        ),
+        EntryKind::Other => (
+            format!("the indexed {path:?}, which is neither a file nor a directory"),
+            None,
+        ),
+        EntryKind::Symlink => (
+            format!("the indexed symlink {path:?}"),
+            Some(format!("pass {path:?}")),
+        ),
+        EntryKind::File => (
+            format!("the indexed file {path:?}"),
+            Some(format!("pass {path:?}")),
+        ),
     }
 }
 

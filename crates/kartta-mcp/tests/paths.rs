@@ -412,6 +412,92 @@ fn a_held_name_with_a_backslash_answers_as_any_held_name() {
     assert!(unused.contains(r#"<symbol name="Odd""#), "{unused}");
 }
 
+#[cfg(unix)]
+#[test]
+fn a_file_answer_about_a_symlink_names_the_path_to_pass_instead() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        ("pkg/a.go", "package pkg\n\nfunc A() {}\n"),
+        ("notes.txt", "notes\n"),
+    ]);
+    for (link, target) in [
+        ("alink.go", "pkg/a.go"),
+        ("link", "pkg"),
+        ("flink", "notes.txt"),
+        ("out.go", "../elsewhere.go"),
+        ("chain.go", "alink.go"),
+        ("slink", "sock"),
+    ] {
+        std::os::unix::fs::symlink(target, tree.path().join(link)).expect("a symlink");
+    }
+    let _socket =
+        std::os::unix::net::UnixListener::bind(tree.path().join("sock")).expect("a socket");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("file_outline", &json!({"file": "slink"})),
+        concat!(
+            r#"<outline of="slink" symbols="0">this path is a symlink to "sock", the indexed "sock", which is "#,
+            "neither a file nor a directory, and no code graph holds a symlink</outline>",
+        ),
+        "a link to a socket names no file to pass"
+    );
+    for (file, points, next) in [
+        (
+            "alink.go",
+            r#""pkg/a.go", the indexed file "pkg/a.go""#,
+            r#"pass "pkg/a.go""#,
+        ),
+        (
+            "link",
+            r#""pkg", the indexed directory "pkg""#,
+            "pass one of that directory's files, which list_dir lists",
+        ),
+        (
+            "flink",
+            r#""notes.txt", the indexed file "notes.txt""#,
+            r#"pass "notes.txt""#,
+        ),
+        (
+            "out.go",
+            r#""../elsewhere.go", which names nothing the index holds"#,
+            "read it",
+        ),
+        (
+            "chain.go",
+            r#""alink.go", the indexed symlink "alink.go""#,
+            r#"pass "alink.go""#,
+        ),
+    ] {
+        let note = format!(
+            "this path is a symlink to {points}, and no code graph holds a symlink - {next}"
+        );
+        assert_eq!(
+            [
+                client.answer("file_outline", &json!({"file": file})),
+                client.answer("find_importers", &json!({"file": file})),
+                client.answer("impact_of_edit", &json!({"file": file, "start_line": 1})),
+            ],
+            [
+                format!(r#"<outline of="{file}" symbols="0">{note}</outline>"#),
+                format!(r#"<importers of="{file}" count="0">{note}</importers>"#),
+                format!(
+                    r#"<impact of="{file}" start_line="1" end_line="end" symbols="0">{note}</impact>"#
+                ),
+            ]
+        );
+    }
+    let change = client.answer(
+        "impact_of_change",
+        &json!({"regions": [{"file": "alink.go"}, {"file": "link"}, {"file": "pkg/a.go"}]}),
+    );
+    assert!(
+        change.contains(r#"unheld_regions="2" symlink_regions="2">"#),
+        "{change}"
+    );
+}
+
 #[test]
 fn a_held_file_no_graph_answers_for_says_why() {
     let tree = tree(&[
