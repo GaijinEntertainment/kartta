@@ -863,8 +863,9 @@ export type OutlineParams = {
  * What an answer about one file says of the file. `graph` is the graph of the language that claims the file, absent
  * when none does or when `missing` or `directory` is true; when that graph does not hold the file, `held` is false and
  * the answer holds these fields alone. `missing` is true when the index holds no such path, `directory` when it holds
- * the path as a directory, whose files are the ones to ask about, and `declined` names the language that leaves the
- * held file out of its graph; a held file with neither `graph` nor `declined` is one no language claims.
+ * the path as a directory, whose files are the ones to ask about, `symlink` names where a path the index holds as a
+ * symlink points, which no graph holds, and `declined` names the language that leaves the held file out of its graph;
+ * a held file with neither `graph` nor `declined` is one no language claims.
  */
 export type FileState = {
 	file: string;
@@ -872,7 +873,20 @@ export type FileState = {
 	held: boolean;
 	missing?: boolean;
 	directory?: boolean;
+	symlink?: Symlink;
 	declined?: Declined;
+};
+
+/**
+ * Where a held symlink points. `target` is what the link stores, relative to its directory unless absolute, and absent
+ * when the walk could not read it. `path` is the held entry the target names, as the index spells it, and `kind` what
+ * that entry is, as {@link Listed}'s `kind` names it; both are absent when the target leaves the root, names nothing
+ * the index holds, or passes through a symlink on its way.
+ */
+export type Symlink = {
+	target?: string;
+	path?: string;
+	kind?: string;
 };
 
 /** The language that leaves a held file of its kind out of its graph, and the reason it states. */
@@ -995,9 +1009,10 @@ export type Region = {
 
 /**
  * What a change to regions across files reaches. `unheld_regions` counts the regions whose file no graph holds; of
- * them, `missing_regions` counts those whose path the index does not hold, `unclaimed_regions` those of held files no
- * language claims or declines, and `declined` those of held files a language leaves out of its graph. The rest are
- * regions of held files the graph claiming them holds no record of.
+ * them, `missing_regions` counts those whose path the index does not hold, `symlink_regions` those whose path it
+ * holds as a symlink, `unclaimed_regions` those of held files no language claims or declines, and `declined` those of
+ * held files a language leaves out of its graph. The rest are regions of held files the graph claiming them holds no
+ * record of.
  */
 export type Change = {
 	changed_symbols: number;
@@ -1012,6 +1027,7 @@ export type Change = {
 	seeds: Seed[];
 	truncated_seeds: number;
 	missing_regions: number;
+	symlink_regions: number;
 	unclaimed_regions: number;
 	declined: DeclinedRegions[];
 };

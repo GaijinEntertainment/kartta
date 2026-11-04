@@ -6,8 +6,8 @@ use kartta::{
     Definitions, Dependent, Dependents, DirCount, DirectCalls, Engine, EngineChange, EntryKind,
     Excluded, FileScope, Graph, Hit, Hotspot, Implementations, Implementor, LanguageFiles, Miss,
     Misses, Nearness, ReachBand, Reached, Reference, References, Resolution, Search, Seed, Segment,
-    SegmentSymbol, SelfCall, SiteCounts, Source, Stats, SymbolFlags, SymbolKind, TypeUses, Unbound,
-    Unmatched, UnmatchedKind, Walk,
+    SegmentSymbol, SelfCall, SiteCounts, Source, Stats, SymbolFlags, SymbolKind, Symlink, TypeUses,
+    Unbound, Unmatched, UnmatchedKind, Walk,
 };
 
 use serde::{Serialize, Serializer};
@@ -498,9 +498,36 @@ pub(crate) struct FileView<'a, T> {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     directory: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    symlink: Option<SymlinkView<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     declined: Option<DeclinedView<'a>>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     answer: Option<T>,
+}
+
+/// Where a held symlink points: its target as stored, and the held entry the target names.
+#[derive(Debug, Serialize)]
+struct SymlinkView<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<Box<str>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<&'static str>,
+}
+
+impl<'a> SymlinkView<'a> {
+    fn new(symlink: Symlink<'a>) -> Self {
+        let (path, kind) = symlink
+            .resolved
+            .map(|entry| (entry.path().into(), super::files::kind(entry.kind())))
+            .unzip();
+        Self {
+            target: symlink.target,
+            path,
+            kind,
+        }
+    }
 }
 
 /// The language that leaves a held file of its kind out of its graph, and the reason it states.
@@ -512,7 +539,7 @@ struct DeclinedView<'a> {
 
 impl<'a, T> FileView<'a, T> {
     /// What `ask` answers of `file` from the graph that claims it, or why no graph answers: the index holds no such
-    /// path, the path is a directory, a language leaves the held file out, or no language claims it.
+    /// path, the path is a directory or a symlink, a language leaves the held file out, or no language claims it.
     pub(crate) fn new(
         engine: &'a Engine,
         file: &'a str,
@@ -525,6 +552,9 @@ impl<'a, T> FileView<'a, T> {
             .then(|| engine.index().entry(file).map(|entry| entry.kind()));
         let missing = unheld == Some(None);
         let directory = unheld == Some(Some(EntryKind::Dir));
+        let symlink = (unheld == Some(Some(EntryKind::Symlink)))
+            .then(|| engine.symlink(file))
+            .flatten();
         let a_file = !missing && !directory;
         let declined = match claimed {
             None if a_file => engine.declined(file),
@@ -536,6 +566,7 @@ impl<'a, T> FileView<'a, T> {
             held: answer.is_some(),
             missing,
             directory,
+            symlink: symlink.map(SymlinkView::new),
             declined: declined.map(|(language, reason)| DeclinedView { language, reason }),
             answer,
         }
@@ -640,6 +671,7 @@ pub(crate) struct ChangeView<'e> {
     #[serde(flatten)]
     change: Wired<Change<'e>>,
     missing_regions: usize,
+    symlink_regions: usize,
     unclaimed_regions: usize,
     declined: Vec<DeclinedRegionsView<'e>>,
 }
@@ -656,6 +688,7 @@ impl<'e> ChangeView<'e> {
     pub(crate) fn new(answer: EngineChange<'e>) -> Self {
         Self {
             missing_regions: answer.missing_regions,
+            symlink_regions: answer.symlink_regions,
             unclaimed_regions: answer.unclaimed_regions,
             declined: answer
                 .declined

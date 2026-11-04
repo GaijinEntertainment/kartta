@@ -597,8 +597,19 @@ The answer of a query about one file, with the fields of the answer named beside
 - `missing` (boolean, optional): Present, and true, when the index holds no such path.
 - `directory` (boolean, optional): Present, and true, when the index holds the path as a directory: pass one of its
   files instead, which `list` lists.
+- `symlink` ([`SymlinkView`](#symlinkview), optional): Present when the index holds the path as a symlink, which no
+  graph holds whatever it points at: pass its `path` instead.
 - `declined` ([`DeclinedView`](#declinedview), optional): The language that leaves the held file out of its graph, a
   file of its kind it does not claim. A held file with no `graph` and no `declined` is one no language claims.
+
+### SymlinkView
+
+- `target` (string, optional): Where the link points, as the link stores it: relative to the link's directory unless
+  absolute, and possibly outside the tree. Absent when the walk could not read it or it is not valid UTF-8.
+- `path` (string, optional): The held entry the target names, as the index spells it. Absent when the target leaves
+  the root, names nothing the index holds, or passes through a symlink on its way, which the index holds nothing
+  below.
+- `kind` (string, optional): What that entry is, as [`ListedView`](#listedview)'s `kind` names it. Present with `path`.
 
 ### DeclinedView
 
@@ -906,6 +917,7 @@ The fields of [`Lines`](#lines), and:
 The fields of [`Change`](#change), and why no graph holds each region `unheld_regions` counts:
 
 - `missing_regions` (integer, always): The regions whose path the index does not hold.
+- `symlink_regions` (integer, always): The regions whose path the index holds as a symlink.
 - `unclaimed_regions` (integer, always): The regions of held files that no language claims or declines.
 - `declined` (array of [`DeclinedRegionsView`](#declinedregionsview), always): The regions of held files that a
   language leaves out of its graph, per language and reason, in the order the regions first name them. The rest of

@@ -108,7 +108,7 @@ struct ListedView<'a> {
     unlisted: Option<usize>,
 }
 
-const fn kind(kind: EntryKind) -> &'static str {
+pub(crate) const fn kind(kind: EntryKind) -> &'static str {
     match kind {
         EntryKind::File => "file",
         EntryKind::Dir => "dir",

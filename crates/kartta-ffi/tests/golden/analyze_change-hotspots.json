@@ -107,6 +107,7 @@
           "unexpanded": 0
         }
       ],
+      "symlink_regions": 0,
       "total_hotspots": 1,
       "transitive_sum": 3,
       "truncated_seeds": 0,
