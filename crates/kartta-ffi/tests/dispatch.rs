@@ -345,6 +345,64 @@ fn a_file_answer_tells_a_directory_from_a_held_file() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn a_file_answer_names_where_a_symlink_points() {
+    let tree = tree();
+    fs::create_dir(tree.path().join("pkg")).expect("pkg");
+    for (link, target) in [
+        ("alink.go", "run.go"),
+        ("link", "pkg"),
+        ("pkg/up.go", "../main.go"),
+        ("out.go", "../elsewhere.go"),
+    ] {
+        std::os::unix::fs::symlink(target, tree.path().join(link)).expect(link);
+    }
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    for method in ["outline", "dependents", "analyze_segment"] {
+        let answer = |file: &str| ok(&kartta, method, &json!({ "file": file }));
+        assert_eq!(
+            answer("alink.go"),
+            json!({
+                "file": "alink.go",
+                "graph": "go",
+                "held": false,
+                "symlink": { "target": "run.go", "path": "run.go", "kind": "file" },
+            }),
+            "{method} of a symlink the go graph claims by its name"
+        );
+        assert_eq!(
+            answer("link"),
+            json!({
+                "file": "link",
+                "held": false,
+                "symlink": { "target": "pkg", "path": "pkg", "kind": "dir" },
+            }),
+            "{method} of a symlink to a directory"
+        );
+        assert_eq!(
+            answer("pkg/up.go")["symlink"],
+            json!({ "target": "../main.go", "path": "main.go", "kind": "file" }),
+            "{method} of a symlink whose target is relative to its own directory"
+        );
+        assert_eq!(
+            answer("out.go")["symlink"],
+            json!({ "target": "../elsewhere.go" }),
+            "{method} of a symlink that leaves the root"
+        );
+    }
+    let change = ok(
+        &kartta,
+        "analyze_change",
+        &json!({ "regions": [{ "file": "alink.go" }, { "file": "link" }, { "file": "run.go" }] }),
+    );
+    assert_eq!(change["symlink_regions"], 2, "{change}");
+    assert_eq!(change["unheld_regions"], 2, "{change}");
+    assert_eq!(change["unclaimed_regions"], 0, "{change}");
+}
+
 #[test]
 fn a_graphs_stats_count_its_uses_by_access() {
     let tree = tempfile::tempdir().expect("a temporary directory");

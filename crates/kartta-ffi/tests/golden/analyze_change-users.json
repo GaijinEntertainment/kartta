@@ -47,6 +47,7 @@
           "user_count": 1
         }
       ],
+      "symlink_regions": 0,
       "total_hotspots": 0,
       "transitive_sum": 1,
       "truncated_seeds": 0,
