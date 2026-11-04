@@ -1258,8 +1258,9 @@ impl Server {
                        with shown= of=. A change that overlaps no symbol answers changed_symbols=0 with a note in \
                        place of the lists. Each \
                        count of what was left out appears only when it is not zero: unheld_regions= the regions in \
-                       files no code graph holds, of them missing_regions= those whose path the index does not hold \
-                       and unclaimed_regions= those in held files no language claims or declines, with a \
+                       files no code graph holds, of them missing_regions= those whose path the index does not hold, \
+                       symlink_regions= those whose path it holds as a symlink, and unclaimed_regions= those in held \
+                       files no language claims or declines, with a \
                        <declined language= regions=> naming why for each language that leaves such files out of its \
                        graph, \
                        regions_outside_symbols= those overlapping no symbol, \
