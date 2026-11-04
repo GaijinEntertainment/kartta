@@ -1,12 +1,12 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Component, Path};
 use std::{io, iter};
 
 use foldhash::fast::FixedState;
 use kartta_fs::{
-    BuildError, BuildOptions, BuildOutcome, CancelToken, ContentVisitor, Index, PathFault,
-    RefreshOutcome, Stopped,
+    BuildError, BuildOptions, BuildOutcome, CancelToken, ContentVisitor, Entry, EntryKind, Index,
+    PathFault, RefreshOutcome, Stopped,
 };
 #[cfg(feature = "watch")]
 use kartta_fs::{WatchError, Watcher};
@@ -109,6 +109,8 @@ pub struct EngineChange<'e> {
     pub change: Change<'e>,
     /// The regions whose path the index does not hold.
     pub missing_regions: usize,
+    /// The regions whose path the index holds as a symlink, which no graph holds whatever it points at.
+    pub symlink_regions: usize,
     /// The regions of held files that no language claims or declines.
     pub unclaimed_regions: usize,
     /// The regions of held files that a language leaves out of its graph, counted per language and reason in the order
@@ -127,6 +129,18 @@ pub struct DeclinedRegions<'e> {
     pub reason: &'e str,
     /// How many regions name such a file.
     pub regions: usize,
+}
+
+/// A symlink the index holds, and where it points.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct Symlink<'e> {
+    /// Where the link points, as the link stores it: relative to the link's directory unless absolute, and possibly
+    /// outside the tree. `None` when the walk could not read it or it is not valid UTF-8.
+    pub target: Option<&'e str>,
+    /// The entry the index holds where the target points, `None` when the target leaves the index root, names nothing
+    /// the index holds, or passes through a symlink on its way, which the index holds nothing below.
+    pub resolved: Option<Entry<'e>>,
 }
 
 impl EngineRefresh {
@@ -565,18 +579,68 @@ impl Engine {
             .find_map(|language| Some((language.name(), language.declines(path)?)))
     }
 
+    /// The symlink the index holds at `path`, with the entry its target points to; `None` when the index holds no
+    /// symlink there.
+    #[must_use]
+    pub fn symlink(&self, path: &str) -> Option<Symlink<'_>> {
+        let entry = self
+            .index
+            .entry(path)
+            .filter(|entry| entry.kind() == EntryKind::Symlink)?;
+        let target = entry.target();
+        Some(Symlink {
+            target,
+            resolved: target.and_then(|target| self.resolved(path, target)),
+        })
+    }
+
+    /// The entry `target`, the target of the symlink at `link`, points to, when the index root holds it.
+    fn resolved(&self, link: &str, target: &str) -> Option<Entry<'_>> {
+        let target = Path::new(target);
+        let (mut names, rest): (Vec<&str>, &Path) = if target.is_absolute() {
+            let root = self.index.root();
+            let rest = match target.strip_prefix(root) {
+                Ok(rest) => rest,
+                Err(_) => target.strip_prefix(root.canonicalize().ok()?).ok()?,
+            };
+            (Vec::new(), rest)
+        } else {
+            let dir = link.rsplit_once('/').map(|(dir, _)| dir.split('/'));
+            (dir.into_iter().flatten().collect(), target)
+        };
+        for component in rest.components() {
+            match component {
+                Component::CurDir => {}
+                Component::Normal(name) => names.push(name.to_str()?),
+                Component::ParentDir => {
+                    // constraint: `..` after a symlink leaves the directory the link points to, not the one that
+                    // holds it (`library/std/src/path.rs:3422-3423` at the pinned Rust), so only a held directory
+                    // loses a name to it
+                    let dir = names.join("/");
+                    names.pop()?;
+                    (self.index.entry(&dir)?.kind() == EntryKind::Dir).then_some(())?;
+                }
+                Component::RootDir | Component::Prefix(_) => return None,
+            }
+        }
+        self.index.entry(&names.join("/"))
+    }
+
     /// What a change to the lines of `regions` reaches, across the families whose languages claim their files: each
     /// family's graph analyzes the regions of its files as [`Graph::analyze_change`] does, within `limits`, and
-    /// [`Change::merge`] ranks the answers together. A region whose path the index does not hold, or whose held file no
-    /// language claims, counts as unheld, and the answer says which of the two it is and, for a file a language
-    /// declines, the language and its reason.
+    /// [`Change::merge`] ranks the answers together. A region whose path the index does not hold or holds as a
+    /// symlink, or whose held file no language claims, counts as unheld, and the answer says which of these it is and,
+    /// for a file a language declines, the language and its reason.
     #[must_use]
     pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> EngineChange<'_> {
         let mut by_family: Vec<Vec<Region<'_>>> = vec![Vec::new(); self.families.len()];
         let mut answer = EngineChange::default();
         for region in regions {
-            if self.index.entry(region.path).is_none() {
+            let kind = self.index.entry(region.path).map(|entry| entry.kind());
+            if kind.is_none() {
                 answer.missing_regions += 1;
+            } else if kind == Some(EntryKind::Symlink) {
+                answer.symlink_regions += 1;
             } else if let Some(family) = self.family_claiming(region.path) {
                 by_family[family].push(region.clone());
             } else if let Some((language, reason)) = self.declined(region.path) {
@@ -609,7 +673,7 @@ impl Engine {
             .map(|declined| declined.regions)
             .sum();
         answer.change.unheld_regions +=
-            answer.missing_regions + answer.unclaimed_regions + declined;
+            answer.missing_regions + answer.symlink_regions + answer.unclaimed_regions + declined;
         answer
     }
 
