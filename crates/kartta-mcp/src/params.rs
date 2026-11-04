@@ -6,10 +6,47 @@
     reason = "the field docs are JSON schema descriptions an agent reads, not rustdoc"
 )]
 
+use std::borrow::Cow;
 use std::num::{NonZeroU32, NonZeroUsize};
 
 use kartta::{Access, confidence};
+use rmcp::ErrorData;
+use rmcp::handler::server::common::FromContextPart;
+use rmcp::handler::server::tool::ToolCallContext;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
+
+/// A tool's arguments, read as `P`. A wrong argument fails the call with a tool error that names the parameter by its
+/// path inside the arguments, such as `regions[0].start_line`, then says what the parameter takes.
+// constraint: rmcp's `#[tool]` macro takes a tool's input schema from the argument whose type is named `Parameters`, and
+// its router answers an extraction error as a tool error only when the message opens with "failed to deserialize
+// parameters:", else as a protocol error
+#[derive(Debug)]
+pub(crate) struct Parameters<P>(pub(crate) P);
+
+impl<P: schemars::JsonSchema> schemars::JsonSchema for Parameters<P> {
+    fn schema_name() -> Cow<'static, str> {
+        P::schema_name()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        P::json_schema(generator)
+    }
+}
+
+impl<S, P: DeserializeOwned> FromContextPart<ToolCallContext<'_, S>> for Parameters<P> {
+    fn from_context_part(context: &mut ToolCallContext<'_, S>) -> Result<Self, ErrorData> {
+        let arguments = context.arguments.take().unwrap_or_default();
+        serde_path_to_error::deserialize(serde_json::Value::Object(arguments))
+            .map(Self)
+            .map_err(|error| {
+                ErrorData::invalid_params(
+                    format!("failed to deserialize parameters: {error}"),
+                    None,
+                )
+            })
+    }
+}
 
 /// The least confidence a call needs to count, named for how the resolver bound it.
 #[derive(Debug, Clone, Copy, Default, Deserialize, schemars::JsonSchema)]

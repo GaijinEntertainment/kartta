@@ -13,7 +13,6 @@ use kartta_fs::{
     Patterns,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::service::RequestContext;
 use rmcp::{RoleServer, ServerHandler, tool, tool_handler, tool_router};
@@ -26,7 +25,8 @@ use crate::params::{
     CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
     FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
     FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
-    IndexRepoParams, IndexStatsParams, ListDirParams, ReadDefinitionsParams, RefreshParams,
+    IndexRepoParams, IndexStatsParams, ListDirParams, Parameters, ReadDefinitionsParams,
+    RefreshParams,
 };
 use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, relative};
 use crate::render::{
