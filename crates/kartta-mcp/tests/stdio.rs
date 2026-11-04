@@ -166,6 +166,60 @@ fn every_optional_argument_reads_null_as_omitted() {
     }
 }
 
+#[test]
+fn a_wrong_argument_names_its_parameter_and_its_path_inside_the_arguments() {
+    let mut client = Client::start(&[]);
+    let refused = "failed to deserialize parameters:";
+
+    for (tool, arguments, error) in [
+        (
+            "find_callers",
+            json!({"name": "B", "hops": 0}),
+            "hops: invalid value: integer `0`, expected a nonzero u32",
+        ),
+        (
+            "find_unused",
+            json!({"limit": 0}),
+            "limit: invalid value: integer `0`, expected a nonzero usize",
+        ),
+        (
+            "impact_of_change",
+            json!({"regions": [{"file": "a.go", "start_line": 1}, {"file": "a.go", "start_line": 0}]}),
+            "regions[1].start_line: invalid value: integer `0`, expected a nonzero u32",
+        ),
+        (
+            "find_callers",
+            json!({"name": 5}),
+            "name: invalid type: integer `5`, expected a string",
+        ),
+        (
+            "find_references",
+            json!({"name": "B", "access": "x"}),
+            "access: unknown variant `x`, expected one of `read`, `write`, `type`",
+        ),
+        (
+            "grep",
+            json!({"patterns": ["a", 7]}),
+            "patterns[1]: invalid type: integer `7`, expected a string",
+        ),
+        (
+            "impact_of_change",
+            json!({"regions": [{"file": "a.go", "line": 3}]}),
+            "regions[0].line: unknown field `line`, expected one of `file`, `start_line`, `end_line`",
+        ),
+        ("find_callers", json!({"hops": 2}), "missing field `name`"),
+    ] {
+        let answer = client.call(tool, &arguments);
+
+        assert!(answer.is_error, "{tool} {arguments}: {}", answer.text);
+        assert_eq!(
+            answer.text,
+            format!("{refused} {error}"),
+            "{tool} {arguments}"
+        );
+    }
+}
+
 /// `text` without its `elapsed_ms` attribute, the one part of a refresh answer two calls never share.
 fn untimed(text: &str) -> String {
     match text.split_once(" elapsed_ms=\"") {
