@@ -2095,6 +2095,54 @@ fn find_references_names_the_language_that_records_no_read_or_write_of_the_symbo
 }
 
 #[test]
+fn find_references_says_that_no_read_of_a_function_s_local_is_recorded() {
+    let answers = answers_over(
+        &[(
+            "src/useSearch.ts",
+            "export async function useSearch(url: string) {\n    const resp = await fetch(url);\n    \
+             const done = make();\n    done();\n    return resp.ok;\n}\n",
+        )],
+        &[
+            ("find_references", json!({"name": "resp"})),
+            ("find_references", json!({"name": "done"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="resp" matches="1">"#,
+                concat!(
+                    r#"<match lang="jsts" of="resp" loc="src/useSearch.ts:2" kind="constant" count="0">no "#,
+                    "recorded site - the jsts graph records no read or write of a constant local to a function ",
+                    "body, so this does not show that nothing uses the constant; grep finds where code names it",
+                    "</match>",
+                ),
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="done" matches="1">"#,
+                concat!(
+                    r#"<match lang="jsts" of="done" loc="src/useSearch.ts:3" kind="constant" count="1" "#,
+                    r#"files="1" calls="1">"#,
+                ),
+                concat!(
+                    "<note>the jsts graph records no read or write of a constant local to a function body, so every ",
+                    "such use is missing from this answer</note>",
+                ),
+                r#"<file path="src/useSearch.ts" sites="1">"#,
+                r#"<ref name="useSearch" line="1" role="consumer" site="call" at="4"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a body's local lists no read, and the answer says that no read of a function's local is recorded"
+    );
+}
+
+#[test]
 fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
     let answers = answers(&[
         (

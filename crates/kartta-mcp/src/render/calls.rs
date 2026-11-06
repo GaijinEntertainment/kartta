@@ -290,7 +290,7 @@ fn reference_match(
             .map(|&(_, note)| note),
         _ => None,
     };
-    let unrecorded = Unrecorded::of(conventions, symbol.kind);
+    let unrecorded = Unrecorded::of(conventions, references);
     let passed_over = candidates(&references.candidates, "sites");
     if references.sites.is_empty() && references.file_scope.is_empty() {
         let text = if references.below_confidence > 0 {
@@ -335,14 +335,21 @@ enum Unrecorded {
     /// The reads and writes of a field, a variable or a constant, by the word for its kind, where the graph records
     /// none of that kind.
     DataUses(&'static str),
+    /// The reads and writes of a variable or a constant local to a function body, by the word for its kind, which no
+    /// graph records.
+    LocalValue(&'static str),
 }
 
 impl Unrecorded {
-    fn of(conventions: &Conventions, of: SymbolKind) -> Option<Self> {
+    fn of(conventions: &Conventions, references: &References<'_>) -> Option<Self> {
+        let of = references.symbol.kind;
         if conventions.type_uses == TypeUses::Nowhere && of.is_type() {
             return Some(Self::TypeUses);
         }
-        (conventions.unrecorded_data.contains(&of)).then(|| Self::DataUses(kind(of)))
+        if conventions.unrecorded_data.contains(&of) {
+            return Some(Self::DataUses(kind(of)));
+        }
+        references.local_value.then(|| Self::LocalValue(kind(of)))
     }
 
     /// The statement that the graph of `family` records none of these uses.
@@ -352,13 +359,18 @@ impl Unrecorded {
             Self::DataUses(what) => {
                 format!("the {family} graph records no read or write of a {what}")
             }
+            Self::LocalValue(what) => {
+                format!(
+                    "the {family} graph records no read or write of a {what} local to a function body"
+                )
+            }
         }
     }
 
     const fn what(self) -> &'static str {
         match self {
             Self::TypeUses => "type",
-            Self::DataUses(what) => what,
+            Self::DataUses(what) | Self::LocalValue(what) => what,
         }
     }
 }

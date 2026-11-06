@@ -1196,7 +1196,8 @@ impl Server {
                        Languages record uses other than \
                        calls to different extents, and a match names its language where that language records none \
                        of its symbol's uses: no use as a type of a type, as Rust records none, and no read or write \
-                       of a field, a variable or a constant, as Rust records none of a field; ambiguous= counts the \
+                       of a field, a variable or a constant, as Rust records none of a field and no language of a \
+                       variable or a constant local to a function body; ambiguous= counts the \
                        calls of its name that bound no definition because several definitions of the name may be \
                        meant, as find_callers counts them, and the uses of a member's name on a value whose type the \
                        graph could not follow: any of them may be this symbol, and none is listed. A method's calls \
