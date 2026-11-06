@@ -234,7 +234,8 @@ and no cache.
   expires. Absent or 0 is a week.
 - `stamps` (boolean, optional): Keeps the time each file the build reads last changed, so that a refresh reads again
   only the files that changed since and those a change reaches. It holds memory for as long as the index lives. Absent
-  is false, unless `watch` is set, which keeps stamps and answers `invalid_params` for an explicit false.
+  is false, unless `watch` is set, which keeps stamps. `watch` with `stamps` false answers `invalid_params` and
+  builds nothing, so the handle keeps answering from the engine it held.
 - `watch` (boolean, optional): Follows the tree through the operating system's change notifications: a thread of the
   library's own refreshes the index from each change until the next build or `kartta_free`. False when absent.
 

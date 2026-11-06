@@ -2451,12 +2451,15 @@ fn a_build_that_watches_keeps_stamps_and_refuses_to_build_without_them() {
     let tree = tree();
     let kartta = open(tree.path());
 
+    let held = ok(&kartta, "build", &Value::Null);
     let refused = call(&kartta, "build", &json!({ "watch": true, "stamps": false }));
+    let after_refusal = ok(&kartta, "stats", &Value::Null);
     ok(&kartta, "build", &json!({ "watch": true }));
     let refreshed = ok(&kartta, "refresh", &json!({ "paths": [] }));
 
     assert_eq!(refused["err"]["code"], "invalid_params", "{refused}");
     assert!(mentions(&refused["err"], "stamps"), "{refused}");
+    assert_eq!(after_refusal, held);
     assert_eq!(refreshed["watch"]["following"], true, "{refreshed}");
 }
 
