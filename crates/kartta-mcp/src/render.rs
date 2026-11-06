@@ -16,7 +16,7 @@ pub(crate) use self::calls::{
     CallersAsk, EditAsk, PathAsk, SiteFilter, call_path, callees, callers, change, impact,
     references,
 };
-pub(crate) use self::files::{Selection, dir, globbed, grep, paths};
+pub(crate) use self::files::{Selection, dir, globbed, grep, grep_context, paths};
 pub(crate) use self::symbols::{
     Found, ImportersAsk, NameDefinitions, Read, definitions, hits, implementations,
     implementations_outside, importers, outline,

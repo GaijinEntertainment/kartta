@@ -1,6 +1,8 @@
 use std::fmt::Write;
 
-use kartta_fs::{Capped, EntryKind, Failure, Index, Line, LineKind, Listing, Matches, Paths};
+use kartta_fs::{
+    Capped, EntryKind, Failure, Index, Line, LineKind, Listing, MatchedFile, Matches, Paths,
+};
 
 use super::push_cut_end;
 use crate::llmxml::{Element, List};
@@ -181,7 +183,19 @@ pub(crate) fn globbed(globs: &Selection<'_>, found: &Capped<'_>) -> String {
 /// context, `--` between regions that do not touch, the unreadable files, and what the search did not cover. The
 /// patterns echo one a line, which the attribute writes as `\n`: a pattern can hold a comma, and the search refuses
 /// one that holds a line break.
-pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, includes: &Selection<'_>) -> String {
+///
+/// The lines answer at most [`ANSWER_LINE_BYTES`] bytes with their context: past it, every match keeps the most context
+/// lines a side that fit, `context_shown` says how many, and a last line says how to see more. A match line is never
+/// cut, so an answer whose matches alone pass the budget shows no context.
+pub(crate) fn grep(
+    patterns: &[String],
+    matches: &Matches<'_>,
+    includes: &Selection<'_>,
+    context_lines: usize,
+) -> String {
+    let searched = grep_context(context_lines);
+    let reach = reach(matches.files(), searched);
+    let shown = (reach < searched).then_some(reach);
     let element = Element::new("grep")
         .attr("patterns", patterns.join("\n"))
         .attr("candidates", matches.candidates())
@@ -193,7 +207,9 @@ pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, includes: &Select
         .count("binary", matches.binary())
         .count("oversized", matches.oversized())
         .count("ruled_out", matches.ruled_out())
-        .count("symlinks", matches.symlinks());
+        .count("symlinks", matches.symlinks())
+        .optional("context_lines", shown.map(|_| context_lines))
+        .optional("context_shown", shown);
     let directories = includes.directories();
     if matches.candidates() == 0 {
         let directories = dashed(directories);
@@ -219,9 +235,72 @@ pub(crate) fn grep(patterns: &[String], matches: &Matches<'_>, includes: &Select
     let blocks = matches
         .files()
         .iter()
-        .map(|file| file_block(paths.get(file.position()), file.lines()));
+        .map(|file| file_block(paths.get(file.position()), file.lines(), reach));
     let note = directories.map(|fix| Element::new("note").inline(&fix));
-    element.children(blocks.chain(failures).chain(note))
+    let cut = shown.map(|_| CONTEXT_CUT.to_owned());
+    element.children(blocks.chain(failures).chain(note).chain(cut))
+}
+
+/// How many bytes the lines of a `grep` answer, its matches and their context, take at most before the context
+/// shrinks: a client moves a tool result past 50,000 characters out of the context, and the rest is left to the
+/// envelope, the file tags and the 3-byte `--` between regions, which grow with the matches and the files the answer
+/// holds rather than with its context.
+const ANSWER_LINE_BYTES: usize = 40_000;
+
+/// The last line of a `grep` answer whose context `context_shown` cut.
+const CONTEXT_CUT: &str = "the answer's size cut each match's context to context_shown lines a side - a narrower \
+                           includes or a lower max_results shows more of it";
+
+/// How many context lines a side the search reads for `context_lines`.
+pub(crate) fn grep_context(context_lines: usize) -> usize {
+    // constraint: a context line renders in 3 bytes at least, its number, `-` and a line break, so a side longer than
+    // a third of the budget never fits, and the answer reads the same as with every line asked for
+    context_lines.min(ANSWER_LINE_BYTES / 3)
+}
+
+/// The most context lines a side, at most `searched`, that fit [`ANSWER_LINE_BYTES`] with the match lines.
+fn reach(files: &[MatchedFile<'_>], searched: usize) -> usize {
+    if searched == 0 || files.is_empty() {
+        return searched;
+    }
+    let mut by_distance = vec![0_usize; searched + 1];
+    let mut rendered = String::new();
+    for file in files {
+        for (line, distance) in distances(file.lines()) {
+            rendered.clear();
+            push_grep_line(&mut rendered, line);
+            by_distance[distance.min(searched)] += rendered.len() + 1;
+        }
+    }
+    let mut spent = 0_usize;
+    for (distance, bytes) in by_distance.iter().enumerate() {
+        spent += bytes;
+        if spent > ANSWER_LINE_BYTES {
+            return distance.saturating_sub(1);
+        }
+    }
+    searched
+}
+
+/// Each line with how many lines away the nearest match is, 0 for a match.
+fn distances(lines: &[Line]) -> impl Iterator<Item = (&Line, usize)> {
+    let matched: Vec<u64> = lines
+        .iter()
+        .filter(|line| line.kind() == LineKind::Match)
+        .map(Line::number)
+        .collect();
+    lines.iter().map(move |line| {
+        let number = line.number();
+        let next = matched.partition_point(|&at| at < number);
+        let after = matched.get(next).map_or(u64::MAX, |&at| at - number);
+        let before = next
+            .checked_sub(1)
+            .map_or(u64::MAX, |previous| number - matched[previous]);
+        (
+            line,
+            usize::try_from(after.min(before)).unwrap_or(usize::MAX),
+        )
+    })
 }
 
 /// The `<failures>` block naming the files that would not read, or `None` when every file read.
@@ -248,11 +327,11 @@ fn failures_block(failures: &[Failure], paths: &mut Paths<'_>) -> Option<String>
     )
 }
 
-fn file_block(path: &str, lines: &[Line]) -> String {
+fn file_block(path: &str, lines: &[Line], reach: usize) -> String {
     let mut body = String::new();
     let mut previous: Option<u64> = None;
     let mut matched = 0;
-    for line in lines {
+    for (line, _) in distances(lines).filter(|&(_, distance)| distance <= reach) {
         if let Some(previous) = previous {
             body.push_str(if line.number() > previous + 1 {
                 "\n--\n"
