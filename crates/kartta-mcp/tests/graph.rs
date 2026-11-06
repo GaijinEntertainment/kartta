@@ -346,6 +346,67 @@ fn find_importers_counts_the_importers_it_did_not_follow_past_three_hops() {
     );
 }
 
+const CPP_COUNTS: &str = "<note>the cpp graph counts the files whose #include names this file, and none through a \
+                          #include of a macro</note>";
+
+/// A tree of `a.h` and the `count` files `i000.c`, `i001.c`, ... that each include it.
+fn included_by(count: usize) -> tempfile::TempDir {
+    let includers: Vec<(String, &str)> = (0..count)
+        .map(|at| (format!("i{at:03}.c"), "#include \"a.h\"\n"))
+        .collect();
+    let mut files = vec![("a.h", "int a(void);\n")];
+    files.extend(includers.iter().map(|(path, text)| (path.as_str(), *text)));
+    tree(&files)
+}
+
+#[test]
+fn find_importers_lists_its_nearest_importers_up_to_the_limit_and_counts_every_one() {
+    let tree = included_by(3);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        [
+            client.answer("find_importers", &json!({"file": "a.h", "limit": 2})),
+            client.answer("find_importers", &json!({"file": "a.h", "limit": 3})),
+        ],
+        [
+            lines(&[
+                r#"<importers of="a.h" count="3" shown="2">"#,
+                CPP_COUNTS,
+                r#"<file path="i000.c"/>"#,
+                r#"<file path="i001.c"/>"#,
+                "the limit cut this list - a higher limit lists the rest",
+                "</importers>",
+            ]),
+            lines(&[
+                r#"<importers of="a.h" count="3">"#,
+                CPP_COUNTS,
+                r#"<file path="i000.c"/>"#,
+                r#"<file path="i001.c"/>"#,
+                r#"<file path="i002.c"/>"#,
+                "</importers>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn find_importers_lists_200_importers_by_default() {
+    let tree = included_by(201);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    let answer = client.answer("find_importers", &json!({"file": "a.h"}));
+
+    assert!(
+        answer.starts_with(r#"<importers of="a.h" count="201" shown="200">"#),
+        "{answer}"
+    );
+    assert_eq!(answer.matches("<file ").count(), 200, "{answer}");
+    assert!(answer.contains(r#"path="i199.c""#), "{answer}");
+    assert!(!answer.contains(r#"path="i200.c""#), "{answer}");
+}
+
 #[test]
 fn find_importers_says_what_the_language_counts_as_an_importer() {
     const COUNTS: &str = "the rust graph counts the files whose bodiless mod declaration loads this file, so a \
