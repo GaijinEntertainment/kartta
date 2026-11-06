@@ -2486,6 +2486,120 @@ fn find_references_says_that_no_use_of_a_function_s_local_function_as_a_value_is
 }
 
 #[test]
+fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
+    let answers = answers_over(
+        &[(
+            "m.py",
+            "def outer():\n    class Inner:\n        def __init__(self):\n            self.depth = 1\n\n        \
+                 def size(self):\n            return self.depth\n\n    p = Inner()\n    q: Inner = p\n    \
+                 if isinstance(q, Inner):\n        return p.size()\n    return 0\n\n\n\
+                 class Outer:\n    def __init__(self):\n        self.width = 1\n\n\n\
+                 def control():\n    p = Outer()\n    q: Outer = p\n    if isinstance(q, Outer):\n        \
+                 return p.width\n    return 0\n",
+        )],
+        &[
+            ("find_references", json!({"name": "Inner"})),
+            ("find_references", json!({"name": "Outer"})),
+            ("find_references", json!({"name": "size"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="Inner" matches="1">"#,
+                concat!(
+                    r#"<match lang="python" of="Inner" qn="m.Inner" loc="m.py:2" kind="class" count="1" files="1" "#,
+                    r#"calls="1">"#,
+                ),
+                concat!(
+                    "<note>the python graph records no use as a type or a value of a type local to a function body, ",
+                    "so every such use is missing from this answer</note>",
+                ),
+                r#"<file path="m.py" sites="1">"#,
+                r#"<ref name="outer" qn="m.outer" line="1" role="consumer" site="call" at="9"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Outer" matches="1">"#,
+                concat!(
+                    r#"<match lang="python" of="Outer" qn="m.Outer" loc="m.py:16" kind="class" count="3" files="1" "#,
+                    r#"calls="1" types="1" reads="1">"#,
+                ),
+                r#"<file path="m.py" sites="3">"#,
+                r#"<ref name="control" qn="m.control" line="21" role="consumer" site="call" at="22"/>"#,
+                r#"<ref name="control" qn="m.control" line="21" role="consumer" site="type" at="23"/>"#,
+                r#"<ref name="control" qn="m.control" line="21" role="consumer" site="read" at="24"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="size" matches="1">"#,
+                concat!(
+                    r#"<match lang="python" of="size" qn="m.Inner.size" loc="m.py:6" kind="method" count="1" "#,
+                    r#"files="1" calls="1">"#,
+                ),
+                concat!(
+                    "<note>a call through a value of the owner's type resolves only where the graph can name that ",
+                    "type, so some of those calls can be missing</note>",
+                ),
+                r#"<file path="m.py" sites="1">"#,
+                r#"<ref name="outer" qn="m.outer" line="1" role="consumer" site="call" at="12"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a body's local class lists its calls and says that its uses as a type or a value are not recorded, where a \
+         module's class lists them, and the local class's method keeps its call with no such statement"
+    );
+}
+
+#[test]
+fn find_references_states_a_go_body_s_local_type_and_keeps_rust_s_statement_of_every_type() {
+    let answers = answers_over(
+        &[
+            (
+                "m.go",
+                "package m\n\nfunc outer() int {\n\ttype Shape struct{ depth int }\n\tvar s Shape\n\t\
+                 return s.depth\n}\n",
+            ),
+            (
+                "src/lib.rs",
+                "pub fn outer() -> i32 {\n    struct Shape {\n        depth: i32,\n    }\n    \
+                 let s: Shape = Shape { depth: 1 };\n    s.depth\n}\n",
+            ),
+        ],
+        &[("find_references", json!({"name": "Shape"}))],
+    );
+
+    assert_eq!(
+        answers,
+        [lines(&[
+            r#"<references of="Shape" matches="2">"#,
+            concat!(
+                r#"<match lang="go" of="Shape" qn="m.Shape" loc="m.go:4" kind="struct" count="0">no recorded "#,
+                "site - the go graph records no use as a type or a value of a type local to a function body, so ",
+                "this does not show that nothing uses the type; grep finds where code names it</match>",
+            ),
+            concat!(
+                r#"<match lang="rust" of="Shape" loc="src/lib.rs:2" kind="struct" count="0">no recorded site - "#,
+                "the rust graph records no use of a type where code names it as one, such as a declaration, a ",
+                "signature, a generic argument or an import, so this does not show that nothing uses the type; ",
+                "grep finds where code names it</match>",
+            ),
+            "</references>",
+        ])],
+        "a Go body's local struct states that its uses are not recorded, and a Rust one keeps the statement every Rust \
+         type takes"
+    );
+}
+
+#[test]
 fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
     let answers = answers(&[
         (

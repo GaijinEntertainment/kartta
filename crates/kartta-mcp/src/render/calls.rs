@@ -396,6 +396,8 @@ enum Unrecorded {
     LocalValue(&'static str),
     /// The uses as a value of a function local to a function body, which no graph records.
     LocalFunction,
+    /// The uses as a type or a value of a type local to a function body, which no graph records.
+    LocalType,
 }
 
 impl Unrecorded {
@@ -409,6 +411,7 @@ impl Unrecorded {
         }
         references.local_value.then(|| match of {
             SymbolKind::Function => Self::LocalFunction,
+            _ if of.is_type() => Self::LocalType,
             _ => Self::LocalValue(kind(of)),
         })
     }
@@ -430,12 +433,17 @@ impl Unrecorded {
                     "the {family} graph records no use as a value of a function local to a function body"
                 )
             }
+            Self::LocalType => {
+                format!(
+                    "the {family} graph records no use as a type or a value of a type local to a function body"
+                )
+            }
         }
     }
 
     const fn what(self) -> &'static str {
         match self {
-            Self::TypeUses => "type",
+            Self::TypeUses | Self::LocalType => "type",
             Self::DataUses(what) | Self::LocalValue(what) => what,
             Self::LocalFunction => "function",
         }
