@@ -32,7 +32,7 @@ use crate::params::{
 use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, relative};
 use crate::render::{
     self, CallersAsk, EditAsk, Found, Graphless, ImportersAsk, NameDefinitions, PathAsk, Read,
-    SUGGESTIONS, Selection, Suggestion, Unbuilt, Unmatched, UnusedAsk,
+    SUGGESTIONS, Selection, SiteFilter, Suggestion, Unbuilt, Unmatched, UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
@@ -1225,7 +1225,11 @@ impl Server {
                        member, as the file keeps no receiver for the name; the first 50 in path order are listed, and \
                        file_scope_shown=\"50\" says so when there are more. The graph keeps no line for such a use and \
                        not how it touches the symbol, so count= does not count them, access does not filter them, \
-                       and grep in the file finds the line. below_confidence= counts the sites and the file_scope \
+                       and grep in the file finds the line. sites_under, a path prefix, lists only the sites and the \
+                       file_scope files under it - the way to the files past those a match names - where path_prefix \
+                       picks the symbol: every count still counts every site, excluded=, files_excluded= and \
+                       file_scope_excluded= count what it left out, and a sites_under that keeps nothing says so. \
+                       below_confidence= counts the sites and the file_scope \
                        files the floor dropped, whatever access keeps, and passed_over= the other symbols the name \
                        selects, the most used of them listed as up to 5 <candidate sites=N/> records - path_prefix \
                        with one's file and line with its line pick it. A match with no site and no file_scope states \
@@ -1246,6 +1250,7 @@ impl Server {
             let floor = p.min_confidence.unwrap_or_default().floor();
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
+            let sites_under = prefix_of(indexed, "sites_under", p.sites_under.as_deref())?;
             let written =
                 Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
             let (found, [read_as]) = ask_reading(
@@ -1274,12 +1279,11 @@ impl Server {
                 role: None,
                 built: indexed.languages.as_deref(),
             };
-            Ok(render::references(
-                &ask,
-                p.access.is_some(),
-                &found,
-                &unmatched,
-            ))
+            let listed = SiteFilter {
+                one_access: p.access.is_some(),
+                under: sites_under,
+            };
+            Ok(render::references(&ask, listed, &found, &unmatched))
         })
         .await
     }

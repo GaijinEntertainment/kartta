@@ -25,7 +25,7 @@ struct PathCall {
     nearest: &'static str,
 }
 
-const PATH_CALLS: [PathCall; 13] = [
+const PATH_CALLS: [PathCall; 14] = [
     PathCall {
         tool: "file_outline",
         arguments: r#"{"file": "{}"}"#,
@@ -88,6 +88,13 @@ const PATH_CALLS: [PathCall; 13] = [
         path: "pkg/service.go",
         label: "path_prefix: ",
         nearest: "pkg/service.go",
+    },
+    PathCall {
+        tool: "find_references",
+        arguments: r#"{"name": "New", "sites_under": "{}"}"#,
+        path: "cmd/app/",
+        label: "sites_under: ",
+        nearest: "cmd/app",
     },
     PathCall {
         tool: "find_implementations",
