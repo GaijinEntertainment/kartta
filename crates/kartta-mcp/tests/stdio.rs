@@ -885,6 +885,62 @@ fn an_unknown_language_lists_the_names_taken() {
 }
 
 #[test]
+fn a_filtered_build_names_its_languages_on_the_index_and_on_a_miss() {
+    let tree = common::tree(&[
+        ("web/app.ts", "export function render() {}\n"),
+        (
+            "src/lib.rs",
+            "pub fn helper() {}\n\npub fn run() { helper(); }\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+
+    let indexed = client.answer(
+        "index_repo",
+        &json!({"root": tree.path(), "languages": ["typescript"]}),
+    );
+    let misses = [
+        client.answer("find_callers", &json!({"name": "helper"})),
+        client.answer("find_callees", &json!({"name": "helper"})),
+        client.answer("find_references", &json!({"name": "helper"})),
+        client.answer("find_implementations", &json!({"name": "helper"})),
+        client.answer("find_symbols", &json!({"query": "helper"})),
+        client.answer("read_definitions", &json!({"names": ["helper"]})),
+        client.answer("find_call_path", &json!({"from": "run", "to": "helper"})),
+    ];
+    let stats = client.answer("index_stats", &json!({}));
+    let hit = client.answer("find_symbols", &json!({"query": "render"}));
+    let whole = client.index(tree.path());
+    let none = client.answer("index_repo", &json!({"root": tree.path(), "languages": []}));
+    let none_miss = client.answer("find_callers", &json!({"name": "helper"}));
+
+    assert!(none.contains(r#" languages="[]" files="2""#), "{none}");
+    assert!(
+        none_miss.starts_with(
+            r#"<callers of="helper" matches="0" index_languages="[]">no symbol matches"#
+        ),
+        "{none_miss}"
+    );
+    for answer in [&indexed, &stats] {
+        assert!(
+            answer.contains(r#" languages="typescript" files="2""#),
+            "{answer}"
+        );
+    }
+    for miss in &misses {
+        assert!(miss.contains(r#" index_languages="typescript""#), "{miss}");
+    }
+    assert!(
+        !hit.contains("index_languages"),
+        "a hit holds what it found: {hit}"
+    );
+    assert!(
+        !whole.contains(" languages="),
+        "every language built: {whole}"
+    );
+}
+
+#[test]
 fn find_files_ranks_file_names_and_drops_the_excluded() {
     let tree = go_module();
     let mut client = Client::start(&[]);
