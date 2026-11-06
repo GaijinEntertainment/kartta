@@ -42,6 +42,30 @@ fn fixed_cut(what: &str, way: Option<&str>) -> String {
     format!("a fixed cap cut {what} - {way} lists the rest")
 }
 
+/// The last line of a list of the symbols a name selects, when the cap `cut` it: `find_symbols` of `name` over
+/// `languages`, the families `definitions` counts every definition of the name in as an answer's languages= echoes
+/// them, or every graph when `None`, lists them all, since its limit spans every graph it searches.
+fn candidates_cut(
+    cut: bool,
+    definitions: usize,
+    name: &str,
+    languages: Option<&str>,
+) -> Option<String> {
+    cut.then(|| {
+        let over = languages_and(languages);
+        let way = format!("find_symbols of {name} with {over}limit {definitions}");
+        fixed_cut("these candidates", Some(&way))
+    })
+}
+
+/// The `languages` argument of a `find_symbols` call a cut line names, over the families `languages` holds as an
+/// answer's languages= echoes them, or nothing to search every graph.
+fn languages_and(languages: Option<&str>) -> String {
+    languages.map_or_else(String::new, |families| {
+        format!("languages [\"{}\"] and ", families.replace(", ", "\", \""))
+    })
+}
+
 /// How many of the build's errors the index answer lists before it counts the rest.
 const LISTED_ERRORS: usize = 5;
 
@@ -328,11 +352,24 @@ fn suggestion(family: &str, definition: &Definition<'_>) -> String {
         .close()
 }
 
-/// The `<suggestion>` records of the definitions named one edit from a name nothing defines, where `near` lists them.
-fn one_edit<'a>(near: &'a kartta::Unmatched<'_>) -> impl Iterator<Item = String> + 'a {
+/// The `<suggestion>` records of the definitions named one edit from a name nothing defines, where `near` lists them
+/// over the families `languages` names, and the line that says how far a call reaches the rest when the cap cut them.
+fn one_edit<'a>(
+    near: &'a kartta::Unmatched<'_>,
+    languages: Option<&str>,
+) -> impl Iterator<Item = String> + 'a {
+    let cut = (near.total > near.listed.len()).then(|| {
+        format!(
+            "a fixed cap cut these suggestions - find_symbols of a suggested name with {}limit {} lists its \
+             namesakes, and no call lists the other names",
+            languages_and(languages),
+            near.total
+        )
+    });
     near.listed
         .iter()
         .map(|(family, definition)| suggestion(family, definition))
+        .chain(cut)
 }
 
 fn empty_languages_note(languages: Option<&str>) -> Option<&'static str> {
@@ -388,11 +425,14 @@ fn unresolved(
     if let Some(note) = empty_languages_note(languages) {
         return element.inline(note);
     }
-    let (text, listed) = match unmatched {
+    let (text, named) = match unmatched {
         Unmatched::Named(near) if near.kind == UnmatchedKind::OneEdit => {
-            return did_you_mean(element.count("one_edit", near.total), one_edit(near));
+            return did_you_mean(
+                element.count("one_edit", near.total),
+                one_edit(near, languages),
+            );
         }
-        Unmatched::Named(named) => (named_instead(asked, named), &named.listed),
+        Unmatched::Named(named) => (named_instead(asked, named), named),
         Unmatched::Suggested(suggestions) if suggestions.is_empty() => {
             return element.inline("no symbol matches - find_symbols can pin the exact name");
         }
@@ -403,9 +443,16 @@ fn unresolved(
             return did_you_mean(element, records);
         }
     };
-    let candidates = listed
+    let candidates = named
+        .listed
         .iter()
         .map(|(family, definition)| candidate(definition).attr("lang", *family).close())
+        .chain(candidates_cut(
+            named.total > named.listed.len(),
+            named.total,
+            "this name",
+            languages,
+        ))
         .collect();
     noted(element, &text, candidates)
 }
