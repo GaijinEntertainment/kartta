@@ -2766,6 +2766,150 @@ fn impact_of_edit_lists_10_symbols_by_default_the_first_among_equal_reaches() {
 }
 
 #[test]
+fn impact_of_edit_names_the_call_that_lists_the_callers_and_callees_past_its_50() {
+    let mut source = String::from("package lib\n\nfunc hub() {\n");
+    for at in 0..51 {
+        writeln!(source, "\tdone{at:02}()").expect("a string takes the text");
+    }
+    source.push_str("}\n");
+    for at in 0..51 {
+        write!(
+            source,
+            "\nfunc done{at:02}() {{}}\n\nfunc call{at:02}() {{\n\thub()\n}}\n"
+        )
+        .expect("a string takes the text");
+    }
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            ("lib.go", &source),
+        ],
+        &[
+            (
+                "impact_of_edit",
+                json!({"file": "lib.go", "start_line": 3, "end_line": 3}),
+            ),
+            (
+                "find_callers",
+                json!({"name": "hub", "path_prefix": "lib.go", "line": 3, "hops": 1, "limit": 51}),
+            ),
+            (
+                "find_callees",
+                json!({"name": "hub", "path_prefix": "lib.go", "line": 3}),
+            ),
+        ],
+    );
+
+    let impact = &answers[0];
+    assert!(
+        impact.contains(
+            "\na fixed cap cut this list - find_callers of this symbol with path_prefix this file, line 3, hops 1 \
+             and limit 51 lists the rest\n</callers>"
+        ),
+        "{impact}"
+    );
+    assert!(
+        impact.contains(
+            "\na fixed cap cut this list - find_callees of this symbol with path_prefix this file and line 3 lists \
+             the rest\n</callees>"
+        ),
+        "{impact}"
+    );
+    for (rest, tag) in [(&answers[1], "callers"), (&answers[2], "callees")] {
+        assert!(rest.contains(r#"count="51""#), "{rest}");
+        assert!(!rest.contains("shown="), "{tag} past the cap: {rest}");
+    }
+}
+
+#[test]
+fn impact_of_edit_names_the_call_that_lists_a_variable_s_users_past_its_50() {
+    let mut source = String::from("package lib\n\nvar Limit = 1\n");
+    for at in 0..51 {
+        write!(source, "\nfunc read{at:02}() int {{\n\treturn Limit\n}}\n")
+            .expect("a string takes the text");
+    }
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            ("lib.go", &source),
+        ],
+        &[
+            (
+                "impact_of_edit",
+                json!({"file": "lib.go", "start_line": 3, "end_line": 3}),
+            ),
+            (
+                "find_references",
+                json!({"name": "Limit", "path_prefix": "lib.go", "line": 3}),
+            ),
+        ],
+    );
+
+    let (impact, rest) = (&answers[0], &answers[1]);
+    assert!(
+        impact.contains(
+            "\na fixed cap cut this list - find_references of this symbol with path_prefix this file and line 3 \
+             lists the rest\n</users>"
+        ),
+        "{impact}"
+    );
+    assert!(
+        rest.contains(r#"count="51""#) && !rest.contains("shown="),
+        "{rest}"
+    );
+}
+
+#[test]
+fn impact_of_change_names_the_call_that_lists_a_seed_s_callers_past_its_10() {
+    let mut lib = String::from("package lib\n\nfunc Few() {}\n\nfunc Many() {}\n");
+    for at in 0..11 {
+        write!(lib, "\nfunc few{at:02}() {{\n\tFew()\n}}\n").expect("a string takes the text");
+    }
+    let packages: Vec<(String, String)> = (0..11)
+        .map(|at| {
+            let mut text = format!("package p{at:02}\n\nimport \"example.com/m/lib\"\n");
+            for caller in 0..3 {
+                write!(text, "\nfunc Call{caller}() {{\n\tlib.Many()\n}}\n")
+                    .expect("a string takes the text");
+            }
+            (format!("p{at:02}/p.go"), text)
+        })
+        .collect();
+    let mut files = vec![
+        ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+        ("lib/lib.go", lib.as_str()),
+    ];
+    files.extend(
+        packages
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    let answers = answers_over(
+        &files,
+        &[(
+            "impact_of_change",
+            json!({"regions": [{"file": "lib/lib.go", "start_line": 3, "end_line": 5}]}),
+        )],
+    );
+
+    let change = &answers[0];
+    assert!(
+        change.contains(
+            "\na fixed cap cut this list - find_callers of this seed with path_prefix its file, line 3, hops 1 and \
+             limit 11 lists the rest\n</callers>"
+        ),
+        "{change}"
+    );
+    assert!(
+        change.contains(
+            "\na fixed cap cut this list - find_callers of this seed with path_prefix its file, line 5, hops 1 and \
+             limit 33 lists the rest\n</caller_dirs>"
+        ),
+        "{change}"
+    );
+}
+
+#[test]
 fn impact_of_edit_lists_the_symbols_of_widest_reach_and_the_first_files_up_to_its_limit() {
     let importer = |package: &str, calls: &str| {
         format!("package {package}\n\nimport \"example.com/m/lib\"\n\nfunc Run() {{\n{calls}}}\n")
