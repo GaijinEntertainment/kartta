@@ -229,6 +229,11 @@ pub struct Conventions {
     pub directory_packages: bool,
     /// How far through its includes a file's calls bind the names they define.
     pub include_reach: IncludeReach,
+    /// The files the language records as including a file, as a phrase an answer can quote after "counts", where a
+    /// count of a file's includers would otherwise read as one of every file that names it: Rust's `the files whose
+    /// bodiless mod declaration loads this file, so a crate root has none, and not a file that only names its items in
+    /// a use declaration or a path`. `None` where the language states none.
+    pub includers: Option<&'static str>,
     /// The module every file sees with no include, where only includes put a definition in a file's scope: a call with
     /// no receiver binds by its name alone only a definition of a file its own file reaches through includes, however
     /// deep, or of the file whose package this names, and a bare use under [`ValueUses::Expanded`] that the use's file
@@ -331,6 +336,7 @@ impl Conventions {
         parent_spelling: ParentSpelling::Written,
         directory_packages: false,
         include_reach: IncludeReach::Direct,
+        includers: None,
         module_seen_everywhere: None,
         member_calls: MemberCalls::NearbyFreeFunctions,
         runtime_methods: &[],
