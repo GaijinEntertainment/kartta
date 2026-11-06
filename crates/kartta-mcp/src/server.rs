@@ -75,8 +75,8 @@ const SOURCE_LINE_BYTES: usize = 1024;
 /// How many implementors `find_implementations` lists.
 const IMPLEMENTORS: usize = 500;
 
-/// How many includes away `find_importers` follows the files that include a file.
-const IMPORTER_DEPTH: u32 = 3;
+/// How many includes away `find_importers` follows the files that include a file when the call names no hops.
+const IMPORTER_HOPS: u32 = 3;
 
 /// How many importers `find_importers` lists, nearest first, when the call names no limit.
 const IMPORTERS_LISTED: usize = 200;
@@ -1013,13 +1013,14 @@ impl Server {
     #[tool(
         annotations(read_only_hint = true),
         description = "Find every file that imports or includes a given file, directly or through a chain of imports \
-                       (followed up to 3 hops) - the downstream files of a shared module, header, or type-definition \
+                       (followed up to 'hops', default 3) - the downstream files of a shared module, header, or type-definition \
                        file. This is whole-file impact: for line-level impact use impact_of_edit, for a single \
                        function use find_callers. Returns an <importers> envelope, count= counting every downstream \
                        file, with one <file/> record per downstream file, nearest first and at most 'limit' (default \
                        200), where shown= and a last line say the limit cut them; depth=N marks one that reaches the \
                        file through N-1 others, and \
-                       unexpanded= counts the importers at the 3-hop limit whose own importers were not followed. A \
+                       unexpanded= counts the importers at the hops limit whose own importers were not followed, \
+                       which a higher hops reaches. A \
                        Go file counts every importer of its package. For a file a code graph holds, a <note>, the \
                        whole text where no file imports it, says what the file's language counts as an importer: a \
                        Rust file counts the mod declarations that load it, not the files that use its items; for any \
@@ -1032,8 +1033,8 @@ impl Server {
         self.answer(move |indexed| {
             let file = held_file(indexed.engine.index(), &p.file)?;
             let claimed = indexed.engine.graph_of(file);
-            let dependents =
-                claimed.and_then(|(_, graph)| graph.dependents(file, IMPORTER_DEPTH, 0));
+            let hops = p.hops.map_or(IMPORTER_HOPS, NonZeroU32::get);
+            let dependents = claimed.and_then(|(_, graph)| graph.dependents(file, hops, 0));
             let counted =
                 claimed.and_then(|(family, graph)| Some((family, graph.conventions().includers?)));
             let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));

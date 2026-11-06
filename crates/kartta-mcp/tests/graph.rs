@@ -308,9 +308,9 @@ fn find_implementations_lists_at_most_500_across_every_graph() {
     );
 }
 
-#[test]
-fn find_importers_counts_the_importers_it_did_not_follow_past_three_hops() {
-    let chain = tree(&[
+/// A Go module whose packages import each other in a chain: `e` imports `d`, ..., `b` imports `a`.
+fn import_chain() -> tempfile::TempDir {
+    tree(&[
         ("go.mod", "module example.com/chain\n\ngo 1.22\n"),
         ("a/a.go", "package a\n\nfunc A() {}\n"),
         (
@@ -329,7 +329,12 @@ fn find_importers_counts_the_importers_it_did_not_follow_past_three_hops() {
             "e/e.go",
             "package e\n\nimport \"example.com/chain/d\"\n\nfunc E() { d.D() }\n",
         ),
-    ]);
+    ])
+}
+
+#[test]
+fn find_importers_counts_the_importers_it_did_not_follow_past_three_hops() {
+    let chain = import_chain();
     let mut client = Client::start(&[]);
     client.index(chain.path());
 
@@ -343,6 +348,37 @@ fn find_importers_counts_the_importers_it_did_not_follow_past_three_hops() {
             r#"<file path="d/d.go" depth="3"/>"#,
             "</importers>",
         ])
+    );
+}
+
+#[test]
+fn find_importers_follows_the_importers_as_many_hops_as_asked() {
+    let chain = import_chain();
+    let mut client = Client::start(&[]);
+    client.index(chain.path());
+
+    assert_eq!(
+        [
+            client.answer("find_importers", &json!({"file": "a/a.go", "hops": 1})),
+            client.answer("find_importers", &json!({"file": "a/a.go", "hops": 5})),
+        ],
+        [
+            lines(&[
+                r#"<importers of="a/a.go" count="1" unexpanded="1">"#,
+                GO_COUNTS,
+                r#"<file path="b/b.go"/>"#,
+                "</importers>",
+            ]),
+            lines(&[
+                r#"<importers of="a/a.go" count="4">"#,
+                GO_COUNTS,
+                r#"<file path="b/b.go"/>"#,
+                r#"<file path="c/c.go" depth="2"/>"#,
+                r#"<file path="d/d.go" depth="3"/>"#,
+                r#"<file path="e/e.go" depth="4"/>"#,
+                "</importers>",
+            ]),
+        ]
     );
 }
 
