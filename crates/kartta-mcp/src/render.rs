@@ -56,6 +56,8 @@ fn span(definition: &Definition<'_>) -> String {
 pub(crate) enum Graphless<'e> {
     /// The index holds the path as a symlink, which no graph holds whatever it points at.
     Symlink(Symlink<'e>),
+    /// The index holds the path as a socket, a fifo or a device node, which no graph holds whatever its name.
+    Special,
     /// No indexed language claims the file or declines it.
     Unclaimed,
     /// `language` leaves the file, one of its kind, out of its graph for `reason`.
@@ -69,6 +71,13 @@ impl<'e> Graphless<'e> {
     pub(crate) fn of(engine: &'e Engine, file: &str, family: Option<&'e str>) -> Self {
         if let Some(symlink) = engine.symlink(file) {
             return Self::Symlink(symlink);
+        }
+        if engine
+            .index()
+            .entry(file)
+            .is_some_and(|entry| entry.kind() == EntryKind::Other)
+        {
+            return Self::Special;
         }
         family.map_or_else(
             || {
@@ -86,6 +95,11 @@ impl<'e> Graphless<'e> {
     fn note(self) -> String {
         let why = match self {
             Self::Symlink(symlink) => return symlink_note(&symlink),
+            Self::Special => {
+                return "this path is a socket, a fifo or a device node, not a regular file, and no code graph \
+                        holds one"
+                    .to_owned();
+            }
             Self::Unclaimed => {
                 "no indexed language claims this file, so no code graph holds it".to_owned()
             }
