@@ -136,6 +136,10 @@ const CONVENTIONS: Conventions = {
     conventions.own_type_receivers = Some(&["cls", "other", "self"]);
     conventions.receiver_members = ReceiverMembers::InheritedUpToAnyField;
     conventions.constructor = Some("__init__");
+    conventions.includers = Some(
+        "the files whose import or from ... import names this file's module, a from-import also naming each submodule \
+         it imports",
+    );
     conventions
 };
 
