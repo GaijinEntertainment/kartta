@@ -672,6 +672,7 @@ pub(crate) struct ChangeView<'e> {
     change: Wired<Change<'e>>,
     missing_regions: usize,
     symlink_regions: usize,
+    directory_regions: usize,
     unclaimed_regions: usize,
     declined: Vec<DeclinedRegionsView<'e>>,
 }
@@ -689,6 +690,7 @@ impl<'e> ChangeView<'e> {
         Self {
             missing_regions: answer.missing_regions,
             symlink_regions: answer.symlink_regions,
+            directory_regions: answer.directory_regions,
             unclaimed_regions: answer.unclaimed_regions,
             declined: answer
                 .declined

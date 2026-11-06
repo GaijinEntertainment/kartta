@@ -343,6 +343,15 @@ fn a_file_answer_tells_a_directory_from_a_held_file() {
             );
         }
     }
+    let change = ok(
+        &kartta,
+        "analyze_change",
+        &json!({ "regions": [{ "file": "pkg" }, { "file": "_dir.go" }, { "file": "run.go" }] }),
+    );
+    assert_eq!(change["directory_regions"], 2, "{change}");
+    assert_eq!(change["unheld_regions"], 2, "{change}");
+    assert_eq!(change["unclaimed_regions"], 0, "{change}");
+    assert_eq!(change["declined"], json!([]), "{change}");
 }
 
 #[cfg(unix)]
