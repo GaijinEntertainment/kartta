@@ -1004,7 +1004,8 @@ impl Server {
                        one call, where following the calls by hand takes a read per hop. Searches every indexed \
                        language unless narrowed with 'languages'; a pair resolving in several languages yields one \
                        match per language. Returns a <call_path> envelope of <match lang=..> records: each the \
-                       resolved from and to, the chain length in hops and the searched bound in max_hops, and one \
+                       resolved from and to with from_loc and to_loc (file:line), the chain length in hops and the \
+                       searched bound in max_hops, and one \
                        <ref> per caller in call order - the last one calls to - each carrying loc= at the caller's \
                        definition, call= at the line where it calls the next symbol, an explicit role=, a \
                        confidence=likely / guess mark on a weakly resolved hop, and through= the interface, trait or \
@@ -1019,7 +1020,8 @@ impl Server {
                        passed_over_from= and passed_over_to= count the other symbols each name selects, the most \
                        called of them listed as up to 5 <candidate end=\"from\"|\"to\" callers=N/> records - \
                        from_path_prefix with one's file and from_line with its line pick a from candidate, \
-                       to_path_prefix and to_line a to one. With no match, an end whose name selects no symbol lists \
+                       to_path_prefix and to_line a to one; only the picked pair is searched, which a match without a \
+                       chain then says. With no match, an end whose name selects no symbol lists \
                        what it matches instead under <from> or <to>. Requires index_repo first."
     )]
     async fn find_call_path(
