@@ -4718,6 +4718,52 @@ fn references_bind_through_imports_the_file_and_the_package() {
 }
 
 #[test]
+fn references_of_a_body_s_local_value_say_that_no_use_binds_it() {
+    let mut body = file(
+        "src/load.ts",
+        vec![
+            function("load", 1),
+            Symbol::new("resp", SymbolKind::Constant, 2, 2),
+            Symbol::new("retry", SymbolKind::Variable, 3, 3),
+            function("parse", 4),
+            Symbol::new("limit", SymbolKind::Constant, 9, 9),
+        ],
+        Vec::new(),
+    );
+    body.local_symbols = vec![SymbolId(1), SymbolId(2), SymbolId(3)];
+    body.local_calls = vec![LocalCall::new(SymbolId(0), SymbolId(2), 5)];
+    body.uses = vec![
+        bare_use(SymbolId(0), "resp", 6),
+        bare_use(SymbolId(0), "limit", 7),
+    ];
+
+    let graph = graph(&[body]);
+
+    let references = |name: &str| {
+        graph
+            .references(name, SiteQuery::new(usize::MAX))
+            .expect("the name is defined")
+    };
+    let resp = references("resp");
+    assert!(resp.local_value);
+    assert_eq!(resp.total, 0, "no use binds a local value");
+    let retry = references("retry");
+    assert!(retry.local_value);
+    assert_eq!(
+        (retry.total, retry.counts.calls),
+        (1, 1),
+        "a local call of a value lists"
+    );
+    assert!(
+        !references("parse").local_value,
+        "a local function is no value"
+    );
+    let limit = references("limit");
+    assert!(!limit.local_value, "a module's constant is no local");
+    assert_eq!(limit.total, 1);
+}
+
+#[test]
 fn references_count_what_the_floor_and_the_limit_cut() {
     let mut defining = file(
         "a.go",
