@@ -66,6 +66,26 @@ jobs:
         run: |
           cargo metadata --locked --no-deps --format-version 1 | jq -e '[.packages[]
             | select(.publish != [] and .features != {} and .metadata.docs.rs["all-features"] != true)] == []'
+      # A requirement is the floor a consumer resolves, and the other jobs build the lock's version, or `fresh-resolve`
+      # the newest, never the floor. A lock that moves past a requirement, by a bump, `cargo update` or another crate's
+      # requirement, fails here.
+      - name: every registry requirement names the version Cargo.lock resolves
+        # constraint: the default shell runs without pipefail, and jq passes the empty input a refused metadata leaves
+        shell: bash
+        run: |
+          cargo metadata --locked --all-features --format-version 1 | jq -r '
+            (.packages | map({key: .id, value: .}) | from_entries) as $packages
+            | .workspace_members as $workspace
+            | [.resolve.nodes[] | select(IN(.id; $workspace[]))
+              | [.deps[].pkg | $packages[.] | {name, req: ("^" + .version)}] as $locked
+              | $packages[.id].name as $member
+              | $packages[.id].dependencies[] | select(.source // "" | startswith("registry+")) | .name as $name
+              | select({name, req} | IN($locked[]) | not)
+              | ([$locked[] | select(.name == $name).req | ltrimstr("^")] | join(", ")) as $resolved
+              | "\($member): \($name) = \"\(.req | ltrimstr("^"))\", Cargo.lock resolves \($resolved)"]
+            | if . == [] then empty
+              else map(. + "\n") | add + "write each one as the full version Cargo.lock resolves, without `=`\n"
+                | halt_error end'
       # constraint: `doc_cfg` is unstable, so docs.rs reads it on nightly and the pinned stable needs the bootstrap flag
       - name: rustdoc marks a gated item with its feature
         env:
