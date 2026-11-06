@@ -5,7 +5,7 @@ use std::hash::Hash;
 
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
-use kartta_lang::{Access, DataUses};
+use kartta_lang::{Access, DataUses, SymbolKind};
 
 use crate::confidence;
 use crate::dispatch;
@@ -283,6 +283,10 @@ pub struct References<'g> {
     /// no other tier picked one of the members of the name, and those of the own receiver that several bases may
     /// hold: any of them, this one included, may be meant. The uses are counted for a member only.
     pub ambiguous: usize,
+    /// Whether the symbol is a variable or a constant local to the body that declares it, one of the extraction's
+    /// [`local_symbols`](kartta_lang::Extraction::local_symbols): no use binds such a value, so its sites hold only the
+    /// calls of it from inside that body, and none of its reads or writes.
+    pub local_value: bool,
 }
 
 /// The shortest chain of calls the graph holds from one symbol to another.
@@ -508,6 +512,10 @@ impl Graph {
             counts,
             file_scope,
             ambiguous: ambiguous_uses + calls.ambiguous_calls(root),
+            local_value: matches!(
+                self.sym(root).kind,
+                SymbolKind::Variable | SymbolKind::Constant
+            ) && self.file(root.file).holder(root.index).is_some(),
         })
     }
 
