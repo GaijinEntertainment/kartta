@@ -17,6 +17,7 @@ on:
       - scripts/ffi-archive.sh
       - scripts/glibc-floor.sh
       - scripts/link-check.sh
+      - scripts/publish-crates.sh
 
 permissions:
   contents: read
@@ -142,9 +143,31 @@ jobs:
           path: artifacts/SHA256SUMS
           if-no-files-found: error
 
-  publish:
+  # The steps of `crates`, on each run that publishes nothing. It holds no environment, so it waits on no approval.
+  crates-dry-run:
+    if: github.event_name != 'push'
+    needs: versions
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - run: scripts/publish-crates.sh --dry-run
+
+  crates:
     if: github.event_name == 'push'
     needs: checksums
+    runs-on: ubuntu-24.04
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - run: scripts/publish-crates.sh
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  publish:
+    if: github.event_name == 'push'
+    needs: crates
     runs-on: ubuntu-24.04
     permissions:
       contents: write
