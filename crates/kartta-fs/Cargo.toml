@@ -19,17 +19,17 @@ workspace = true
 
 [dependencies]
 bstr = "1.13.1"
-gix-glob = "0.29.0"
-gix-ignore = "0.24.0"
+gix-glob = "0.29.1"
+gix-ignore = "0.24.1"
 # default-features = false drops `log`, which globset uses only to trace glob compilation.
-globset = { version = "0.4.20", default-features = false }
+globset = { version = "0.4.21", default-features = false }
 grep-matcher = "0.1.9"
 grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
 kartta-cache.workspace = true
 kartta-fuzz.workspace = true
 kartta-walk.workspace = true
-memmap2 = "0.9.11"
+memmap2 = "0.9.12"
 rayon = "1.12.0"
 # The parser grep-regex compiles patterns with, read here for the trigrams a match must contain.
 regex-syntax = "0.8.11"
@@ -44,7 +44,7 @@ watch = ["dep:notify"]
 tempfile = "3.27.0"
 
 [target."cfg(unix)".dependencies]
-libc = "0.2.190"
+libc = "0.2.191"
 
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
