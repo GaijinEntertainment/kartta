@@ -8,7 +8,7 @@ use kartta::{
 
 use super::{
     Asked, CallersAsk, Graphless, LIMIT_CUT, Unmatched, candidate, empty_languages_note, flat,
-    kind, loc, named, noted, one_edit, role, span, unresolved,
+    kind, loc, named, noted, one_edit, push_cut_end, role, span, unresolved,
 };
 use crate::llmxml::Element;
 use crate::state::GraphRow;
@@ -181,18 +181,23 @@ fn definition(read: &Read<'_>) -> String {
             "truncated",
             source.lines == 0 || answered_through < definition.end_line,
         )
-        .flag("resized", source.resized);
+        .flag("resized", source.resized)
+        .count("cut_lines", source.cut_lines.len());
     if source.text.is_empty() {
         return element
             .optional("sig", definition.signature.map(flat))
             .close();
     }
     let mut body = String::new();
+    let mut cuts = source.cut_lines.iter().peekable();
     for (line, number) in source.text.lines().zip(source.first_line..) {
         if !body.is_empty() {
             body.push('\n');
         }
         let _ = write!(body, "{number:>6}\t{line}");
+        if let Some(cut) = cuts.next_if(|cut| cut.line == number) {
+            push_cut_end(&mut body, cut.bytes);
+        }
     }
     element.wrap(&body)
 }

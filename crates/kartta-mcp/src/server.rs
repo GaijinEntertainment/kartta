@@ -817,7 +817,8 @@ impl Server {
                        or generated code. scope is same-directory (beside 'from'), vendored, or other; it ranks by \
                        location and does not resolve which definition a given call binds to. The body is the file \
                        text from the doc block directly above the definition through its last line, each line \
-                       numbered, at most 500 lines with each line cut at 1024 bytes. loc is the span the index last \
+                       numbered, at most 500 lines with each line cut at 1024 bytes; a cut line ends with \
+                       [... omitted N bytes], and cut_lines= counts them. loc is the span the index last \
                        read and the body is read at call time, so a file edited since answers its new text at the \
                        old span, and resized=true marks a file whose size changed since. truncated=true marks a body \
                        cut before the span ends, or missing because the file no longer reaches the span; a definition \
