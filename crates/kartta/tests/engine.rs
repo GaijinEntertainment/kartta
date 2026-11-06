@@ -1179,6 +1179,21 @@ fn a_tree_of_more_files_than_one_batch_resolves_whole() {
     assert_eq!((graph.stats().files, graph.stats().symbols), (4100, 4100));
 }
 
+#[cfg(feature = "watch")]
+#[test]
+fn a_watched_build_without_stamps_is_refused_before_it_walks() {
+    let tree = tree(&[]);
+    let missing = tree.path().join("missing");
+    let languages: Vec<Box<dyn Language>> = vec![Box::new(Defs::new("defs", "defs", ".defs"))];
+
+    let built = Engine::build_watched(&missing, &BuildOptions::default(), languages, None);
+
+    assert!(
+        matches!(built, Err(BuildError::WatchWithoutStamps)),
+        "{built:?}"
+    );
+}
+
 #[cfg(all(feature = "watch", target_os = "linux"))]
 #[test]
 fn a_refresh_past_the_limit_under_a_watcher_watches_what_it_takes_in() {

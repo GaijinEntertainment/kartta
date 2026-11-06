@@ -1158,6 +1158,7 @@ Each value is the engine's label. From `cancelled` on, a failure stops the call,
 - `thread_pool`: The index's thread pool could not start.
 - `content_ids_exhausted`: The index has no content ids left to number the files a refresh reads.
 - `misspelled`: A path given to `refresh` is not spelled from the root with `/` between names.
+- `watch_without_stamps`: A `build` asked to `watch` without `stamps`.
 
 ### LineKind
 
