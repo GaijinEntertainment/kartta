@@ -153,6 +153,17 @@ func Test_ZeroThreads(t *testing.T) {
 	}
 }
 
+func Test_FalseStamps(t *testing.T) {
+	k := open(t, tree(t))
+	stamps := false
+
+	_, err := k.Build(t.Context(), wire.BuildOptions{Stamps: &stamps, Watch: true})
+
+	if !errors.Is(err, wire.InvalidParams) {
+		t.Fatalf("Build with Watch and Stamps false = %v, want %s", err, wire.InvalidParams)
+	}
+}
+
 func Test_ZeroID(t *testing.T) {
 	k := open(t, tree(t))
 	id := uint64(0)
