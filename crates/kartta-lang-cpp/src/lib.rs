@@ -250,6 +250,8 @@ const CONVENTIONS: Conventions = {
     conventions.untyped_members = UntypedMembers::IncludedField;
     conventions.type_uses = TypeUses::Nowhere;
     conventions.implements = Implements::Overrides(SameMethod(overrides::overrides));
+    conventions.includers =
+        Some("the files whose #include names this file, and none through a #include of a macro");
     conventions
 };
 
