@@ -1010,9 +1010,9 @@ export type Region = {
 /**
  * What a change to regions across files reaches. `unheld_regions` counts the regions whose file no graph holds; of
  * them, `missing_regions` counts those whose path the index does not hold, `symlink_regions` those whose path it
- * holds as a symlink, `unclaimed_regions` those of held files no language claims or declines, and `declined` those of
- * held files a language leaves out of its graph. The rest are regions of held files the graph claiming them holds no
- * record of.
+ * holds as a symlink, `directory_regions` those whose path it holds as a directory, `unclaimed_regions` those of held
+ * files no language claims or declines, and `declined` those of held files a language leaves out of its graph. The rest
+ * are regions of held files the graph claiming them holds no record of.
  */
 export type Change = {
 	changed_symbols: number;
@@ -1028,6 +1028,7 @@ export type Change = {
 	truncated_seeds: number;
 	missing_regions: number;
 	symlink_regions: number;
+	directory_regions: number;
 	unclaimed_regions: number;
 	declined: DeclinedRegions[];
 };

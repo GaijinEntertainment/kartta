@@ -918,6 +918,8 @@ The fields of [`Change`](#change), and why no graph holds each region `unheld_re
 
 - `missing_regions` (integer, always): The regions whose path the index does not hold.
 - `symlink_regions` (integer, always): The regions whose path the index holds as a symlink.
+- `directory_regions` (integer, always): The regions whose path the index holds as a directory: pass its files
+  instead, which `list` lists.
 - `unclaimed_regions` (integer, always): The regions of held files that no language claims or declines.
 - `declined` (array of [`DeclinedRegionsView`](#declinedregionsview), always): The regions of held files that a
   language leaves out of its graph, per language and reason, in the order the regions first name them. The rest of
