@@ -822,7 +822,7 @@ The fields of [`References`](#references), and:
 ### CutLine
 
 - `line` (integer, always): The line cut.
-- `bytes` (integer, always): Its length before the cut.
+- `bytes` (integer, always): How many bytes of it the cut left out.
 
 ### Search
 
