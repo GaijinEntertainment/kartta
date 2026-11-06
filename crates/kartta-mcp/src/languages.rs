@@ -72,12 +72,24 @@ impl Catalog {
     }
 }
 
-/// How an answer echoes the `languages` filter it was asked with, `[]` for an empty one.
+/// How an answer echoes the `languages` filter it was asked with: the families it searched, each once in the order
+/// the filter first names it, since a language of a family selects the family's whole graph; `[]` for an empty filter.
 pub(crate) fn echo(requested: &[String]) -> String {
-    match requested {
-        [] => crate::render::EMPTY_LANGUAGES.to_owned(),
-        names => names.join(", "),
+    if requested.is_empty() {
+        return crate::render::EMPTY_LANGUAGES.to_owned();
     }
+    let mut searched: Vec<&str> = Vec::new();
+    for wanted in requested {
+        let family = NAMES
+            .iter()
+            .zip(&CATALOG.families)
+            .find_map(|(name, family)| (wanted == name).then_some(family.as_str()))
+            .unwrap_or(wanted);
+        if !searched.contains(&family) {
+            searched.push(family);
+        }
+    }
+    searched.join(", ")
 }
 
 #[cfg(test)]
@@ -128,5 +140,14 @@ mod tests {
     fn the_echo_writes_an_empty_filter_out() {
         assert_eq!(echo(&[]), "[]");
         assert_eq!(echo(&names(&["go", "cpp"])), "go, cpp");
+    }
+
+    #[test]
+    fn the_echo_names_the_family_a_language_of_it_searched() {
+        assert_eq!(echo(&names(&["javascript"])), "jsts");
+        assert_eq!(
+            echo(&names(&["tsx", "go", "jsts", "typescript"])),
+            "jsts, go"
+        );
     }
 }
