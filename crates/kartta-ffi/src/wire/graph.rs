@@ -351,7 +351,8 @@ impl<'g> ReferencesView<'g> {
         let kind = references.symbol.kind;
         Self {
             type_uses_unrecorded: conventions.type_uses == TypeUses::Nowhere && kind.is_type(),
-            data_uses_unrecorded: conventions.unrecorded_data.contains(&kind),
+            data_uses_unrecorded: conventions.unrecorded_data.contains(&kind)
+                || references.local_value,
             references: Wired(references),
         }
     }
