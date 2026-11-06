@@ -33,6 +33,9 @@ commit is a lockstep `X.Y.(Z+1)` of every artifact**, cut from the start below, 
    dry runs. Merge it once they pass.
 2. Tag the merge commit on `main` and push the tag: `git tag vX.Y.Z <commit>`, then `git push origin vX.Y.Z`.
 3. Approve the deployments to the `crates-io` and `npm` environments when the run asks for them.
+4. Once both branches finish, run the install checks from the registries on every target:
+   `gh workflow run verify-release.yml --ref vX.Y.Z -f version=X.Y.Z`. A check that fails on what the release published
+   is a defect in it, below.
 
 ## When a cut fails
 
