@@ -356,6 +356,36 @@ fn a_file_answer_tells_a_directory_from_a_held_file() {
 
 #[cfg(unix)]
 #[test]
+fn a_file_answer_tells_a_socket_from_a_held_file() {
+    let tree = tree();
+    let _sockets = ["pipe.go", "sock"].map(|name| {
+        std::os::unix::net::UnixListener::bind(tree.path().join(name)).expect("a socket")
+    });
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    for method in ["outline", "dependents", "analyze_segment"] {
+        let answer = |file: &str| ok(&kartta, method, &json!({ "file": file }));
+        assert_eq!(
+            answer("pipe.go"),
+            json!({ "file": "pipe.go", "graph": "go", "held": false, "special": true }),
+            "{method} of a socket the go graph claims by its name"
+        );
+        assert_eq!(
+            answer("sock"),
+            json!({ "file": "sock", "held": false, "special": true }),
+            "{method} of a socket no language claims"
+        );
+        assert_eq!(
+            answer("run.go").get("special"),
+            None,
+            "{method} of a held file"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn a_file_answer_names_where_a_symlink_points() {
     let tree = tree();
     fs::create_dir(tree.path().join("pkg")).expect("pkg");
