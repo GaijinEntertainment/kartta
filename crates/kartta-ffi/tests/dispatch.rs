@@ -1767,6 +1767,30 @@ fn a_function_s_local_value_flags_its_references_and_a_module_value_does_not() {
 }
 
 #[test]
+fn a_function_s_local_function_flags_its_references_and_a_module_function_does_not() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("lib.rs"),
+        "pub fn outer(v: Vec<i32>) -> Vec<i32> {\n    fn double(x: i32) -> i32 {\n        x * 2\n    }\n    \
+         v.into_iter().map(double).collect()\n}\n\nfn triple(x: i32) -> i32 {\n    x * 3\n}\n\n\
+         pub fn control(v: Vec<i32>) -> Vec<i32> {\n    v.into_iter().map(triple).collect()\n}\n",
+    )
+    .expect("lib.rs");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let local = ok(&kartta, "references", &json!({ "name": "double" }));
+    let module = ok(&kartta, "references", &json!({ "name": "triple" }));
+
+    let local = part(&local, "rust");
+    assert_eq!(local["total"], 0, "{local}");
+    assert_eq!(local["data_uses_unrecorded"], true, "{local}");
+    let module = part(&module, "rust");
+    assert_eq!(module["total"], 1, "{module}");
+    assert_eq!(keys(module), REFERENCES_KEYS, "{module}");
+}
+
+#[test]
 fn a_rust_field_with_no_recorded_site_is_told_from_an_unused_constant() {
     let tree = tempfile::tempdir().expect("a temporary directory");
     fs::write(
