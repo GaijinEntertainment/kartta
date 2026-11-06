@@ -138,7 +138,9 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
     let element = Element::new("match")
         .attr("lang", family)
         .attr("from", path.from.qualified_name)
+        .attr("from_loc", loc(path.from.file, path.from.line))
         .attr("to", path.to.qualified_name)
+        .attr("to_loc", loc(path.to.file, path.to.line))
         .attr("hops", path.hops.len())
         .attr("max_hops", ask.hops)
         .flag("truncated", path.truncated)
@@ -159,10 +161,16 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
             })
         })
         .collect();
+    let picked_only = if passed_over_from + passed_over_to == 0 {
+        ""
+    } else {
+        "; only from_loc to to_loc was searched - from_path_prefix and from_line, or to_path_prefix and to_line, \
+         pick a candidate"
+    };
     if !path.found && path.truncated {
         let text = format!(
             "the node cap stopped the search before it covered {} calls, so a chain can still exist in the graph - a \
-             smaller hops value or a higher min_confidence narrows the search",
+             smaller hops value or a higher min_confidence narrows the search{picked_only}",
             ask.hops
         );
         return noted(element.attr("found", false), &text, passed_over);
@@ -182,7 +190,11 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
                 ask.hops
             )
         };
-        return noted(element.attr("found", false), &text, passed_over);
+        return noted(
+            element.attr("found", false),
+            &format!("{text}{picked_only}"),
+            passed_over,
+        );
     }
     let hops = path.hops.iter().map(|hop| {
         edge("ref", hop)
