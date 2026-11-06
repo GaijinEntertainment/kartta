@@ -1268,7 +1268,8 @@ impl Server {
                        place of the lists. Each \
                        count of what was left out appears only when it is not zero: unheld_regions= the regions in \
                        files no code graph holds, of them missing_regions= those whose path the index does not hold, \
-                       symlink_regions= those whose path it holds as a symlink, and unclaimed_regions= those in held \
+                       symlink_regions= those whose path it holds as a symlink, special_regions= those whose path it \
+                       holds as a socket, a fifo or a device node, and unclaimed_regions= those in held \
                        files no language claims or declines, with a \
                        <declined language= regions=> naming why for each language that leaves such files out of its \
                        graph, \
