@@ -295,14 +295,31 @@ const NONE_UNDER: &str = "no recorded site and no file_scope file is under sites
 /// How many `<file_scope>` records a `find_callers` or a `find_references` match lists, in path order.
 const FILE_SCOPE_LISTED: usize = 50;
 
-/// The `<file_scope>` records of a match: the first [`FILE_SCOPE_LISTED`] of `users`.
-fn file_scope_records<'a>(users: &'a [FileScope<'_>]) -> impl Iterator<Item = String> + 'a {
-    users.iter().take(FILE_SCOPE_LISTED).map(|user| {
-        Element::new("file_scope")
-            .attr("path", user.file)
-            .optional("confidence", confidence(user.confidence))
-            .close()
-    })
+/// The line after a `find_callers` match's `<file_scope>` records when the cap cut them.
+const CALLERS_FILE_SCOPE_CUT: &str = "a fixed cap cut these file_scope records - no parameter lists the rest, and grep \
+                                      of the name's last segment finds them among its other uses";
+
+/// The line after a `find_references` match's `<file_scope>` records when the cap cut them.
+const REFERENCES_FILE_SCOPE_CUT: &str =
+    "a fixed cap cut these file_scope records - a narrower sites_under lists the rest under it";
+
+/// The `<file_scope>` records of a match: the first [`FILE_SCOPE_LISTED`] of `users`, and `cut`, the line that says
+/// how to reach the rest, when the cap cut them.
+fn file_scope_records<'a>(
+    users: &'a [FileScope<'_>],
+    cut: &'static str,
+) -> impl Iterator<Item = String> + 'a {
+    let cut = (users.len() > FILE_SCOPE_LISTED).then(|| cut.to_owned());
+    users
+        .iter()
+        .take(FILE_SCOPE_LISTED)
+        .map(|user| {
+            Element::new("file_scope")
+                .attr("path", user.file)
+                .optional("confidence", confidence(user.confidence))
+                .close()
+        })
+        .chain(cut)
 }
 
 /// `element` with the count of a match's file-scope `users`, how many records it lists of those a filter `kept` when
@@ -405,7 +422,7 @@ fn reference_match(
     element.children(
         note.into_iter()
             .chain(listing.records)
-            .chain(file_scope_records(users))
+            .chain(file_scope_records(users, REFERENCES_FILE_SCOPE_CUT))
             .chain(passed_over),
     )
 }
@@ -1049,7 +1066,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
     let file_scope = ask
         .role
         .is_none()
-        .then(|| file_scope_records(&walk.file_scope))
+        .then(|| file_scope_records(&walk.file_scope, CALLERS_FILE_SCOPE_CUT))
         .into_iter()
         .flatten();
     element.children(

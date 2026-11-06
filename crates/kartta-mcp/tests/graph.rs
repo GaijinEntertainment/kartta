@@ -3296,6 +3296,10 @@ fn find_callers_and_find_references_list_the_first_50_file_scope_users_and_count
             ("find_callers", json!({"name": "shared"})),
             ("find_references", json!({"name": "shared"})),
             ("find_callers", json!({"name": "shared", "role": "entry"})),
+            (
+                "find_references",
+                json!({"name": "shared", "sites_under": "bin/run5"}),
+            ),
         ],
     );
 
@@ -3303,7 +3307,11 @@ fn find_callers_and_find_references_list_the_first_50_file_scope_users_and_count
         .iter()
         .map(|(path, _)| path.as_str())
         .collect();
-    for answer in &answers[..2] {
+    let cuts = [
+        "no parameter lists the rest, and grep of the name's last segment finds them among its other uses",
+        "a narrower sites_under lists the rest under it",
+    ];
+    for (answer, way) in answers[..2].iter().zip(cuts) {
         assert!(
             answer.contains(r#"file_scope="51" file_scope_shown="50""#),
             "{answer}"
@@ -3314,7 +3322,21 @@ fn find_callers_and_find_references_list_the_first_50_file_scope_users_and_count
             .filter_map(|line| line.split('"').next())
             .collect();
         assert_eq!(listed, first, "the first 50 in path order: {answer}");
+        assert!(
+            answer.contains(&format!(
+                "<file_scope path=\"bin/run49.sh\" confidence=\"likely\"/>\na fixed cap cut these file_scope \
+                 records - {way}\n"
+            )),
+            "{answer}"
+        );
     }
+    assert!(
+        answers[3].contains(r#"file_scope="51""#)
+            && answers[3].contains(r#"file_scope_excluded="50""#)
+            && answers[3].contains(r#"<file_scope path="bin/run50.sh""#),
+        "the sites_under the cut line names lists the user past 50: {}",
+        answers[3]
+    );
     assert!(
         answers[2].contains(r#"file_scope="51" consumers="#),
         "{}",
@@ -3325,6 +3347,23 @@ fn find_callers_and_find_references_list_the_first_50_file_scope_users_and_count
         "a role lists no file-scope record: {}",
         answers[2]
     );
+
+    let at_the_cap = answers_over(
+        &files[1..],
+        &[
+            ("find_callers", json!({"name": "shared"})),
+            ("find_references", json!({"name": "shared"})),
+        ],
+    );
+    for answer in &at_the_cap {
+        assert!(
+            answer.contains(r#"file_scope="50""#)
+                && answer.contains(r#"<file_scope path="bin/run50.sh""#)
+                && !answer.contains("file_scope_shown")
+                && !answer.contains("a fixed cap cut these file_scope records"),
+            "50 users fit the cap whole: {answer}"
+        );
+    }
 }
 
 #[test]
