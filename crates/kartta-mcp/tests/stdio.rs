@@ -188,6 +188,11 @@ fn a_wrong_argument_names_its_parameter_and_its_path_inside_the_arguments() {
             "limit: invalid value: integer `0`, expected a nonzero usize",
         ),
         (
+            "impact_of_edit",
+            json!({"file": "a.go", "start_line": 1, "limit": 0}),
+            "limit: invalid value: integer `0`, expected a nonzero usize",
+        ),
+        (
             "impact_of_change",
             json!({"regions": [{"file": "a.go", "start_line": 1}, {"file": "a.go", "start_line": 0}]}),
             "regions[1].start_line: invalid value: integer `0`, expected a nonzero u32",

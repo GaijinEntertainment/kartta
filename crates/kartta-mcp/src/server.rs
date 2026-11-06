@@ -31,8 +31,8 @@ use crate::params::{
 };
 use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, relative};
 use crate::render::{
-    self, CallersAsk, Found, Graphless, NameDefinitions, PathAsk, Read, SUGGESTIONS, Selection,
-    Suggestion, Unbuilt, Unmatched, UnusedAsk,
+    self, CallersAsk, EditAsk, Found, Graphless, NameDefinitions, PathAsk, Read, SUGGESTIONS,
+    Selection, Suggestion, Unbuilt, Unmatched, UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
@@ -89,6 +89,9 @@ const IMPACT_DEPTH: u32 = 3;
 
 /// How many symbols the walk over a changed symbol's callers reaches before it stops.
 const IMPACT_MAX_SYMBOLS: usize = 500;
+
+/// How many symbols, and how many files of each include list, `impact_of_edit` lists when the call names no limit.
+const IMPACT_LISTED: usize = 10;
 
 /// How many changed symbols, and how many hotspots, `impact_of_change` lists when the call names no limit.
 const CHANGE_LISTED: usize = 20;
@@ -1271,7 +1274,9 @@ impl Server {
         annotations(read_only_hint = true),
         description = "Assess the blast radius of editing a span of lines - \"what breaks if I touch these lines?\" \
                        for a diff hunk under review or an edit you are about to make. Returns an <impact> envelope \
-                       with one <symbol> record per definition overlapping the range - caller and callee counts with \
+                       with one <symbol> record per definition overlapping the range, symbols= counting them and, past \
+                       'limit' (default 10), the ones of widest reach listed in source order with shown= and a line \
+                       after them saying the limit cut them - caller and callee counts with \
                        sampled <ref/> lists (each carrying an explicit role=, \"consumer\" for a real caller/callee or \
                        test/entry/generated for a reach artifact, at= for the line of the call, weakly resolved \
                        edges marked confidence=likely/guess, and a caller that reaches a method only through an \
@@ -1285,7 +1290,8 @@ impl Server {
                        where its language records those uses (find_references lists every site), and the reach (how \
                        many symbols across how many files transitively depend on it within 3 hops, a field's or a \
                        value's users and their callers included, with a reach-band grade; truncated=true when the \
-                       500-symbol cap stopped the walk) - plus <includes> and <included-by> file lists. A \
+                       500-symbol cap stopped the walk) - plus <includes> and <included-by> file lists, each counting \
+                       every file and listing the first 'limit' in path order, with shown= when the limit cut it. A \
                        range covering only file-scope code (imports, comments) reports zero symbols and still lists \
                        the file's includes and includers when it has any; zero symbols means nothing is defined there, \
                        not that the edit is safe. For one named function use find_callers; for whole-file impact use \
@@ -1309,12 +1315,12 @@ impl Server {
             let segment = claimed
                 .and_then(|(_, graph)| graph.analyze_segment(file, start_line..=end_line, limits));
             let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));
-            Ok(render::impact(
+            let ask = EditAsk {
                 file,
-                (start_line, end_line),
-                graphless,
-                segment.as_ref(),
-            ))
+                lines: (start_line, end_line),
+                listed: p.limit.map_or(IMPACT_LISTED, NonZeroUsize::get),
+            };
+            Ok(render::impact(&ask, graphless, segment.as_ref()))
         })
         .await
     }

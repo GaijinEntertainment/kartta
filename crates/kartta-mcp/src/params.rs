@@ -642,4 +642,10 @@ pub(crate) struct ImpactOfEditParams {
     /// tool error. A symbol counts as in-span when its definition overlaps the range at all.
     #[serde(default)]
     pub(crate) end_line: Option<NonZeroU32>,
+    /// Positive cap on the <symbol> records listed, those of widest reach kept in source order, and separately on the
+    /// files each of <includes> and <included-by> lists, in path order. Omitted or null = 10. Zero and negatives are
+    /// rejected. symbols= and each list's count= count every one, and shown= says how many are listed when the cap
+    /// cut them.
+    #[serde(default)]
+    pub(crate) limit: Option<NonZeroUsize>,
 }

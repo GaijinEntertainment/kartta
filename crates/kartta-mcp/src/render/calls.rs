@@ -1,11 +1,12 @@
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::iter;
 use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Conventions, Definition, DirectCalls, EngineChange, FileScope, Hotspot,
-    ReachBand, Reached, Reference, References, Seed, Segment, Selector, SelfCall, SymbolKind,
-    TypeUses, Walk,
+    ReachBand, Reached, Reference, References, Seed, Segment, SegmentSymbol, Selector, SelfCall,
+    SymbolKind, TypeUses, Walk,
 };
 
 use super::{
@@ -433,7 +434,7 @@ fn by_file(sites: &[Reference<'_>]) -> Vec<Range<usize>> {
             _ => files.push(at..at + 1),
         }
     }
-    files.sort_by_key(|file| std::cmp::Reverse(file.len()));
+    files.sort_by_key(|file| Reverse(file.len()));
     files
 }
 
@@ -484,32 +485,45 @@ fn site_records<'g>(sites: &[Reference<'g>]) -> Vec<SiteRecord<'g>> {
     records
 }
 
+/// What an `impact_of_edit` call asked: the file, its first and last line, and how many symbols and files of each
+/// include list the answer lists.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EditAsk<'a> {
+    pub(crate) file: &'a str,
+    pub(crate) lines: (u32, u32),
+    pub(crate) listed: usize,
+}
+
 /// The `impact_of_edit` answer: a `<symbol>` per definition the lines overlap, with its direct callers and callees
 /// and the reach of a change to it, and the files the file includes and is included by. A field, a variable or a
-/// constant lists its users in place of its callers, because its users hold them. `graphless` says why a file no graph
+/// constant lists its users in place of its callers, because its users hold them. Past `listed`, the symbols of widest
+/// reach are listed in source order, and each file list its first in path order. `graphless` says why a file no graph
 /// answers for has none.
 pub(crate) fn impact(
-    file: &str,
-    lines: (u32, u32),
+    ask: &EditAsk<'_>,
     graphless: Graphless<'_>,
     segment: Option<&Segment<'_>>,
 ) -> String {
     const NO_SYMBOLS: &str = "no symbols defined in this range - it may cover only file-scope code (imports, \
                               comments); zero symbols is not proof the edit is safe";
-    let (start_line, end_line) = lines;
+    let (start_line, end_line) = ask.lines;
     let end = if end_line == u32::MAX {
         "end".to_owned()
     } else {
         end_line.to_string()
     };
     let element = Element::new("impact")
-        .attr("of", file)
+        .attr("of", ask.file)
         .attr("start_line", start_line)
         .attr("end_line", end);
     let Some(segment) = segment else {
         return element.attr("symbols", 0).inline(&graphless.note());
     };
-    let element = element.attr("symbols", segment.symbols.len());
+    let symbols = segment.symbols.len();
+    let cut = symbols > ask.listed;
+    let element = element
+        .attr("symbols", symbols)
+        .optional("shown", cut.then_some(ask.listed));
     let has_includes = !segment.includes.is_empty() || !segment.included_by.is_empty();
     if segment.symbols.is_empty() && !has_includes {
         return element.inline(NO_SYMBOLS);
@@ -517,54 +531,77 @@ pub(crate) fn impact(
     let mut parts: Vec<String> = if segment.symbols.is_empty() {
         vec![NO_SYMBOLS.to_owned()]
     } else {
-        segment
-            .symbols
-            .iter()
-            .map(|symbol| {
-                let definition = &symbol.definition;
-                let blast = &symbol.blast;
-                named("symbol", definition)
-                    .attr("kind", kind(definition.kind))
-                    .attr(
-                        "lines",
-                        format!("{}-{}", definition.line, definition.end_line),
-                    )
-                    .attr("callers", symbol.callers.total)
-                    .count("users", symbol.users.total)
-                    .count("ambiguous", symbol.ambiguous)
-                    .attr("callees", symbol.callees.total)
-                    .attr("reach", blast.reach)
-                    .attr("reach_files", blast.affected_files)
-                    .attr("reach_band", blast.band.label())
-                    .flag("truncated", blast.truncated)
-                    .count("unexpanded", blast.unexpanded)
-                    .count("unresolved", symbol.unresolved)
-                    .optional("sig", definition.signature.map(flat))
-                    .children(
-                        [
-                            (symbol.users.total == 0)
-                                .then(|| direct("callers", &symbol.callers, None))
-                                .flatten(),
-                            direct("users", &symbol.users, None),
-                            direct("callees", &symbol.callees, Some(definition.file)),
-                        ]
-                        .into_iter()
-                        .flatten(),
-                    )
-            })
+        widest(&segment.symbols, ask.listed)
+            .into_iter()
+            .map(segment_symbol)
+            .chain(cut.then(|| LIMIT_CUT.to_owned()))
             .collect()
     };
-    parts.push(
-        Element::new("includes")
-            .attr("count", segment.includes.len())
-            .children(segment.includes.iter().map(|path| file_element(path))),
-    );
-    parts.push(
-        Element::new("included-by")
-            .attr("count", segment.included_by.len())
-            .children(segment.included_by.iter().map(|path| file_element(path))),
-    );
+    parts.push(file_list("includes", &segment.includes, ask.listed));
+    parts.push(file_list("included-by", &segment.included_by, ask.listed));
     element.children(parts)
+}
+
+/// The `listed` of `symbols` whose change reaches widest, the first in source order among equal reaches, in the source
+/// order `symbols` holds them in.
+fn widest<'s, 'g>(symbols: &'s [SegmentSymbol<'g>], listed: usize) -> Vec<&'s SegmentSymbol<'g>> {
+    if symbols.len() <= listed {
+        return symbols.iter().collect();
+    }
+    let mut kept: Vec<usize> = (0..symbols.len()).collect();
+    kept.select_nth_unstable_by_key(listed, |&at| (Reverse(symbols[at].blast.reach), at));
+    kept.truncate(listed);
+    kept.sort_unstable();
+    kept.into_iter().map(|at| &symbols[at]).collect()
+}
+
+/// One symbol an edit overlaps: what a change to it reaches, and its direct callers or users and its callees.
+fn segment_symbol(symbol: &SegmentSymbol<'_>) -> String {
+    let definition = &symbol.definition;
+    let blast = &symbol.blast;
+    named("symbol", definition)
+        .attr("kind", kind(definition.kind))
+        .attr(
+            "lines",
+            format!("{}-{}", definition.line, definition.end_line),
+        )
+        .attr("callers", symbol.callers.total)
+        .count("users", symbol.users.total)
+        .count("ambiguous", symbol.ambiguous)
+        .attr("callees", symbol.callees.total)
+        .attr("reach", blast.reach)
+        .attr("reach_files", blast.affected_files)
+        .attr("reach_band", blast.band.label())
+        .flag("truncated", blast.truncated)
+        .count("unexpanded", blast.unexpanded)
+        .count("unresolved", symbol.unresolved)
+        .optional("sig", definition.signature.map(flat))
+        .children(
+            [
+                (symbol.users.total == 0)
+                    .then(|| direct("callers", &symbol.callers, None))
+                    .flatten(),
+                direct("users", &symbol.users, None),
+                direct("callees", &symbol.callees, Some(definition.file)),
+            ]
+            .into_iter()
+            .flatten(),
+        )
+}
+
+/// A list of files in path order: every one counted, the first `listed` of them listed.
+fn file_list(tag: &'static str, paths: &[&str], listed: usize) -> String {
+    let cut = paths.len() > listed;
+    Element::new(tag)
+        .attr("count", paths.len())
+        .optional("shown", cut.then_some(listed))
+        .children(
+            paths
+                .iter()
+                .take(listed)
+                .map(|path| file_element(path))
+                .chain(cut.then(|| LIMIT_CUT.to_owned())),
+        )
 }
 
 /// The `impact_of_change` answer: what the change reaches in all, then the changed symbols, widest reach first, and
