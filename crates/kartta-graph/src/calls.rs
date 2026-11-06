@@ -283,10 +283,10 @@ pub struct References<'g> {
     /// no other tier picked one of the members of the name, and those of the own receiver that several bases may
     /// hold: any of them, this one included, may be meant. The uses are counted for a member only.
     pub ambiguous: usize,
-    /// Whether the symbol is a variable, a constant or a function local to the body that declares it, one of the
-    /// extraction's [`local_symbols`](kartta_lang::Extraction::local_symbols): no use binds such a value, so its sites
-    /// hold only the calls of it from inside that body, and none of its reads or writes, a function's uses as a value
-    /// among them.
+    /// Whether the symbol is a variable, a constant, a function or a type local to the body that declares it, one of
+    /// the extraction's [`local_symbols`](kartta_lang::Extraction::local_symbols): no use binds such a value, so its
+    /// sites hold only the calls of it from inside that body, and none of its reads or writes, a function's uses as a
+    /// value and a type's uses as a type or a value among them.
     pub local_value: bool,
 }
 
@@ -493,6 +493,7 @@ impl Graph {
         } else {
             0
         };
+        let kind = self.sym(root).kind;
 
         Some(References {
             symbol: self.definition_at(root),
@@ -513,10 +514,12 @@ impl Graph {
             counts,
             file_scope,
             ambiguous: ambiguous_uses + calls.ambiguous_calls(root),
-            local_value: matches!(
-                self.sym(root).kind,
-                SymbolKind::Variable | SymbolKind::Constant | SymbolKind::Function
-            ) && self.file(root.file).holder(root.index).is_some(),
+            local_value: (kind.is_type()
+                || matches!(
+                    kind,
+                    SymbolKind::Variable | SymbolKind::Constant | SymbolKind::Function
+                ))
+                && self.file(root.file).holder(root.index).is_some(),
         })
     }
 
