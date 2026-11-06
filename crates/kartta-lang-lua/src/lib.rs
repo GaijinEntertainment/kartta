@@ -98,6 +98,9 @@ const DOC_COMMENTS: DocComments = DocComments::lines(&["--"]).with_blocks(&[
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.own_members = OwnMembers::Unreached;
+    conventions.includers = Some(
+        "the files whose bare require, dofile or loadfile of a string literal loads this file",
+    );
     conventions
 };
 
