@@ -10,6 +10,7 @@
       ],
       "graph": "cpp",
       "held": true,
+      "includers": "the files whose #include names this file, and none through a #include of a macro",
       "truncated": true,
       "turned_away": 1,
       "unexpanded": 1

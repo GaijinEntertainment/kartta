@@ -509,6 +509,11 @@ type Dependents struct {
 	Truncated  bool        `json:"truncated"`
 	TurnedAway int         `json:"turned_away"`
 	Unexpanded int         `json:"unexpanded"`
+	// Includers is what the graph records as including a file, in words that follow "counts" and call the file asked
+	// about "this file", such as a Rust file's bodiless mod declarations and not the files that name its items in a
+	// use. Found holds those, so a file that uses this one by another form is not among them. Empty where the graph's
+	// language states none.
+	Includers string `json:"includers,omitempty"`
 }
 
 // MarshalJSON writes the dependents as the wire answers them, with the files and counts only where Held is true.

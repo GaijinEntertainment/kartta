@@ -7,7 +7,8 @@ use crate::built::{Built, Matches};
 use crate::error::Error;
 use crate::wire::files::{FuzzyParams, FuzzyView, GlobParams, GlobView, ListParams, ListView};
 use crate::wire::graph::{
-    CallersView, ChangeView, DefinitionsView, FileView, OutlineView, ReferencesView, Wired,
+    CallersView, ChangeView, DefinitionsView, DependentsView, FileView, OutlineView,
+    ReferencesView, Wired,
 };
 use crate::wire::params::{
     CALLEES_DEPTH, CALLERS_DEPTH, CallPathParams, ChangeParams, DeadCodeParams, DefinitionsParams,
@@ -213,7 +214,7 @@ fn dependents(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     wire::ok(&FileView::new(&built.engine, &params.file, |graph| {
         graph
             .dependents(&params.file, params.depth(), params.max_files())
-            .map(Wired)
+            .map(|dependents| DependentsView::new(dependents, graph.conventions()))
     }))
 }
 

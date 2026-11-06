@@ -599,6 +599,23 @@ struct DependentsDef<'g> {
 }
 
 #[derive(Serialize)]
+pub(crate) struct DependentsView<'g> {
+    #[serde(flatten)]
+    dependents: Wired<Dependents<'g>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    includers: Option<&'static str>,
+}
+
+impl<'g> DependentsView<'g> {
+    pub(crate) const fn new(dependents: Dependents<'g>, conventions: &Conventions) -> Self {
+        Self {
+            dependents: Wired(dependents),
+            includers: conventions.includers,
+        }
+    }
+}
+
+#[derive(Serialize)]
 #[serde(remote = "Dependent")]
 struct DependentDef<'g> {
     file: &'g str,

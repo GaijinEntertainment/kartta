@@ -80,7 +80,7 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
 - `definitions`: params [`DefinitionsParams`](#definitionsparams), answer [`Matches`](#matches) of
   [`DefinitionsView`](#definitionsview). Where a name is defined.
 - `dependents`: params [`DependentsParams`](#dependentsparams), answer [`FileView`](#fileview) of
-  [`Dependents`](#dependents). The files that include a file, directly or through others.
+  [`DependentsView`](#dependentsview). The files that include a file, directly or through others.
 - `fuzzy`: params [`FuzzyParams`](#fuzzyparams), answer [`FuzzyView`](#fuzzyview). The paths a query ranks best.
 - `glob`: params [`GlobParams`](#globparams), answer [`GlobView`](#globview). The paths that match globs, in index
   order.
@@ -858,6 +858,15 @@ The fields of [`References`](#references), and:
 ### OutlineView
 
 - `symbols` (array of [`Definition`](#definition), always): The definitions of the file.
+
+### DependentsView
+
+The fields of [`Dependents`](#dependents), and:
+
+- `includers` (string, optional): What the file's graph records as including a file, in words that follow "counts" and
+  call the file asked about "this file", such as a Rust file's bodiless `mod` declarations and not the files that name
+  its items in a `use`. The files of `found` are those, so a file that uses this one by another form is not among them.
+  Absent where the graph's language states none.
 
 ### Dependents
 
