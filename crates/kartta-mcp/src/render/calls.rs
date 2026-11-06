@@ -394,6 +394,8 @@ enum Unrecorded {
     /// The reads and writes of a variable or a constant local to a function body, by the word for its kind, which no
     /// graph records.
     LocalValue(&'static str),
+    /// The uses as a value of a function local to a function body, which no graph records.
+    LocalFunction,
 }
 
 impl Unrecorded {
@@ -405,7 +407,10 @@ impl Unrecorded {
         if conventions.unrecorded_data.contains(&of) {
             return Some(Self::DataUses(kind(of)));
         }
-        references.local_value.then(|| Self::LocalValue(kind(of)))
+        references.local_value.then(|| match of {
+            SymbolKind::Function => Self::LocalFunction,
+            _ => Self::LocalValue(kind(of)),
+        })
     }
 
     /// The statement that the graph of `family` records none of these uses.
@@ -420,6 +425,11 @@ impl Unrecorded {
                     "the {family} graph records no read or write of a {what} local to a function body"
                 )
             }
+            Self::LocalFunction => {
+                format!(
+                    "the {family} graph records no use as a value of a function local to a function body"
+                )
+            }
         }
     }
 
@@ -427,6 +437,7 @@ impl Unrecorded {
         match self {
             Self::TypeUses => "type",
             Self::DataUses(what) | Self::LocalValue(what) => what,
+            Self::LocalFunction => "function",
         }
     }
 }
