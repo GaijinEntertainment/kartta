@@ -281,7 +281,9 @@ impl Server {
                        and indexing another replaces the previous one (a build of the same root, languages and \
                        index_ignored already under way is waited for, not repeated, and the index they built is \
                        answered as held, refreshed \
-                       first while index_stats shows watch off). Returns an <index> envelope, its gitignore= naming the \
+                       first while index_stats shows watch off). Returns an <index> envelope, its languages= \
+                       naming the languages a 'languages' filter limited the build to (a symbol tool's answer for a \
+                       name that matches nothing repeats them as index_languages=), its gitignore= naming the \
                        ignore files that applied as index_stats describes, its grep_index= present only when the \
                        configured trigram index could not be kept, saying why (grep then opens every candidate, and a \
                        new index_repo tries again), with one <language/> record \
@@ -748,6 +750,7 @@ impl Server {
                 unmatched,
                 dropped_words,
                 one_edit,
+                built: indexed.languages.as_deref(),
             };
             Ok(render::hits(
                 &p.query,
@@ -872,6 +875,7 @@ impl Server {
                 .collect();
             Ok(render::definitions(
                 p.languages.as_deref().map(echo).as_deref(),
+                indexed.languages.as_deref(),
                 &answers,
             ))
         })
@@ -934,6 +938,7 @@ impl Server {
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,
+                built: indexed.languages.as_deref(),
             };
             Ok(render::implementations(&ask, &found, &unmatched))
         })
@@ -1079,6 +1084,7 @@ impl Server {
                 to_read_as: to_read_as.as_deref(),
                 languages: languages.as_deref(),
                 hops,
+                built: indexed.languages.as_deref(),
             };
             Ok(render::call_path(
                 &ask,
@@ -1173,6 +1179,7 @@ impl Server {
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,
+                built: indexed.languages.as_deref(),
             };
             Ok(render::references(
                 &ask,
@@ -1426,6 +1433,7 @@ impl Server {
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: p.role.map(CallerRole::as_str),
+                built: indexed.languages.as_deref(),
             };
             Ok(render::callers(&ask, &walks, &unmatched))
         })
@@ -1496,6 +1504,7 @@ impl Server {
                 read_as: read_as.as_deref(),
                 languages: languages.as_deref(),
                 role: None,
+                built: indexed.languages.as_deref(),
             };
             Ok(render::callees(&ask, &walks, &unmatched))
         })

@@ -26,10 +26,14 @@ pub(crate) struct Found<'g> {
     /// The definitions named one edit from the query, when some word of it no searched graph holds and the query
     /// names nothing.
     pub(crate) one_edit: Option<kartta::Unmatched<'g>>,
+    /// The languages a filtered build holds, as [`crate::state::Indexed::languages`] echoes them, which bound what
+    /// the search could find.
+    pub(crate) built: Option<&'g str>,
 }
 
 /// The `find_symbols` answer: the definitions named one edit from the query as `<suggestion/>` records, ranked
-/// `<hit/>` records, and, when there is no hit, the searched languages whose files yielded no symbol at all.
+/// `<hit/>` records, and, when there is no hit, the searched languages whose files yielded no symbol at all and the
+/// languages a filtered build holds.
 pub(crate) fn hits(
     query: &str,
     languages: Option<&str>,
@@ -54,6 +58,7 @@ pub(crate) fn hits(
         );
     let suggested = found.one_edit.iter().flat_map(one_edit);
     if found.hits.is_empty() {
+        let element = element.optional("index_languages", found.built);
         let text = no_hits(languages, coverage);
         if found.one_edit.is_none() {
             return element.inline(&text);
@@ -122,7 +127,11 @@ pub(crate) struct Read<'g> {
 
 /// The `read_definitions` answer: one `<name>` per requested name, in request order, each holding its definitions
 /// nearest first with their text numbered from its first line.
-pub(crate) fn definitions(languages: Option<&str>, answers: &[NameDefinitions<'_>]) -> String {
+pub(crate) fn definitions(
+    languages: Option<&str>,
+    built: Option<&str>,
+    answers: &[NameDefinitions<'_>],
+) -> String {
     let element = Element::new("definitions")
         .optional("languages", languages)
         .attr("count", answers.len());
@@ -135,6 +144,7 @@ pub(crate) fn definitions(languages: Option<&str>, answers: &[NameDefinitions<'_
             let asked = Asked {
                 end: "",
                 selector: Selector::new(answer.name, None),
+                built,
             };
             return unresolved(name, languages, asked, &answer.unmatched);
         }
