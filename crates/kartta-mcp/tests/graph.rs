@@ -20,6 +20,9 @@ use common::{Client, go_module, rooted, tree};
 const NOT_HELD: &str =
     "no indexed language claims this file, so no code graph holds it - read or grep it";
 
+const GO_COUNTS: &str = "<note>the go graph counts the files whose import names this file's package, the same ones \
+                         for every file of the package and none for a _test.go file</note>";
+
 fn answers(calls: &[(&str, Value)]) -> Vec<String> {
     let tree = go_module();
     let mut client = Client::start(&[]);
@@ -202,6 +205,7 @@ fn file_outline_find_importers_and_find_implementations_answer_for_the_module() 
             format!(r#"<outline of="README.md" symbols="0">{NOT_HELD}</outline>"#),
             lines(&[
                 r#"<importers of="pkg/service.go" count="1">"#,
+                GO_COUNTS,
                 r#"<file path="cmd/app/main.go"/>"#,
                 "</importers>",
             ]),
@@ -296,11 +300,46 @@ fn find_importers_counts_the_importers_it_did_not_follow_past_three_hops() {
         client.answer("find_importers", &json!({"file": "a/a.go"})),
         lines(&[
             r#"<importers of="a/a.go" count="3" unexpanded="1">"#,
+            GO_COUNTS,
             r#"<file path="b/b.go"/>"#,
             r#"<file path="c/c.go" depth="2"/>"#,
             r#"<file path="d/d.go" depth="3"/>"#,
             "</importers>",
         ])
+    );
+}
+
+#[test]
+fn find_importers_says_what_the_language_counts_as_an_importer() {
+    const COUNTS: &str = "the rust graph counts the files whose bodiless mod declaration loads this file, so a \
+                          crate root has none, and not a file that only names its items in a use declaration or a \
+                          path";
+    let crate_tree = tree(&[
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        ("src/lib.rs", "mod render;\nmod server;\n"),
+        ("src/render.rs", "pub fn draw() {}\n"),
+        (
+            "src/server.rs",
+            "use crate::render::draw;\n\npub fn serve() { draw() }\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(crate_tree.path());
+
+    assert_eq!(
+        [
+            client.answer("find_importers", &json!({"file": "src/render.rs"})),
+            client.answer("find_importers", &json!({"file": "src/lib.rs"})),
+        ],
+        [
+            lines(&[
+                r#"<importers of="src/render.rs" count="1">"#,
+                &format!("<note>{COUNTS}</note>"),
+                r#"<file path="src/lib.rs"/>"#,
+                "</importers>",
+            ]),
+            format!(r#"<importers of="src/lib.rs" count="0">{COUNTS}</importers>"#),
+        ]
     );
 }
 

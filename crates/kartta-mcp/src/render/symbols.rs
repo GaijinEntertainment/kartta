@@ -308,26 +308,40 @@ pub(crate) fn implementations_outside(
 }
 
 /// The `find_importers` answer: a `<file/>` per file that includes the file, nearest first, `depth` marking one that
-/// includes it through another. `graphless` says why a file no graph answers for has none.
+/// includes it through another. `graphless` says why a file no graph answers for has none, and `counted` names the
+/// family of the graph that holds it with the [includers](kartta_lang::Conventions::includers) its language counts.
 pub(crate) fn importers(
     file: &str,
     graphless: Graphless<'_>,
     dependents: Option<&Dependents<'_>>,
+    counted: Option<(&str, &str)>,
 ) -> String {
     let element = Element::new("importers").attr("of", file);
     let Some(dependents) = dependents else {
         return element.attr("count", 0).inline(&graphless.note());
     };
-    element
+    let element = element
         .attr("count", dependents.found.len())
         .flag("truncated", dependents.truncated)
-        .count("unexpanded", dependents.unexpanded)
-        .children(dependents.found.iter().map(|dependent| {
-            Element::new("file")
-                .attr("path", dependent.file)
-                .optional("depth", (dependent.depth > 1).then_some(dependent.depth))
-                .close()
-        }))
+        .count("unexpanded", dependents.unexpanded);
+    let counts =
+        counted.map(|(family, includers)| format!("the {family} graph counts {includers}"));
+    if dependents.found.is_empty() {
+        return match counts {
+            Some(counts) => element.inline(&counts),
+            None => element.close(),
+        };
+    }
+    let note = counts.map(|counts| Element::new("note").inline(&counts));
+    element.children(
+        note.into_iter()
+            .chain(dependents.found.iter().map(|dependent| {
+                Element::new("file")
+                    .attr("path", dependent.file)
+                    .optional("depth", (dependent.depth > 1).then_some(dependent.depth))
+                    .close()
+            })),
+    )
 }
 
 /// The `file_outline` answer: a `<symbol/>` per definition of the file in source order, `in` naming the definition that
