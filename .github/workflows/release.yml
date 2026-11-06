@@ -11,6 +11,12 @@ on:
       - .github/workflows/release.yml
       - Cargo.lock
       - Cargo.toml
+      - bindings/node/.nvmrc
+      - bindings/node/npm/*/package.json
+      - bindings/node/package-lock.json
+      - bindings/node/package.json
+      - bindings/node/scripts/*
+      - bindings/node/tsconfig.build.json
       - crates/*/Cargo.toml
       - rust-toolchain.toml
       - scripts/dist.sh
@@ -26,6 +32,8 @@ env:
   # ADR 4.55: the floor the manylinux images hold, and a distribution at it that took no part in the build.
   GLIBC_FLOOR: "2.28"
   GLIBC_FLOOR_HOST: debian:10.13-slim@sha256:bb3dc79fddbca7e8903248ab916bb775c96ec61014b3d02b4f06043b604726dc
+  # The Node of `.nvmrc` for the musl image, which holds none, as the `node-musl` job of ci.yml takes it.
+  NODE_MUSL: node:24.22.0-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
 
 jobs:
   versions:
@@ -44,11 +52,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `addon` names the target's npm package, `kartta-<addon>` (ADR 4.40).
         include:
           - target: aarch64-apple-darwin
             os: macos-26
+            addon: darwin-arm64
           - target: x86_64-pc-windows-msvc
             os: windows-2025-vs2026
+            addon: win32-x64-msvc
           # ADR 4.60: the archive the Go module links on Windows, where cgo's MinGW refuses the MSVC one.
           - target: x86_64-pc-windows-gnu
             os: windows-2025-vs2026
@@ -56,16 +67,20 @@ jobs:
             os: ubuntu-24.04
             image: "quay.io/pypa/manylinux_2_28_x86_64:2026.11.01-2@\
               sha256:7e41b1c7fd64dfc69703a1124b43c404382973ee06ec5d764b85c34d2221fded"
+            addon: linux-x64-gnu
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
             image: "quay.io/pypa/manylinux_2_28_aarch64:2026.11.01-2@\
               sha256:54b271d9562a3686298880df05367909e949ed317e7b1b79b59c696d75f78676"
+            addon: linux-arm64-gnu
           - target: x86_64-unknown-linux-musl
             os: ubuntu-24.04
             image: rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+            addon: linux-x64-musl
           - target: aarch64-unknown-linux-musl
             os: ubuntu-24.04-arm
             image: rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+            addon: linux-arm64-musl
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults:
@@ -114,26 +129,86 @@ jobs:
           docker run --rm -v "$PWD:/src" -w /src -v "$HOME/.rustup:/rustup" -v "$HOME/.cargo:/cargo" \
             -e RUSTUP_HOME=/rustup -e CARGO_HOME=/cargo ${{ matrix.image }} \
             sh -c 'PATH=/cargo/bin:$PATH exec scripts/dist.sh ${{ matrix.target }}'
+      # The addon builds where the archive does, under the same profile (ADR 4.49), with the Node of `.nvmrc`.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: matrix.addon != ''
+        with:
+          node-version-file: bindings/node/.nvmrc
+      # PowerShell, where the `node` job of ci.yml builds the addon on Windows.
+      - name: build the addon on the runner
+        if: matrix.addon != '' && matrix.image == ''
+        shell: pwsh
+        run: node bindings/node/scripts/build.ts --profile dist
+      - name: build the addon in the musl image
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          docker run --rm -v node:/usr/local "$NODE_MUSL" true
+          docker run --rm -v "$PWD:/src" -v node:/opt/node:ro -w /src ${{ matrix.image }} \
+            /opt/node/bin/node bindings/node/scripts/build.ts --profile dist
+      # The runner's Node runs in the image, whose glibc is the floor of Node 24 itself.
+      - name: build the addon in the glibc floor's image
+        if: endsWith(matrix.target, '-linux-gnu')
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src -v "$HOME/.rustup:/rustup" -v "$HOME/.cargo:/cargo" \
+            -v "$(dirname "$(dirname "$(command -v node)")"):/node:ro" -e RUSTUP_HOME=/rustup -e CARGO_HOME=/cargo \
+            ${{ matrix.image }} \
+            sh -c 'PATH=/node/bin:/cargo/bin:$PATH exec node bindings/node/scripts/build.ts --profile dist'
       - name: prove the glibc floor
         if: endsWith(matrix.target, '-linux-gnu')
         run: |
           docker run --rm -v "$PWD:/src" -w /src ${{ matrix.image }} scripts/glibc-floor.sh ${{ matrix.target }} \
-            "$GLIBC_FLOOR" target/artifacts/kartta-ffi-*.tar.gz target/floor
-          docker run --rm -v "$PWD/target/floor:/floor" "$GLIBC_FLOOR_HOST" /floor/kartta-abi
+            "$GLIBC_FLOOR" target/artifacts/kartta-ffi-*.tar.gz target/floor \
+            bindings/node/kartta.${{ matrix.addon }}.node
+          docker run --rm -v "$PWD/target/floor:/floor" -v "$(dirname "$(dirname "$(command -v node)")"):/node:ro" \
+            "$GLIBC_FLOOR_HOST" sh -c '/floor/kartta-abi && exec /node/bin/node -e "require(process.argv[1])" "$1"' \
+            sh /floor/kartta.${{ matrix.addon }}.node
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.target }}
           path: target/artifacts/*.tar.gz
           if-no-files-found: error
           compression-level: 0
+      - name: pack the addon's npm package
+        if: matrix.addon != ''
+        working-directory: bindings/node/npm/${{ matrix.addon }}
+        run: npm pack
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.addon != ''
+        with:
+          name: npm-${{ matrix.addon }}
+          path: bindings/node/npm/${{ matrix.addon }}/*.tgz
+          if-no-files-found: error
+          compression-level: 0
+
+  # The main package, whose pack builds its JavaScript, beside the targets' packages.
+  npm-pack:
+    needs: versions
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: bindings/node
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: bindings/node/.nvmrc
+      - run: npm ci --ignore-scripts
+      - run: npm pack
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-kartta
+          path: bindings/node/*.tgz
+          if-no-files-found: error
 
   checksums:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      # Every artifact but the npm packages, which ship on the registry alone.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
+          pattern: "!npm-*"
           merge-multiple: true
       - run: sha256sum -- *.tar.gz | tee SHA256SUMS
         working-directory: artifacts
@@ -176,6 +251,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
+          pattern: "!npm-*"
           merge-multiple: true
       # Before the release, because pushing a tag to the commit it names again changes nothing, so a re-run after a
       # failed release passes here.
