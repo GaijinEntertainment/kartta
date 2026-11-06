@@ -217,6 +217,10 @@ const CONVENTIONS: Conventions = {
     conventions.twins = kartta_lang::Twins::Every;
     conventions.included_runtime_members =
         kartta_lang::IncludedRuntimeMembers::SpelledOwnOrExported;
+    conventions.includers = Some(
+        "the files whose bodiless mod declaration loads this file, so a crate root has none, and not a file that only \
+         names its items in a use declaration or a path",
+    );
     conventions
 };
 
