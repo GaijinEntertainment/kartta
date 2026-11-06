@@ -20,6 +20,7 @@ lost, and what would reopen it.
 
 - [4.49 Build the distributed artifacts with fat LTO and stripped symbols](/design-docs/adr/4.49-distribution-profile.md)
 - [4.50 Hold every published crate to one Rust floor that trails stable](/design-docs/adr/4.50-rust-floor.md)
+- [4.64 Hold each dependency requirement at the version Cargo.lock resolves](/design-docs/adr/4.64-dependency-requirements.md)
 
 ## bindings/go
 
