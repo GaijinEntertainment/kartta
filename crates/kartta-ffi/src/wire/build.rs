@@ -92,18 +92,17 @@ impl BuildParams {
         });
         options.content_cache.clone_from(&self.content_cache);
         options.content_cache_ttl = Duration::from_secs(self.content_cache_ttl_secs);
-        options.stamps = match self.stamps {
-            Some(false) if self.watch => return Err(invalid(WATCH_WITHOUT_STAMPS)),
-            stamps => stamps.unwrap_or(self.watch),
-        };
+        options.stamps = self.stamps.unwrap_or(self.watch);
+        if self.watch {
+            Engine::check_watched(&options).map_err(|error| {
+                invalid(format!(
+                    "{error}; leave stamps out, which watch sets, or set it true"
+                ))
+            })?;
+        }
         Ok(options)
     }
 }
-
-const WATCH_WITHOUT_STAMPS: &str = concat!(
-    "watch refreshes the engine from each change, and without stamps each refresh would read every file again and ",
-    "build every graph again; leave stamps out, which watch sets, or set it true"
-);
 
 impl SetChange {
     fn apply<S, E: Display>(
