@@ -815,7 +815,7 @@ fn every_key_of_a_golden_is_a_name_of_the_reference() {
 /// The keys no golden holds, because what answers them is no file of a fixture: an unreadable or removed file, a
 /// symlink a Windows checkout does not make, a machine's own path, a watcher that failed. Each comes with the file
 /// whose test pins it.
-const PINNED_ELSEWHERE: [(&str, &str, &str); 22] = [
+const PINNED_ELSEWHERE: [(&str, &str, &str); 24] = [
     ("BuildParams", "content_cache", "tests/dispatch.rs"),
     ("ContentIndexView", "unindexed", "tests/dispatch.rs"),
     ("FileView", "symlink", "tests/dispatch.rs"),
@@ -835,6 +835,8 @@ const PINNED_ELSEWHERE: [(&str, &str, &str); 22] = [
     ("StoredError", "kind", "tests/dispatch.rs"),
     ("StoredError", "message", "tests/dispatch.rs"),
     ("StoredError", "path", "tests/dispatch.rs"),
+    ("SymlinkView", "kind", "tests/dispatch.rs"),
+    ("SymlinkView", "path", "tests/dispatch.rs"),
     ("SymlinkView", "target", "tests/dispatch.rs"),
     ("WatchView", "reason", "src/wire/build.rs"),
     ("WatchView", "restarts", "src/wire/build.rs"),
@@ -853,10 +855,12 @@ fn object_keys(value: &Value, objects: &mut Vec<BTreeSet<String>>) {
     }
 }
 
-/// What the golden files spell: every object's keys, and the keys each section of params was asked with.
+/// What the golden files spell: every object's keys with the method whose golden holds it, and the keys each section
+/// of params was asked with. Beside them, the structs each method's row names as its answer.
 struct Spelled<'s> {
-    objects: Vec<BTreeSet<String>>,
+    objects: Vec<(&'s str, BTreeSet<String>)>,
     params: BTreeMap<&'s str, BTreeSet<String>>,
+    answers: BTreeSet<(&'s str, &'s str)>,
 }
 
 impl<'s> Spelled<'s> {
@@ -864,20 +868,51 @@ impl<'s> Spelled<'s> {
         let mut spelled = Self {
             objects: Vec::new(),
             params: BTreeMap::new(),
+            answers: BTreeSet::new(),
         };
+        for row in &sections["Methods"] {
+            let (_, answer) = row.note.split_once(", answer ").expect("the answer's link");
+            let answer = answer.split_once(". ").map_or(answer, |(answer, _)| answer);
+            let linked = answer
+                .split("[`")
+                .skip(1)
+                .filter_map(|part| part.split_once("`](#").map(|(name, _)| name));
+            spelled
+                .answers
+                .extend(linked.map(|name| (row.name.as_str(), name)));
+        }
         for entry in fs::read_dir(here("tests/golden")).expect("the golden directory") {
             let golden: Value =
                 serde_json::from_str(&read(&entry.expect("an entry").path())).expect("JSON");
-            object_keys(&golden["params"], &mut spelled.objects);
-            object_keys(&golden["answer"], &mut spelled.objects);
             let row = sections["Methods"]
                 .iter()
                 .find(|row| Some(row.name.as_str()) == golden["method"].as_str())
                 .expect("a row");
+            let mut objects = Vec::new();
+            object_keys(&golden["params"], &mut objects);
+            object_keys(&golden["answer"], &mut objects);
+            let method = row.name.as_str();
+            spelled
+                .objects
+                .extend(objects.into_iter().map(|keys| (method, keys)));
             let asked = spelled.params.entry(params_section(row)).or_default();
             collect_keys(&golden["params"], asked);
         }
         spelled
+    }
+
+    /// Whether the object `keys` of a golden of `method` is one of the struct `name`. A struct with a key it always
+    /// holds is told apart by those `always` keys; one with none, only by a method whose row names it as its answer.
+    fn places(
+        &self,
+        name: &str,
+        (method, keys): &(&str, BTreeSet<String>),
+        always: &BTreeSet<&String>,
+    ) -> bool {
+        if always.is_empty() {
+            return self.answers.contains(&(*method, name));
+        }
+        always.iter().all(|&key| keys.contains(key))
     }
 
     /// Whether a golden spells `key` of the struct `name`, whose `always` keys tell its objects from another's.
@@ -885,16 +920,15 @@ impl<'s> Spelled<'s> {
         if let Some(asked) = self.params.get(name) {
             return asked.contains(key);
         }
-        let of_the_struct = |keys: &BTreeSet<String>| always.iter().all(|&key| keys.contains(key));
         self.objects
             .iter()
-            .any(|keys| keys.contains(key) && of_the_struct(keys))
+            .any(|object| object.1.contains(key) && self.places(name, object, always))
     }
 }
 
 /// A rename that reaches `WIRE.md` too fails no name check, so a key stays pinned only where an answer or a request
-/// spells it. A key counts for a struct in an object that holds every key the struct always holds, so a name two
-/// structs share does not pin the one no golden reaches; a struct of params has its method's requests alone to read.
+/// spells it. A key counts for a struct only in an object of that struct, so a name two structs share does not pin the
+/// one no golden reaches; a struct of params has its method's requests alone to read.
 #[test]
 fn every_key_of_the_wire_is_in_a_golden_or_listed_with_the_test_that_pins_it() {
     let sections = reference();
