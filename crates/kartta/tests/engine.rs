@@ -679,6 +679,35 @@ fn a_change_counts_its_regions_of_symlinks_apart() {
     assert_eq!(answer.unclaimed_regions, 0);
 }
 
+#[test]
+fn a_change_counts_its_regions_of_directories_apart() {
+    let tree = tree(&[
+        ("one.alpha", "def one\n"),
+        ("pkg/a.alpha", "def a\n"),
+        ("lib.alpha/b.alpha", "def b\n"),
+    ]);
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![Box::new(Defs::new("alpha", "first", ".alpha"))],
+    );
+    let regions = [
+        Region::new("one.alpha", 1..=1),
+        Region::new("pkg", 1..=1),
+        Region::new("lib.alpha", 1..=1),
+    ];
+
+    let answer = engine.analyze_change(&regions, Limits::new(3));
+
+    assert_eq!(answer.change.changed_symbols, 1);
+    assert_eq!(answer.change.unheld_regions, 2);
+    assert_eq!(
+        answer.directory_regions, 2,
+        "pkg, which no language claims, and lib.alpha, whose name the alpha graph claims"
+    );
+    assert_eq!(answer.unclaimed_regions, 0);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_symlink_names_the_held_entry_its_target_points_to() {
