@@ -99,6 +99,41 @@ fn the_server_lists_its_tools() {
     );
 }
 
+#[test]
+fn the_instructions_send_an_agent_to_index_stats_before_it_builds() {
+    let client = Client::start(&[]);
+
+    assert!(
+        client.instructions.contains(
+            "Every tool answers from one index, of one repository. index_stats tells whether that index is built or \
+             building, and for which root. Call index_repo with the repository's absolute root when index_stats shows \
+             no index of it."
+        ),
+        "{}",
+        client.instructions
+    );
+}
+
+#[test]
+fn the_instructions_name_every_tool() {
+    let mut client = Client::start(&[]);
+
+    let listed = client.request("tools/list", &json!({}));
+    let unnamed: Vec<&str> = listed["tools"]
+        .as_array()
+        .expect("a tool list")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a named tool"))
+        .filter(|name| !client.instructions.contains(name))
+        .collect();
+
+    assert!(
+        unnamed.is_empty(),
+        "{unnamed:?} missing from {}",
+        client.instructions
+    );
+}
+
 /// Whether a property's JSON schema admits null: a `null` type, or a branch of an `anyOf` that does.
 fn admits_null(shape: &Value) -> bool {
     shape["type"] == "null"
