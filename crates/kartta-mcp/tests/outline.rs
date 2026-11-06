@@ -12,6 +12,8 @@
 )]
 mod common;
 
+use std::fmt::Write;
+
 use serde_json::json;
 
 use common::{Client, tree};
@@ -61,6 +63,60 @@ fn a_typescript_local_and_inline_type_member_name_the_definition_that_holds_them
                 r#"sig="close(): void"/>"#,
             ),
             r#"<symbol name="handle" in="Kartta.close" kind="constant" lines="8-8"/>"#,
+            "</outline>",
+        ])
+    );
+}
+
+#[test]
+fn an_outline_lists_100_definitions_by_default() {
+    let mut source = String::new();
+    for at in 0..101 {
+        writeln!(source, "function f{at:03}() {{}}").expect("a string takes the text");
+    }
+    let answer = outline("many.js", &source);
+
+    assert!(
+        answer.starts_with(r#"<outline of="many.js" symbols="101" shown="100">"#),
+        "{answer}"
+    );
+    assert_eq!(answer.matches("<symbol ").count(), 100, "{answer}");
+    assert!(answer.contains(r#"name="f099""#), "{answer}");
+    assert!(!answer.contains(r#"name="f100""#), "{answer}");
+}
+
+#[test]
+fn an_outline_lists_its_first_definitions_up_to_the_limit_and_counts_every_one() {
+    let tree = tree(&[(
+        "kartta.ts",
+        "export function open(root: string): number {\n\
+         \x20 const opened = root.length;\n\
+         \x20 return opened;\n\
+         }\n\
+         export class Kartta {}\n",
+    )]);
+    let mut client = Client::unwatched(&[]);
+    client.index(tree.path());
+    let cut = client.answer("file_outline", &json!({"file": "kartta.ts", "limit": 2}));
+    let whole = client.answer("file_outline", &json!({"file": "kartta.ts", "limit": 3}));
+
+    assert_eq!(
+        cut,
+        lines(&[
+            r#"<outline of="kartta.ts" symbols="3" shown="2">"#,
+            r#"<symbol name="open" kind="function" lines="1-4" sig="function open(root: string): number"/>"#,
+            r#"<symbol name="opened" in="open" kind="constant" lines="2-2"/>"#,
+            "the limit cut this list - a higher limit lists the rest",
+            "</outline>",
+        ])
+    );
+    assert_eq!(
+        whole,
+        lines(&[
+            r#"<outline of="kartta.ts" symbols="3">"#,
+            r#"<symbol name="open" kind="function" lines="1-4" sig="function open(root: string): number"/>"#,
+            r#"<symbol name="opened" in="open" kind="constant" lines="2-2"/>"#,
+            r#"<symbol name="Kartta" kind="class" lines="5-5"/>"#,
             "</outline>",
         ])
     );
