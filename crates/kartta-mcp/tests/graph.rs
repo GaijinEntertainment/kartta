@@ -88,6 +88,43 @@ fn read_definitions_names_vendored_code_as_its_scope() {
 }
 
 #[test]
+fn read_definitions_marks_each_line_it_cut_and_counts_them() {
+    let tree = go_module();
+    let first = format!("\ts := \"{}\"", "a".repeat(1092));
+    let second = format!("\treturn s + \"{}\"", "b".repeat(1100));
+    std::fs::create_dir_all(tree.path().join("long")).expect("the directory");
+    std::fs::write(
+        tree.path().join("long/long.go"),
+        format!("package long\n\nfunc Long() string {{\n{first}\n\ts += \"c\"\n{second}\n}}\n"),
+    )
+    .expect("the file");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("read_definitions", &json!({"names": ["Long"]}));
+
+    assert_eq!(
+        answer,
+        lines(&[
+            r#"<definitions count="1">"#,
+            r#"<name of="Long" total="1">"#,
+            concat!(
+                r#"<definition name="Long" qn="long.Long" kind="function" lang="go" loc="long/long.go:3-7" "#,
+                r#"scope="other" cut_lines="2">"#,
+            ),
+            "     3\tfunc Long() string {",
+            &format!("     4\t{} [... omitted 76 bytes]", &first[..1024]),
+            "     5\t\ts += \"c\"",
+            &format!("     6\t{} [... omitted 90 bytes]", &second[..1024]),
+            "     7\t}",
+            "</definition>",
+            "</name>",
+            "</definitions>",
+        ])
+    );
+}
+
+#[test]
 fn read_definitions_answers_each_body_with_its_doc_comment() {
     let answers = answers(&[
         (
