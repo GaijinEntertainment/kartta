@@ -82,6 +82,10 @@ const DOC_COMMENTS: DocComments =
 const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.type_uses = TypeUses::Nowhere;
+    conventions.includers = Some(
+        "the manifests that reference a class or defined type the module autoloader loads from this file: an include, \
+         require or contain of it, a resource of its type, or a class that inherits it",
+    );
     conventions
 };
 
