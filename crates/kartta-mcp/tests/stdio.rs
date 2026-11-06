@@ -183,6 +183,11 @@ fn a_wrong_argument_names_its_parameter_and_its_path_inside_the_arguments() {
             "limit: invalid value: integer `0`, expected a nonzero usize",
         ),
         (
+            "find_importers",
+            json!({"file": "a.go", "limit": 0}),
+            "limit: invalid value: integer `0`, expected a nonzero usize",
+        ),
+        (
             "find_unused",
             json!({"limit": 0}),
             "limit: invalid value: integer `0`, expected a nonzero usize",
