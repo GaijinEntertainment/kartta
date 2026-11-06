@@ -3,8 +3,9 @@ use std::iter;
 use std::ops::Range;
 
 use kartta::{
-    CallPath, Candidate, Conventions, Definition, DirectCalls, EngineChange, Hotspot, ReachBand,
-    Reached, Reference, References, Seed, Segment, Selector, SelfCall, SymbolKind, TypeUses, Walk,
+    CallPath, Candidate, Conventions, Definition, DirectCalls, EngineChange, FileScope, Hotspot,
+    ReachBand, Reached, Reference, References, Seed, Segment, Selector, SelfCall, SymbolKind,
+    TypeUses, Walk,
 };
 
 use super::{
@@ -231,6 +232,27 @@ const LISTED_SITES: usize = 100;
 /// How many more files a `find_references` match names once its listed sites run out, each with its count of sites.
 const COUNTED_FILES: usize = 50;
 
+/// How many `<file_scope>` records a `find_callers` or a `find_references` match lists, in path order.
+const FILE_SCOPE_LISTED: usize = 50;
+
+/// The `<file_scope>` records of a match: the first [`FILE_SCOPE_LISTED`] of `users`.
+fn file_scope_records<'a>(users: &'a [FileScope<'_>]) -> impl Iterator<Item = String> + 'a {
+    users.iter().take(FILE_SCOPE_LISTED).map(|user| {
+        Element::new("file_scope")
+            .attr("path", user.file)
+            .optional("confidence", confidence(user.confidence))
+            .close()
+    })
+}
+
+/// `element` with the count of a match's file-scope `users`, and how many records it lists when the cap cut them.
+fn file_scope_count(element: Element, users: &[FileScope<'_>]) -> Element {
+    element.count("file_scope", users.len()).optional(
+        "file_scope_shown",
+        (users.len() > FILE_SCOPE_LISTED).then_some(FILE_SCOPE_LISTED),
+    )
+}
+
 fn reference_match(
     keeps_one_access: bool,
     family: &str,
@@ -257,8 +279,8 @@ fn reference_match(
         .count("updates", counts.updates)
         .count("ambiguous", references.ambiguous)
         .count("below_confidence", references.below_confidence)
-        .count("passed_over", references.passed_over)
-        .count("file_scope", references.file_scope.len());
+        .count("passed_over", references.passed_over);
+    let element = file_scope_count(element, &references.file_scope);
     let member_note = match symbol.kind.label() {
         "method" => Some(METHOD_NOTE),
         "field" => PARTIAL_DATA_ACCESS
@@ -296,16 +318,10 @@ fn reference_match(
     let note = (missing.as_deref())
         .or(member_note)
         .map(|note| Element::new("note").inline(note));
-    let file_scope = references.file_scope.iter().map(|user| {
-        Element::new("file_scope")
-            .attr("path", user.file)
-            .optional("confidence", confidence(user.confidence))
-            .close()
-    });
     element.children(
         note.into_iter()
             .chain(listing.records)
-            .chain(file_scope)
+            .chain(file_scope_records(&references.file_scope))
             .chain(passed_over),
     )
 }
@@ -771,7 +787,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
             .is_none_or(|role| edge_role(caller.symbol.flags) == role)
     };
     let kept = walk.reached.iter().filter(keeps).count();
-    let mut element = match_of(family, root)
+    let element = match_of(family, root)
         .attr("count", reached)
         .optional("shown", (kept > listed).then_some(listed))
         .attr(
@@ -783,8 +799,12 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
         .count("unexpanded", walk.unexpanded)
         .count("ambiguous", walk.ambiguous)
         .count("below_confidence", walk.below_confidence)
-        .count("passed_over", walk.passed_over)
-        .count("file_scope", walk.file_scope.len());
+        .count("passed_over", walk.passed_over);
+    let mut element = if ask.role.is_none() {
+        file_scope_count(element, &walk.file_scope)
+    } else {
+        element.count("file_scope", walk.file_scope.len())
+    };
     if ask.role.is_some() {
         let mut callers = [0_usize; ROLE_COUNTS.len()];
         for caller in &walk.reached {
@@ -824,16 +844,12 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
                 .close()
         });
     let cut = (kept > listed).then(|| LIMIT_CUT.to_owned());
-    let file_scope = walk
-        .file_scope
-        .iter()
-        .filter(|_| ask.role.is_none())
-        .map(|caller| {
-            Element::new("file_scope")
-                .attr("path", caller.file)
-                .optional("confidence", confidence(caller.confidence))
-                .close()
-        });
+    let file_scope = ask
+        .role
+        .is_none()
+        .then(|| file_scope_records(&walk.file_scope))
+        .into_iter()
+        .flatten();
     element.children(
         itself
             .into_iter()

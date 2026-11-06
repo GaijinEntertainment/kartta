@@ -1187,7 +1187,8 @@ impl Server {
                        files=. A file whose top level, outside every definition, names the symbol and sees it is a \
                        user no definition holds: file_scope=N counts them, and after the <file> records each is a \
                        <file_scope path=../> record, with the confidence find_callers gives it, or a guess for a \
-                       member, as the file keeps no receiver for the name. The graph keeps no line for such a use and \
+                       member, as the file keeps no receiver for the name; the first 50 in path order are listed, and \
+                       file_scope_shown=\"50\" says so when there are more. The graph keeps no line for such a use and \
                        not how it touches the symbol, so count= does not count them, access does not filter them, \
                        and grep in the file finds the line. below_confidence= counts the sites and the file_scope \
                        files the floor dropped, whatever access keeps, and passed_over= the other symbols the name \
@@ -1431,7 +1432,8 @@ impl Server {
                        those whose parents are written, not a Go type that only has the method set. A file whose top level, outside every function, calls or uses \
                        the name and sees the symbol is a direct caller that no symbol holds: file_scope=N counts \
                        them, and after the refs each is a <file_scope path=../> record with the same confidence \
-                       mark. It has no line, because the graph keeps only the names a top level spells, and the walk \
+                       mark, the first 50 in path order, with file_scope_shown=\"50\" when there are more. It has no \
+                       line, because the graph keeps only the names a top level spells, and the walk \
                        does not go past it; 'role' lists none of them. A call of the symbol from its own body - a \
                        recursion, or a call of a namesake the graph bound to the symbol itself - is one <self_call \
                        at=../> record ahead of the refs, with the same confidence mark, whatever 'role' keeps; count= \
