@@ -628,6 +628,12 @@ pub(crate) struct FindImportersParams {
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.
     pub(crate) file: String,
+    /// Import-hop limit from 1 through 4294967295: 1 = the files that import the file directly. Omitted or null uses
+    /// the default 3. Importers beyond this limit are not reached or counted; unexpanded= counts the importers at the
+    /// limit whose own importers were not followed.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) hops: Option<NonZeroU32>,
     /// Positive cap on the <file/> records listed, nearest first. Omitted or null = 200. Zero and negatives are
     /// rejected. count= counts every importer the walk reached, and shown= says how many are listed when the cap cut
     /// them.
