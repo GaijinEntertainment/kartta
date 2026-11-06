@@ -23,16 +23,16 @@ use crate::diff::{self, Changed};
 use crate::languages::{CATALOG, echo};
 use crate::llmxml::List;
 use crate::params::{
-    CallerRole, FileOutlineParams, FileParams, FindCallPathParams, FindCalleesParams,
-    FindCallersParams, FindFilesParams, FindImplementationsParams, FindReferencesParams,
+    CallerRole, FileOutlineParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
+    FindFilesParams, FindImplementationsParams, FindImportersParams, FindReferencesParams,
     FindSymbolsParams, FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams,
     ImpactOfEditParams, IndexRepoParams, IndexStatsParams, ListDirParams, Parameters,
     ReadDefinitionsParams, RefreshParams,
 };
 use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, relative};
 use crate::render::{
-    self, CallersAsk, EditAsk, Found, Graphless, NameDefinitions, PathAsk, Read, SUGGESTIONS,
-    Selection, Suggestion, Unbuilt, Unmatched, UnusedAsk,
+    self, CallersAsk, EditAsk, Found, Graphless, ImportersAsk, NameDefinitions, PathAsk, Read,
+    SUGGESTIONS, Selection, Suggestion, Unbuilt, Unmatched, UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
@@ -77,6 +77,9 @@ const IMPLEMENTORS: usize = 500;
 
 /// How many includes away `find_importers` follows the files that include a file.
 const IMPORTER_DEPTH: u32 = 3;
+
+/// How many importers `find_importers` lists, nearest first, when the call names no limit.
+const IMPORTERS_LISTED: usize = 200;
 
 /// How many calls long a chain `find_call_path` looks for when the call names no bound.
 const PATH_HOPS: u32 = 8;
@@ -1012,8 +1015,10 @@ impl Server {
         description = "Find every file that imports or includes a given file, directly or through a chain of imports \
                        (followed up to 3 hops) - the downstream files of a shared module, header, or type-definition \
                        file. This is whole-file impact: for line-level impact use impact_of_edit, for a single \
-                       function use find_callers. Returns an <importers> envelope, one <file/> record per downstream \
-                       file, nearest first; depth=N marks one that reaches the file through N-1 others, and \
+                       function use find_callers. Returns an <importers> envelope, count= counting every downstream \
+                       file, with one <file/> record per downstream file, nearest first and at most 'limit' (default \
+                       200), where shown= and a last line say the limit cut them; depth=N marks one that reaches the \
+                       file through N-1 others, and \
                        unexpanded= counts the importers at the 3-hop limit whose own importers were not followed. A \
                        Go file counts every importer of its package. For a file a code graph holds, a <note>, the \
                        whole text where no file imports it, says what the file's language counts as an importer: a \
@@ -1022,7 +1027,7 @@ impl Server {
     )]
     async fn find_importers(
         &self,
-        Parameters(p): Parameters<FileParams>,
+        Parameters(p): Parameters<FindImportersParams>,
     ) -> Result<String, String> {
         self.answer(move |indexed| {
             let file = held_file(indexed.engine.index(), &p.file)?;
@@ -1032,8 +1037,12 @@ impl Server {
             let counted =
                 claimed.and_then(|(family, graph)| Some((family, graph.conventions().includers?)));
             let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));
-            Ok(render::importers(
+            let ask = ImportersAsk {
                 file,
+                listed: p.limit.map_or(IMPORTERS_LISTED, NonZeroUsize::get),
+            };
+            Ok(render::importers(
+                &ask,
                 graphless,
                 dependents.as_ref(),
                 counted,

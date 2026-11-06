@@ -611,14 +611,6 @@ pub(crate) struct FindImplementationsParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct FileParams {
-    /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
-    /// "pkg/service.go") - not absolute, not a bare filename.
-    pub(crate) file: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct FileOutlineParams {
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.
@@ -626,6 +618,19 @@ pub(crate) struct FileOutlineParams {
     /// Positive cap on the <symbol/> records listed, the first in source order. Omitted or null = 100. Zero and
     /// negatives are rejected. symbols= counts every definition of the file, and shown= says how many are listed when
     /// the cap cut them.
+    #[serde(default)]
+    pub(crate) limit: Option<NonZeroUsize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FindImportersParams {
+    /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
+    /// "pkg/service.go") - not absolute, not a bare filename.
+    pub(crate) file: String,
+    /// Positive cap on the <file/> records listed, nearest first. Omitted or null = 200. Zero and negatives are
+    /// rejected. count= counts every importer the walk reached, and shown= says how many are listed when the cap cut
+    /// them.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }

@@ -312,11 +312,19 @@ pub(crate) fn implementations_outside(
     element.children(std::iter::once(note).chain(types))
 }
 
-/// The `find_importers` answer: a `<file/>` per file that includes the file, nearest first, `depth` marking one that
-/// includes it through another. `graphless` says why a file no graph answers for has none, and `counted` names the
-/// family of the graph that holds it with the [includers](kartta_lang::Conventions::includers) its language counts.
+/// What a `find_importers` call asked: the file, and how many of its importers the answer lists.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ImportersAsk<'a> {
+    pub(crate) file: &'a str,
+    pub(crate) listed: usize,
+}
+
+/// The `find_importers` answer: a `<file/>` per file that includes the file, nearest first, the first `listed` of
+/// them, `depth` marking one that includes it through another. `graphless` says why a file no graph answers for has
+/// none, and `counted` names the family of the graph that holds it with the
+/// [includers](kartta_lang::Conventions::includers) its language counts.
 pub(crate) fn importers(
-    file: &str,
+    &ImportersAsk { file, listed }: &ImportersAsk<'_>,
     graphless: Graphless<'_>,
     dependents: Option<&Dependents<'_>>,
     counted: Option<(&str, &str)>,
@@ -325,8 +333,10 @@ pub(crate) fn importers(
     let Some(dependents) = dependents else {
         return element.attr("count", 0).inline(&graphless.note());
     };
+    let cut = dependents.found.len() > listed;
     let element = element
         .attr("count", dependents.found.len())
+        .optional("shown", cut.then_some(listed))
         .flag("truncated", dependents.truncated)
         .count("unexpanded", dependents.unexpanded);
     let counts =
@@ -338,14 +348,16 @@ pub(crate) fn importers(
         };
     }
     let note = counts.map(|counts| Element::new("note").inline(&counts));
+    let records = dependents.found.iter().take(listed).map(|dependent| {
+        Element::new("file")
+            .attr("path", dependent.file)
+            .optional("depth", (dependent.depth > 1).then_some(dependent.depth))
+            .close()
+    });
     element.children(
         note.into_iter()
-            .chain(dependents.found.iter().map(|dependent| {
-                Element::new("file")
-                    .attr("path", dependent.file)
-                    .optional("depth", (dependent.depth > 1).then_some(dependent.depth))
-                    .close()
-            })),
+            .chain(records)
+            .chain(cut.then(|| LIMIT_CUT.to_owned())),
     )
 }
 
