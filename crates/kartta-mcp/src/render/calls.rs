@@ -8,8 +8,8 @@ use kartta::{
 };
 
 use super::{
-    Asked, Graphless, Unbuilt, Unmatched, candidate, confidence, edge_role, empty_languages_note,
-    file_element, flat, kind, loc, named, noted, qn, role, span, unresolved,
+    Asked, Graphless, LIMIT_CUT, Unbuilt, Unmatched, candidate, confidence, edge_role,
+    empty_languages_note, file_element, flat, kind, loc, named, noted, qn, role, span, unresolved,
 };
 use crate::llmxml::Element;
 
@@ -737,12 +737,13 @@ impl<'a> CallersAsk<'a> {
     }
 }
 
-/// The `find_callers` answer: one `<match>` per family graph the name selects a symbol in, or the alternatives to a
-/// name none does.
+/// The `find_callers` answer: one `<match>` per family graph the name selects a symbol in, each listing at most
+/// `listed` callers, or the alternatives to a name none does.
 pub(crate) fn callers(
     ask: &CallersAsk<'_>,
     walks: &[(&str, Walk<'_>)],
     unmatched: &Unmatched<'_>,
+    listed: usize,
 ) -> String {
     let element = Element::new("callers")
         .attr("of", ask.selector.name)
@@ -756,17 +757,23 @@ pub(crate) fn callers(
     element.children(
         walks
             .iter()
-            .map(|(family, walk)| caller_match(ask, family, walk)),
+            .map(|(family, walk)| caller_match(ask, family, walk, listed)),
     )
 }
 
 /// One graph's walk: the symbol, how many callers it reached and how widely that ranks, what the walk left out, and a
-/// flat `<ref>` per caller, nearest first.
-fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
+/// flat `<ref>` per caller, nearest first, at most `listed` of those `role` keeps.
+fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usize) -> String {
     let root = &walk.root;
     let reached = walk.reached.len();
+    let keeps = |caller: &&Reached<'_>| {
+        ask.role
+            .is_none_or(|role| edge_role(caller.symbol.flags) == role)
+    };
+    let kept = walk.reached.iter().filter(keeps).count();
     let mut element = match_of(family, root)
         .attr("count", reached)
+        .optional("shown", (kept > listed).then_some(listed))
         .attr(
             "reach_band",
             ReachBand::of(reached, root.kind, root.exported).label(),
@@ -808,16 +815,15 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
     let refs = walk
         .reached
         .iter()
-        .filter(|caller| {
-            ask.role
-                .is_none_or(|role| edge_role(caller.symbol.flags) == role)
-        })
+        .filter(keeps)
+        .take(listed)
         .map(|caller| {
             edge("ref", caller)
                 .attr("hops", caller.depth)
                 .attr("at", loc(caller.symbol.file, caller.line))
                 .close()
         });
+    let cut = (kept > listed).then(|| LIMIT_CUT.to_owned());
     let file_scope = walk
         .file_scope
         .iter()
@@ -832,6 +838,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>) -> String {
         itself
             .into_iter()
             .chain(refs)
+            .chain(cut)
             .chain(file_scope)
             .chain(passed_over),
     )

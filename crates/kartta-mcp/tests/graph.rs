@@ -2209,6 +2209,84 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
     );
 }
 
+const LIMIT_CUT: &str = "the limit cut this list - a higher limit lists the rest";
+
+#[test]
+fn find_callers_lists_the_nearest_callers_up_to_its_limit_and_counts_every_one() {
+    let mut callers =
+        String::from("package lib\n\nfunc helper() {}\n\nfunc Top() {\n\tc000()\n}\n");
+    for at in 0..101 {
+        write!(callers, "\nfunc c{at:03}() {{\n\thelper()\n}}\n").expect("a string takes the text");
+    }
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+            ("lib.go", &callers),
+        ],
+        &[
+            ("find_callers", json!({"name": "helper"})),
+            ("find_callers", json!({"name": "helper", "limit": 102})),
+        ],
+    );
+
+    let (cut, whole) = (&answers[0], &answers[1]);
+    assert!(
+        cut.contains(r#"count="102" shown="100" reach_band="#),
+        "{cut}"
+    );
+    assert_eq!(cut.matches("<ref ").count(), 100, "{cut}");
+    assert!(
+        !cut.contains(r#"hops="2""#),
+        "the nearest callers come first: {cut}"
+    );
+    assert!(
+        cut.ends_with(&format!("\n{LIMIT_CUT}\n</match>\n</callers>")),
+        "{cut}"
+    );
+    assert!(whole.contains(r#"count="102" reach_band="#), "{whole}");
+    assert_eq!(whole.matches("<ref ").count(), 102, "{whole}");
+    assert!(whole.contains(r#"hops="2""#), "{whole}");
+    assert!(!whole.contains(LIMIT_CUT), "{whole}");
+}
+
+#[test]
+fn find_callers_spends_its_limit_on_the_callers_its_role_keeps() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+            (
+                "lib.go",
+                "package lib\n\nfunc helper() {}\n\nfunc A() {\n\thelper()\n}\n\nfunc B() {\n\thelper()\n}\n",
+            ),
+            (
+                "lib_test.go",
+                "package lib\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {\n\thelper()\n}\n\n\
+                 func TestTwo(t *testing.T) {\n\thelper()\n}\n",
+            ),
+        ],
+        &[(
+            "find_callers",
+            json!({"name": "helper", "role": "test", "limit": 1}),
+        )],
+    );
+
+    let answer = &answers[0];
+    assert!(
+        answer.contains(r#"count="4" shown="1" reach_band="#)
+            && answer.contains(r#"consumers="2" tests="2""#),
+        "{answer}"
+    );
+    let refs: Vec<&str> = answer
+        .lines()
+        .filter(|line| line.starts_with("<ref "))
+        .collect();
+    assert!(
+        refs.len() == 1 && refs[0].contains(r#" role="test""#),
+        "{answer}"
+    );
+    assert!(answer.contains(LIMIT_CUT), "{answer}");
+}
+
 #[test]
 fn find_callers_says_how_many_callers_bind_below_the_floor_in_place_of_a_verdict() {
     let answers = answers_over(
