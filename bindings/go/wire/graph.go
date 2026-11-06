@@ -270,8 +270,9 @@ type References struct {
 	// name it and its reads as a value, so an empty Sites does not show that nothing uses the type.
 	TypeUsesUnrecorded bool `json:"type_uses_unrecorded,omitempty"`
 	// DataUsesUnrecorded is set when Symbol is a field, a variable or a constant of a kind whose reads and writes its
-	// graph records nowhere: Sites then hold only uses that spell the name as something else, so an empty Sites does
-	// not show that nothing uses the symbol.
+	// graph records nowhere, or a variable or a constant local to a function body, whose reads and writes no graph
+	// records: Sites then hold only uses that spell the name as something else, such as a call, never one of its
+	// reads or writes, so an empty Sites does not show that nothing uses the symbol.
 	DataUsesUnrecorded bool `json:"data_uses_unrecorded,omitempty"`
 }
 

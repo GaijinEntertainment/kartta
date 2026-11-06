@@ -1744,6 +1744,29 @@ fn every_data_kind_a_language_states_unrecorded_flags_its_references() {
 }
 
 #[test]
+fn a_function_s_local_value_flags_its_references_and_a_module_value_does_not() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("load.ts"),
+        "export const LIMIT = 2;\nexport async function load(url: string) {\n    \
+         const resp = await fetch(url);\n    return resp.ok;\n}\n",
+    )
+    .expect("load.ts");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let local = ok(&kartta, "references", &json!({ "name": "resp" }));
+    let module = ok(&kartta, "references", &json!({ "name": "LIMIT" }));
+
+    let local = part(&local, "jsts");
+    assert_eq!(local["total"], 0, "{local}");
+    assert_eq!(local["data_uses_unrecorded"], true, "{local}");
+    let module = part(&module, "jsts");
+    assert_eq!(module["total"], 0, "{module}");
+    assert_eq!(keys(module), REFERENCES_KEYS, "{module}");
+}
+
+#[test]
 fn a_rust_field_with_no_recorded_site_is_told_from_an_unused_constant() {
     let tree = tempfile::tempdir().expect("a temporary directory");
     fs::write(
