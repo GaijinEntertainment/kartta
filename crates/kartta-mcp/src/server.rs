@@ -31,7 +31,7 @@ use crate::params::{
 use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, relative};
 use crate::render::{
     self, CallersAsk, Found, Graphless, NameDefinitions, PathAsk, Read, SUGGESTIONS, Selection,
-    Suggestion, Unmatched, UnusedAsk,
+    Suggestion, Unbuilt, Unmatched, UnusedAsk,
 };
 use crate::state::{GraphRow, Indexed, Request, Served, Slot};
 
@@ -1272,7 +1272,8 @@ impl Server {
                        holds as a socket, a fifo or a device node, and unclaimed_regions= those in held \
                        files no language claims or declines, with a \
                        <declined language= regions=> naming why for each language that leaves such files out of its \
-                       graph, \
+                       graph and an <unbuilt language= regions=> for each language whose files the 'languages' filter \
+                       of index_repo left out, \
                        regions_outside_symbols= those overlapping no symbol, \
                        truncated_walks= the changed symbols whose walk the 500-symbol cap stopped (truncated=true and \
                        turned_away= on the seed), unexpanded= on a seed the callers whose own callers its walk did not \
@@ -1301,7 +1302,8 @@ impl Server {
                 .collect();
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
             let change = indexed.engine.analyze_change(&regions, limits);
-            Ok(render::change(regions.len(), &change, limit))
+            let unbuilt = Unbuilt::of(&indexed.engine, &regions, &change);
+            Ok(render::change(regions.len(), &change, &unbuilt, limit))
         })
         .await
     }

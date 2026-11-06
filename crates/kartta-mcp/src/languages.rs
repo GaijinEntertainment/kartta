@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use kartta::Language;
 use kartta_languages::NAMES;
 
 /// The names a `languages` parameter takes: every language kartta ships, and each family key that names several of
@@ -8,17 +9,39 @@ pub(crate) static CATALOG: LazyLock<Catalog> = LazyLock::new(Catalog::new);
 
 #[derive(Debug)]
 pub(crate) struct Catalog {
+    languages: Vec<Box<dyn Language>>,
     families: Vec<String>,
 }
 
 impl Catalog {
     fn new() -> Self {
+        let languages = kartta_languages::all();
+        let families = languages
+            .iter()
+            .map(|language| language.family().to_owned())
+            .collect();
         Self {
-            families: kartta_languages::all()
-                .iter()
-                .map(|language| language.family().to_owned())
-                .collect(),
+            languages,
+            families,
         }
+    }
+
+    /// The first language kartta ships that claims the file at `path`, in the order of [`NAMES`], as a build of every
+    /// language would pick it.
+    pub(crate) fn claimant(&self, path: &str) -> Option<&'static str> {
+        NAMES
+            .iter()
+            .zip(&self.languages)
+            .find_map(|(name, language)| language.claims(path).then_some(*name))
+    }
+
+    /// The first language kartta ships that leaves the file at `path` out of its graph, in the order of [`NAMES`], and
+    /// the reason it [states](Language::declines).
+    pub(crate) fn declined(&self, path: &str) -> Option<(&'static str, &str)> {
+        NAMES
+            .iter()
+            .zip(&self.languages)
+            .find_map(|(name, language)| Some((*name, language.declines(path)?)))
     }
 
     /// Fails on the first name that is neither a language nor a family key, naming every name it takes.
