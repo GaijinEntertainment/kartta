@@ -59,7 +59,7 @@
 //! ```
 
 use kartta_lang::path::has_extension;
-use kartta_lang::{Language, RawExtraction, Repository, Resolver};
+use kartta_lang::{Conventions, Language, RawExtraction, Repository, Resolver};
 
 use crate::resolve::BlkResolver;
 use crate::text::source_text;
@@ -68,6 +68,12 @@ mod mounts;
 mod resolve;
 mod text;
 mod walk;
+
+const CONVENTIONS: Conventions = {
+    let mut conventions = Conventions::DEFAULT;
+    conventions.includers = Some("the files whose include statement names this file");
+    conventions
+};
 
 /// The BLK language.
 #[derive(Debug, Clone, Copy, Default)]
@@ -93,6 +99,10 @@ impl Language for Blk {
 
     fn fingerprint(&self) -> &[u8] {
         kartta_lang::tree_sitter_fingerprint!(grammar(), tree_sitter_blk::NODE_TYPES)
+    }
+
+    fn conventions(&self) -> Conventions {
+        CONVENTIONS
     }
 
     fn extract(&self, source: &[u8]) -> RawExtraction {
