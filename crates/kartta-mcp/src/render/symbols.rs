@@ -7,8 +7,9 @@ use kartta::{
 };
 
 use super::{
-    Asked, CallersAsk, Graphless, LIMIT_CUT, Unmatched, candidate, empty_languages_note, fixed_cut,
-    flat, kind, loc, named, noted, one_edit, push_cut_end, role, span, unresolved,
+    Asked, CallersAsk, Graphless, LIMIT_CUT, Unmatched, candidate, candidates_cut,
+    empty_languages_note, fixed_cut, flat, kind, loc, named, noted, one_edit, push_cut_end, role,
+    span, unresolved,
 };
 use crate::llmxml::Element;
 use crate::state::GraphRow;
@@ -57,7 +58,10 @@ pub(crate) fn hits(
             "one_edit",
             found.one_edit.as_ref().map_or(0, |near| near.total),
         );
-    let suggested = found.one_edit.iter().flat_map(one_edit);
+    let suggested = found
+        .one_edit
+        .iter()
+        .flat_map(|near| one_edit(near, languages));
     if found.hits.is_empty() {
         let element = element.optional("index_languages", found.built);
         let text = no_hits(languages, coverage);
@@ -248,7 +252,13 @@ pub(crate) fn implementations(
                     .attr("implementors", listed.count)
                     .close()
             });
-            std::iter::once(root).chain(others)
+            let cut = candidates_cut(
+                found.passed_over > found.candidates.len(),
+                found.passed_over + 1,
+                "this name",
+                Some(*family),
+            );
+            std::iter::once(root).chain(others).chain(cut)
         })
         .collect();
     if count == 0 {

@@ -315,6 +315,180 @@ fn find_implementations_lists_at_most_500_across_every_graph() {
 }
 
 #[test]
+fn each_symbol_tool_names_find_symbols_for_the_candidates_past_its_5() {
+    let packages: Vec<(String, String)> = (0..7)
+        .map(|at| {
+            (
+                format!("p{at}/p.go"),
+                format!(
+                    "package p{at}\n\ntype Shape interface{{}}\n\ntype Box struct{{}}\n\nvar _ Shape = Box{{}}\n\n\
+                     func Parse() {{}}\n\nfunc Run() {{\n\tParse()\n}}\n"
+                ),
+            )
+        })
+        .collect();
+    let mut files = vec![
+        ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+        ("z/z.go", "package z\n"),
+    ];
+    files.extend(
+        packages
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    let answers = answers_over(
+        &files,
+        &[
+            ("find_callers", json!({"name": "Parse"})),
+            ("find_callees", json!({"name": "Run"})),
+            ("find_references", json!({"name": "Parse"})),
+            ("find_implementations", json!({"name": "Shape"})),
+            ("find_call_path", json!({"from": "Run", "to": "Parse"})),
+            (
+                "find_callers",
+                json!({"name": "Parse", "path_prefix": "z/"}),
+            ),
+            ("find_symbols", json!({"query": "Parse", "limit": 7})),
+            ("find_callers", json!({"name": "Parsx"})),
+            ("find_symbols", json!({"query": "Parsx"})),
+        ],
+    );
+
+    let cut = |name: &str, over: &str| {
+        format!(
+            "/>\na fixed cap cut these candidates - find_symbols of {name} with {over}limit 7 lists the rest\n"
+        )
+    };
+    let go = r#"languages ["go"] and "#;
+    for answer in &answers[..4] {
+        assert!(answer.contains(r#"passed_over="6""#), "{answer}");
+        assert!(answer.contains(&cut("this name", go)), "{answer}");
+    }
+    let path = &answers[4];
+    for end in ["the from name", "the to name"] {
+        assert!(path.contains(&cut(end, go)), "{path}");
+    }
+    let elsewhere = &answers[5];
+    assert!(
+        elsewhere.contains("7 are elsewhere:") && elsewhere.contains(&cut("this name", "")),
+        "{elsewhere}"
+    );
+    assert!(
+        answers[6].starts_with(r#"<symbols of="Parse" count="7">"#),
+        "{}",
+        answers[6]
+    );
+    for (near, tag) in answers[7..].iter().zip(["callers", "symbols"]) {
+        assert!(
+            near.contains(r#"one_edit="7">"#) && near.contains(r#"<suggestion name="Parse" "#),
+            "{near}"
+        );
+        assert!(
+            near.ends_with(&format!(
+                "/>\na fixed cap cut these suggestions - find_symbols of a suggested name with limit 7 lists its \
+                 namesakes, and no call lists the other names\n</{tag}>"
+            )),
+            "{near}"
+        );
+    }
+}
+
+/// The answers to `calls` over a tree that defines a function `Node` in seven Go packages and three Rust modules.
+fn answers_over_node_namesakes(calls: &[(&str, Value)]) -> Vec<String> {
+    let packages: Vec<(String, String)> = (0..7)
+        .map(|at| {
+            (
+                format!("p{at}/p.go"),
+                format!("package p{at}\n\nfunc Node() {{}}\n"),
+            )
+        })
+        .collect();
+    let mut files = vec![
+        ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+        ("z/z.go", "package z\n"),
+        ("Cargo.toml", "[package]\nname = \"r\"\n"),
+        (
+            "src/lib.rs",
+            "mod a {\n    pub fn Node() {}\n}\nmod b {\n    pub fn Node() {}\n}\nmod c {\n    pub fn Node() {}\n}\n",
+        ),
+    ];
+    files.extend(
+        packages
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    answers_over(&files, calls)
+}
+
+#[test]
+fn the_candidates_line_names_the_family_whose_namesakes_its_limit_counts() {
+    let answers = answers_over_node_namesakes(&[
+        ("find_callers", json!({"name": "Node"})),
+        (
+            "find_symbols",
+            json!({"query": "Node", "languages": ["go"], "limit": 7}),
+        ),
+        ("find_symbols", json!({"query": "Node", "limit": 7})),
+        (
+            "find_callers",
+            json!({"name": "Node", "path_prefix": "z/", "languages": ["go"]}),
+        ),
+        ("find_callers", json!({"name": "Node", "path_prefix": "z/"})),
+        (
+            "find_call_path",
+            json!({"from": "Node", "from_path_prefix": "z/", "to": "Node", "languages": ["go"]}),
+        ),
+    ]);
+
+    let cut = |way: &str| {
+        format!(
+            "/>\na fixed cap cut these candidates - find_symbols of this name {way} lists the rest\n"
+        )
+    };
+    for (answer, way) in [
+        (&answers[0], r#"with languages ["go"] and limit 7"#),
+        (&answers[3], r#"with languages ["go"] and limit 7"#),
+        (&answers[4], "with limit 10"),
+        (&answers[5], r#"with languages ["go"] and limit 7"#),
+    ] {
+        assert!(answer.contains(&cut(way)), "{answer}");
+    }
+    let go_namesakes = |answer: &str| {
+        (0..7)
+            .filter(|at| answer.contains(&format!(r#"loc="p{at}/p.go:3""#)))
+            .count()
+    };
+    assert_eq!(go_namesakes(&answers[1]), 7, "{}", answers[1]);
+    assert!(go_namesakes(&answers[2]) < 7, "{}", answers[2]);
+}
+
+#[test]
+fn the_suggestions_line_names_the_languages_a_filtered_call_searched() {
+    let answers = answers_over_node_namesakes(&[
+        ("find_callers", json!({"name": "Nodf", "languages": ["go"]})),
+        ("find_callers", json!({"name": "Nodf"})),
+        (
+            "find_callers",
+            json!({"name": "Nodf", "languages": ["rust", "go"]}),
+        ),
+    ]);
+
+    for (near, way) in [
+        (&answers[0], r#"with languages ["go"] and limit 7"#),
+        (&answers[1], "with limit 10"),
+        (&answers[2], r#"with languages ["rust", "go"] and limit 10"#),
+    ] {
+        assert!(
+            near.contains(&format!(
+                "/>\na fixed cap cut these suggestions - find_symbols of a suggested name {way} lists its \
+                 namesakes, and no call lists the other names\n"
+            )),
+            "{near}"
+        );
+    }
+}
+
+#[test]
 fn find_implementations_of_a_parent_outside_the_graph_says_no_call_lists_the_types_past_500() {
     let mut python = String::from("from lib import External\n");
     for at in 0..501 {
@@ -6489,10 +6663,7 @@ fn a_name_held_only_as_kinds_a_tool_refuses_names_its_kinds_and_definitions() {
                 "package g\n\ntype Celsius float64\n\ntype Base struct{}\n\ntype Boxed struct{ Base }\n\nfunc shared() {}\n",
             ),
             ("f.cpp", "void cfree() {}\nint cvar;\nint shared;\n"),
-            (
-                "Cargo.toml",
-                "[package]\nname = \"r\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
-            ),
+            ("Cargo.toml", "[package]\nname = \"r\"\n"),
             ("src/lib.rs", "pub enum Colour {\n    Crimson,\n}\n"),
             ("d/1.cpp", "void dup() {}\n"),
             ("d/2.cpp", "void dup() {}\n"),
@@ -6553,6 +6724,7 @@ fn a_name_held_only_as_kinds_a_tool_refuses_names_its_kinds_and_definitions() {
                 r#"<candidate name="dup" kind="function" loc="d/3.cpp:1" lang="cpp"/>"#,
                 r#"<candidate name="dup" kind="function" loc="d/4.cpp:1" lang="cpp"/>"#,
                 r#"<candidate name="dup" kind="function" loc="d/5.cpp:1" lang="cpp"/>"#,
+                "a fixed cap cut these candidates - find_symbols of this name with limit 6 lists the rest",
                 "</implementations>",
             ]),
             lines(&[
