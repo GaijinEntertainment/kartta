@@ -2415,6 +2415,77 @@ fn find_references_says_that_no_read_of_a_function_s_local_is_recorded() {
 }
 
 #[test]
+fn find_references_says_that_no_use_of_a_function_s_local_function_as_a_value_is_recorded() {
+    let answers = answers_over(
+        &[
+            (
+                "src/lib.rs",
+                "pub fn outer(v: Vec<i32>) -> Vec<i32> {\n    fn double(x: i32) -> i32 {\n        x * 2\n    }\n    \
+                 let first = double(1);\n    v.into_iter().map(double).chain([first]).collect()\n}\n\n\
+                 fn triple(x: i32) -> i32 {\n    x * 3\n}\n\n\
+                 pub fn control(v: Vec<i32>) -> Vec<i32> {\n    let first = triple(1);\n    \
+                 v.into_iter().map(triple).chain([first]).collect()\n}\n",
+            ),
+            (
+                "m.py",
+                "def outer(v):\n    def double(x):\n        return x * 2\n\n    first = double(1)\n    \
+                 return list(map(double, v)) + [first]\n",
+            ),
+        ],
+        &[
+            ("find_references", json!({"name": "double"})),
+            ("find_references", json!({"name": "triple"})),
+        ],
+    );
+
+    let note = |family: &str| {
+        format!(
+            "<note>the {family} graph records no use as a value of a function local to a function body, so every \
+             such use is missing from this answer</note>"
+        )
+    };
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="double" matches="2">"#,
+                r#"<match lang="rust" of="double" loc="src/lib.rs:2" kind="function" count="1" files="1" calls="1">"#,
+                &note("rust"),
+                r#"<file path="src/lib.rs" sites="1">"#,
+                r#"<ref name="outer" line="1" role="consumer" site="call" at="5"/>"#,
+                "</file>",
+                "</match>",
+                concat!(
+                    r#"<match lang="python" of="double" qn="m.double" loc="m.py:2" kind="function" count="1" "#,
+                    r#"files="1" calls="1">"#,
+                ),
+                &note("python"),
+                r#"<file path="m.py" sites="1">"#,
+                r#"<ref name="outer" qn="m.outer" line="1" role="consumer" site="call" at="5"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="triple" matches="1">"#,
+                concat!(
+                    r#"<match lang="rust" of="triple" loc="src/lib.rs:9" kind="function" count="2" files="1" "#,
+                    r#"calls="1" reads="1">"#,
+                ),
+                r#"<file path="src/lib.rs" sites="2">"#,
+                r#"<ref name="control" line="13" role="consumer" site="call" at="14"/>"#,
+                r#"<ref name="control" line="13" role="consumer" site="read" at="15"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+        ],
+        "a body's local function lists its calls and says that its uses as a value are not recorded, where a module's \
+         function lists its read"
+    );
+}
+
+#[test]
 fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
     let answers = answers(&[
         (
