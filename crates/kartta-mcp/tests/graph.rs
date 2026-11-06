@@ -2120,6 +2120,104 @@ fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
 }
 
 #[test]
+fn impact_of_edit_lists_10_symbols_by_default_the_first_among_equal_reaches() {
+    let mut source = String::from("package lib\n");
+    for at in 0..11 {
+        write!(source, "\nfunc F{at:02}() {{}}\n").expect("a string takes the text");
+    }
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            ("lib.go", &source),
+        ],
+        &[("impact_of_edit", json!({"file": "lib.go", "start_line": 1}))],
+    );
+
+    let answer = &answers[0];
+    assert!(answer.contains(r#"symbols="11" shown="10">"#), "{answer}");
+    let listed: Vec<&str> = answer
+        .lines()
+        .filter_map(|line| line.strip_prefix(r#"<symbol name=""#))
+        .filter_map(|line| line.split('"').next())
+        .collect();
+    let first: Vec<String> = (0..10).map(|at| format!("F{at:02}")).collect();
+    assert_eq!(listed, first, "the first ten in source order: {answer}");
+}
+
+#[test]
+fn impact_of_edit_lists_the_symbols_of_widest_reach_and_the_first_files_up_to_its_limit() {
+    let importer = |package: &str, calls: &str| {
+        format!("package {package}\n\nimport \"example.com/m/lib\"\n\nfunc Run() {{\n{calls}}}\n")
+    };
+    let (x, y, z) = (
+        importer("x", "\tlib.A()\n\tlib.B()\n\tlib.C()\n"),
+        importer("y", "\tlib.B()\n\tlib.C()\n"),
+        importer("z", "\tlib.C()\n"),
+    );
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            (
+                "lib/lib.go",
+                "package lib\n\nfunc A() {}\n\nfunc B() {}\n\nfunc C() {}\n",
+            ),
+            ("x/x.go", &x),
+            ("y/y.go", &y),
+            ("z/z.go", &z),
+        ],
+        &[
+            (
+                "impact_of_edit",
+                json!({"file": "lib/lib.go", "start_line": 1, "limit": 2}),
+            ),
+            (
+                "impact_of_edit",
+                json!({"file": "lib/lib.go", "start_line": 1}),
+            ),
+        ],
+    );
+
+    let (cut, whole) = (&answers[0], &answers[1]);
+    let listed = |answer: &str| -> Vec<String> {
+        answer
+            .lines()
+            .filter_map(|line| line.strip_prefix(r#"<symbol name=""#))
+            .filter_map(|line| line.split('"').next())
+            .map(str::to_owned)
+            .collect()
+    };
+    assert!(
+        cut.starts_with(
+            r#"<impact of="lib/lib.go" start_line="1" end_line="end" symbols="3" shown="2">"#
+        ),
+        "{cut}"
+    );
+    assert_eq!(
+        listed(cut),
+        ["B", "C"],
+        "the widest reach, in source order: {cut}"
+    );
+    assert!(
+        cut.contains(&format!("</symbol>\n{LIMIT_CUT}\n<includes")),
+        "{cut}"
+    );
+    assert!(
+        cut.contains(&format!(
+            "<included-by count=\"3\" shown=\"2\">\n<file path=\"x/x.go\"/>\n<file path=\"y/y.go\"/>\n\
+             {LIMIT_CUT}\n</included-by>"
+        )),
+        "{cut}"
+    );
+    assert_eq!(listed(whole), ["A", "B", "C"], "{whole}");
+    assert!(
+        whole.contains(r#"symbols="3">"#)
+            && whole.contains(r#"<included-by count="3">"#)
+            && !whole.contains(LIMIT_CUT),
+        "{whole}"
+    );
+}
+
+#[test]
 fn find_callers_lists_the_calling_symbols_before_the_files_whose_top_level_calls() {
     let answers = answers_over(
         &[(
