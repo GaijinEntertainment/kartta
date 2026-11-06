@@ -679,6 +679,35 @@ fn a_change_counts_its_regions_of_symlinks_apart() {
     assert_eq!(answer.unclaimed_regions, 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_change_counts_its_regions_of_special_files_apart() {
+    let tree = tree(&[("one.alpha", "def one\n")]);
+    let _sockets = ["sock.alpha", "sock"].map(|name| {
+        std::os::unix::net::UnixListener::bind(tree.path().join(name)).expect("a socket")
+    });
+    let engine = build(
+        tree.path(),
+        &BuildOptions::default(),
+        vec![Box::new(Defs::new("alpha", "first", ".alpha"))],
+    );
+    let regions = [
+        Region::new("one.alpha", 1..=1),
+        Region::new("sock.alpha", 1..=1),
+        Region::new("sock", 1..=1),
+    ];
+
+    let answer = engine.analyze_change(&regions, Limits::new(3));
+
+    assert_eq!(answer.change.changed_symbols, 1);
+    assert_eq!(answer.change.unheld_regions, 2);
+    assert_eq!(
+        answer.special_regions, 2,
+        "sock.alpha, whose name the alpha graph claims, and sock, which no language claims"
+    );
+    assert_eq!(answer.unclaimed_regions, 0);
+}
+
 #[test]
 fn a_change_counts_its_regions_of_directories_apart() {
     let tree = tree(&[
