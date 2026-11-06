@@ -498,6 +498,39 @@ fn a_file_answer_about_a_symlink_names_the_path_to_pass_instead() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_file_answer_about_a_socket_names_no_graph() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        ("pkg/a.go", "package pkg\n\nfunc A() {}\n"),
+    ]);
+    let _sockets = ["pipe.go", "_skip.go", "sock"].map(|name| {
+        std::os::unix::net::UnixListener::bind(tree.path().join(name)).expect("a socket")
+    });
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let note = "this path is a socket, a fifo or a device node, not a regular file, and no code graph holds one";
+    for file in ["pipe.go", "_skip.go", "sock"] {
+        assert_eq!(
+            [
+                client.answer("file_outline", &json!({"file": file})),
+                client.answer("find_importers", &json!({"file": file})),
+                client.answer("impact_of_edit", &json!({"file": file, "start_line": 1})),
+            ],
+            [
+                format!(r#"<outline of="{file}" symbols="0">{note}</outline>"#),
+                format!(r#"<importers of="{file}" count="0">{note}</importers>"#),
+                format!(
+                    r#"<impact of="{file}" start_line="1" end_line="end" symbols="0">{note}</impact>"#
+                ),
+            ],
+            "a socket claimed by its name, declined by its name, and unclaimed"
+        );
+    }
+}
+
 #[test]
 fn a_held_file_no_graph_answers_for_says_why() {
     let tree = tree(&[
