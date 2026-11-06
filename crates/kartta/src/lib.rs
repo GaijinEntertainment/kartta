@@ -107,9 +107,10 @@ pub use kartta_fs::{WatchError, Watcher};
 pub use kartta_graph::{
     Blast, CallPath, Candidate, Change, Dead, DeadCode, Definition, Definitions, Dependent,
     Dependents, DirCount, DirectCalls, Excluded, FileScope, Found, Graph, Hit, Hotspot,
-    Implementations, Implementor, Limits, Miss, Misses, Nearness, ReachBand, Reached, Reference,
-    References, Region, Resolution, Search, Seed, Segment, SegmentSymbol, Selector, SelfCall,
-    SiteCounts, SiteQuery, Stats, Unbound, Walk, confidence, is_parent, is_referent,
+    Implementations, Implementor, Limits, Miss, Misses, Nearness, OutsideImplementations,
+    ReachBand, Reached, Reference, References, Region, Resolution, Search, Seed, Segment,
+    SegmentSymbol, Selector, SelfCall, SiteCounts, SiteQuery, Stats, Unbound, Walk, confidence,
+    is_parent, is_referent,
 };
 pub use kartta_lang::{
     Access, BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction,

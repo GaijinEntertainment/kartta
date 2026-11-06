@@ -4280,6 +4280,94 @@ fn find_implementations_keeps_a_type_asserted_where_it_is_declared_beside_a_name
     );
 }
 
+#[test]
+fn find_implementations_of_a_trait_outside_the_graph_lists_the_types_whose_parents_name_it() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("Cargo.toml", "[package]\nname = \"app\"\n"),
+        ("src/lib.rs", "mod show;\nmod held;\n"),
+        (
+            "src/show.rs",
+            "use std::fmt;\n\npub struct Module;\n\nimpl fmt::Display for Module {\n    fn fmt(&self, f: &mut \
+             fmt::Formatter<'_>) -> fmt::Result { Ok(()) }\n}\n\npub struct Path;\n\nimpl std::fmt::Display for \
+             Path {\n    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { Ok(()) }\n}\n",
+        ),
+        (
+            "src/held.rs",
+            "pub trait Shown {}\n\npub struct Plain;\n\nimpl Shown for Plain {}\n\npub fn Write() {}\n\npub struct \
+             Sink;\n\nimpl std::io::Write for Sink {\n    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> { \
+             Ok(b.len()) }\n    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }\n}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let bare = client.answer("find_implementations", &json!({"name": "Display"}));
+    let path = client.answer(
+        "find_implementations",
+        &json!({"name": "std::fmt::Display"}),
+    );
+    let narrowed = client.answer(
+        "find_implementations",
+        &json!({"name": "Display", "path_prefix": "src/"}),
+    );
+    let on_a_line = client.answer(
+        "find_implementations",
+        &json!({"name": "Display", "line": 3}),
+    );
+    let unwritten = client.answer("find_implementations", &json!({"name": "Debug"}));
+    let a_function = client.answer("find_implementations", &json!({"name": "Write"}));
+
+    assert!(
+        bare.contains("outside_graph=\"true\"")
+            && bare.contains("count=\"2\"")
+            && bare.contains("name=\"Module\"")
+            && bare.contains("name=\"Path\""),
+        "the types whose impls name Display: {bare}"
+    );
+    assert!(
+        path.contains("outside_graph=\"true\"")
+            && path.contains("count=\"1\"")
+            && path.contains("name=\"Path\""),
+        "only the impl that writes the whole path: {path}"
+    );
+    assert!(
+        !narrowed.contains("outside_graph")
+            && !on_a_line.contains("outside_graph")
+            && !unwritten.contains("outside_graph"),
+        "a path prefix and a line look among definitions, and no parent writes Debug: {narrowed} {on_a_line} \
+         {unwritten}"
+    );
+    assert!(
+        a_function.contains("outside_graph=\"true\"") && a_function.contains("name=\"Sink\""),
+        "a name the tree holds only as a function still lists the parent's implementors: {a_function}"
+    );
+}
+
+#[test]
+fn find_implementations_of_an_interface_outside_the_graph_lists_the_type_an_assertion_names() {
+    let tree = tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("go.mod", "module m\n\ngo 1.22\n"),
+        (
+            "a/a.go",
+            "package a\n\nimport \"io\"\n\ntype R struct{}\n\nfunc (R) Read(p []byte) (int, error) { return 0, nil \
+             }\n\nvar _ io.Reader = R{}\n\ntype Reader struct{}\n",
+        ),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_implementations", &json!({"name": "io.Reader"}));
+
+    assert!(
+        answer.contains("outside_graph=\"true\" namesakes=\"1\"")
+            && answer.contains("name=\"R\" qn=\"a.R\"")
+            && !answer.contains("name=\"Reader\""),
+        "the type the assertion names, beside the package's own Reader: {answer}"
+    );
+}
+
 /// The answer to `find_implementations` of `Tr` over a crate whose `src/tr.rs` declares the trait, `src/t.rs` the types
 /// `T` and `E`, `src/other.rs` a namesake `T` and `src/alias.rs` an associated type `Assoc`, with `implementing` as
 /// `src/i.rs` and `src/nested.rs` re-exporting what `src/nested/inner.rs` declares and holding an inline module.

@@ -17,7 +17,8 @@ pub(crate) use self::calls::{
 };
 pub(crate) use self::files::{Selection, dir, globbed, grep, paths};
 pub(crate) use self::symbols::{
-    Found, NameDefinitions, Read, definitions, hits, implementations, importers, outline,
+    Found, NameDefinitions, Read, definitions, hits, implementations, implementations_outside,
+    importers, outline,
 };
 pub(crate) use self::unused::{UnusedAsk, unused};
 use crate::languages::CATALOG;

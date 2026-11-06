@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::{fmt, iter};
 
 use kartta::{
-    CancelToken, Graph, Hit, Limits, Region, Search, Selector, SiteQuery, SourceOptions,
-    SymbolKind, UnmatchedKind, ask_reading, is_parent, is_referent, selects_as_callers,
+    CancelToken, Graph, Hit, Limits, OutsideImplementations, Region, Search, Selector, SiteQuery,
+    SourceOptions, SymbolKind, UnmatchedKind, ask_reading, is_parent, is_referent,
+    selects_as_callers,
 };
 use kartta_fs::{
     Case, EntryKind, Filter, FuzzyOptions, GlobOptions, GrepOptions, Index, ListError, ListOptions,
@@ -268,6 +269,40 @@ fn unmatched<'g>(
         || Unmatched::Suggested(suggestions(searched, selector.name)),
         Unmatched::Named,
     )
+}
+
+/// The types of the `searched` graphs that name `selector`'s name as a parent no graph holds a type of, at most
+/// [`IMPLEMENTORS`] in all, those of the graphs that list none and hold no namesake left out; `instead` is what the
+/// name names in place of
+/// a type. Empty for a selector a path prefix or a line narrows, which look among the name's definitions, and for a
+/// name some type of the graphs is named.
+fn outside_graph<'g>(
+    searched: &[(&'g str, &'g Graph)],
+    selector: Selector<'_>,
+    instead: Option<&kartta::Unmatched<'_>>,
+) -> Vec<(&'g str, OutsideImplementations<'g>)> {
+    let names_no_type = instead.is_none_or(|instead| {
+        matches!(
+            instead.kind,
+            UnmatchedKind::OneEdit | UnmatchedKind::OtherKind
+        )
+    });
+    if !names_no_type || selector.path_prefix.is_some() || selector.line.is_some() {
+        return Vec::new();
+    }
+    let mut room = IMPLEMENTORS;
+    let mut outside = Vec::new();
+    for &(family, graph) in searched {
+        let found = graph.implementations_outside(selector.name, room);
+        if found.total > 0 || found.namesakes > 0 {
+            room -= found.found.len();
+            outside.push((family, found));
+        }
+    }
+    if outside.iter().all(|(_, found)| found.total == 0) {
+        return Vec::new();
+    }
+    outside
 }
 
 #[tool_router]
@@ -893,9 +928,14 @@ impl Server {
                        all; passed_over= counts the other types the name selects, and then a <root/> names the type \
                        answered for and up to 5 <candidate/> records list the most implemented others - path_prefix \
                        with one's file and line with its line pick it. A type that implements an interface without \
-                       naming it, as Go's structural typing allows, is not found. A name several types end with lists \
-                       them instead; a name held only as kinds no type implements, such as a function, a variable or \
-                       a Go defined type, counts them by kind and lists up to 5 of those definitions; an unknown name answers with up to 5 close alternatives (did you mean): those \
+                       naming it, as Go's structural typing allows, is not found. A name no indexed type has, as a \
+                       library's Display or io.Reader, asked without path_prefix or line, lists under \
+                       outside_graph=true the types whose written parents end with it, one hop, and namesakes= \
+                       counts the other indexed types and namespaces of its last segment, which no listed parent \
+                       reached. A name several \
+                       types end with lists them instead; a name held only as kinds no type \
+                       implements, such as a function, a variable or a Go defined type, counts them by kind and lists \
+                       up to 5 of those definitions; an unknown name answers with up to 5 close alternatives (did you mean): those \
                        named one edit from it, which one_edit= counts, or else the best search hits. Requires \
                        index_repo first."
     )]
@@ -927,11 +967,6 @@ impl Server {
                 room -= implementations.found.len();
             }
             let named = written.with_name(read_as.as_deref().unwrap_or(&p.name));
-            let unmatched = if found.is_empty() {
-                unmatched(&searched, named, is_parent)
-            } else {
-                Unmatched::Suggested(Vec::new())
-            };
             let languages = p.languages.as_deref().map(echo);
             let ask = CallersAsk {
                 selector: written,
@@ -940,6 +975,23 @@ impl Server {
                 role: None,
                 built: indexed.languages.as_deref(),
             };
+            if !found.is_empty() {
+                return Ok(render::implementations(
+                    &ask,
+                    &found,
+                    &Unmatched::Suggested(Vec::new()),
+                ));
+            }
+            let instead =
+                kartta::unmatched(searched.iter().copied(), named, is_parent, SUGGESTIONS);
+            let outside = outside_graph(&searched, written, instead.as_ref());
+            if !outside.is_empty() {
+                return Ok(render::implementations_outside(&ask, &outside));
+            }
+            let unmatched = instead.map_or_else(
+                || Unmatched::Suggested(suggestions(&searched, named.name)),
+                Unmatched::Named,
+            );
             Ok(render::implementations(&ask, &found, &unmatched))
         })
         .await
