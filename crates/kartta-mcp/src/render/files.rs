@@ -4,7 +4,7 @@ use kartta_fs::{
     Capped, EntryKind, Failure, Index, Line, LineKind, Listing, MatchedFile, Matches, Paths,
 };
 
-use super::push_cut_end;
+use super::{fixed_cut, push_cut_end};
 use crate::llmxml::{Element, List};
 use crate::paths::GLOB_CHARACTERS;
 
@@ -318,7 +318,12 @@ fn failures_block(failures: &[Failure], paths: &mut Paths<'_>) -> Option<String>
     }
     let mut text = listed.into_text();
     if failures.len() > LISTED_FAILURES {
-        let _ = write!(text, "\n(+{} more)", failures.len() - LISTED_FAILURES);
+        let _ = write!(
+            text,
+            "\n(+{} more) {}",
+            failures.len() - LISTED_FAILURES,
+            fixed_cut("this list", Some("grep with narrower includes"))
+        );
     }
     Some(
         Element::new("failures")
