@@ -797,6 +797,144 @@ fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it
 }
 
 #[test]
+fn find_references_sites_under_lists_the_sites_past_the_named_files_and_counts_what_it_left_out() {
+    let readers: Vec<(String, String)> = (0..130)
+        .map(|file| {
+            (
+                format!("pkg/use{file:03}.go"),
+                format!("package pkg\n\nfunc use{file:03}(c Config) {{\n\t_ = c.Timeout\n\t_ = c.Timeout\n}}\n"),
+            )
+        })
+        .collect();
+    let mut files: Vec<(&str, &str)> = vec![
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "pkg/config.go",
+            "package pkg\n\ntype Config struct {\n\tTimeout int\n}\n",
+        ),
+    ];
+    files.extend(
+        readers
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    let answers = answers_over(
+        &files,
+        &[
+            ("find_references", json!({"name": "pkg.Config.Timeout"})),
+            (
+                "find_references",
+                json!({"name": "pkg.Config.Timeout", "sites_under": "pkg/use12"}),
+            ),
+        ],
+    );
+
+    assert!(
+        !answers[0].contains("pkg/use120.go"),
+        "the default answer names no file past its 100 sites and 50 more files: {}",
+        answers[0]
+    );
+    let records: Vec<&str> = answers[1].lines().collect();
+    assert_eq!(
+        records[..2],
+        [
+            r#"<references of="pkg.Config.Timeout" sites_under="pkg/use12" matches="1">"#,
+            concat!(
+                r#"<match lang="go" of="Timeout" qn="pkg.Config.Timeout" loc="pkg/config.go:4" kind="field" "#,
+                r#"count="260" shown="20" files="130" files_shown="10" excluded="240" files_excluded="120" "#,
+                r#"reads="260">"#,
+            ),
+        ],
+        "the counts cover every site, and excluded= and files_excluded= count what sites_under left out: {}",
+        answers[1]
+    );
+    let listed: Vec<&str> = records
+        .iter()
+        .filter_map(|record| record.strip_prefix(r#"<file path=""#))
+        .filter_map(|record| record.split('"').next())
+        .collect();
+    let under: Vec<String> = (120..130).map(|file| format!("pkg/use{file}.go")).collect();
+    assert_eq!(
+        listed, under,
+        "only the files under sites_under are listed: {}",
+        answers[1]
+    );
+    assert_eq!(
+        records[2..5],
+        [
+            r#"<file path="pkg/use120.go" sites="2">"#,
+            r#"<ref name="use120" qn="pkg.use120" line="3" role="consumer" site="read" at="4,5"/>"#,
+            "</file>",
+        ],
+        "each file under sites_under lists its sites: {}",
+        answers[1]
+    );
+}
+
+#[test]
+fn find_references_sites_under_filters_the_file_scope_users_and_says_when_it_keeps_nothing() {
+    let scripts: Vec<(String, &str)> = (0..51)
+        .map(|at| (format!("bin/run{at:02}.sh"), ". lib/common.sh\nshared\n"))
+        .collect();
+    let mut files: Vec<(&str, &str)> = scripts
+        .iter()
+        .map(|(path, text)| (path.as_str(), *text))
+        .collect();
+    files.push(("lib/common.sh", "shared() {\n\techo shared\n}\n"));
+    files.push(("tools/use.sh", ". lib/common.sh\nuse() {\n\tshared\n}\n"));
+    let answers = answers_over(
+        &files,
+        &[
+            (
+                "find_references",
+                json!({"name": "shared", "sites_under": "tools/"}),
+            ),
+            (
+                "find_references",
+                json!({"name": "shared", "sites_under": "bin/run0"}),
+            ),
+            (
+                "find_references",
+                json!({"name": "shared", "sites_under": "lib/"}),
+            ),
+        ],
+    );
+
+    let file_scope = |answer: &str| -> Vec<String> {
+        answer
+            .lines()
+            .filter_map(|line| line.strip_prefix(r#"<file_scope path=""#))
+            .filter_map(|line| line.split('"').next())
+            .map(str::to_owned)
+            .collect()
+    };
+    assert!(
+        answers[0].contains(r#"file_scope="51" file_scope_shown="0" file_scope_excluded="51""#)
+            && answers[0].contains(r#"<file path="tools/use.sh" sites="1">"#)
+            && file_scope(&answers[0]).is_empty(),
+        "the site under sites_under is listed, and no file-scope user outside it: {}",
+        answers[0]
+    );
+    let first_ten: Vec<String> = (0..10).map(|at| format!("bin/run{at:02}.sh")).collect();
+    assert!(
+        answers[1].contains(r#"file_scope="51" file_scope_shown="10" file_scope_excluded="41""#)
+            && answers[1].contains(r#"excluded="1" files_excluded="1""#)
+            && !answers[1].contains("<file "),
+        "the file-scope users under sites_under are listed, the site outside it counted: {}",
+        answers[1]
+    );
+    assert_eq!(file_scope(&answers[1]), first_ten, "{}", answers[1]);
+    assert!(
+        answers[2].contains(
+            "no recorded site and no file_scope file is under sites_under - excluded= and file_scope_excluded= \
+             count them, and a call without sites_under lists them"
+        ),
+        "a sites_under that keeps nothing says so: {}",
+        answers[2]
+    );
+}
+
+#[test]
 fn a_go_field_read_binds_through_the_type_its_own_function_declares_and_not_a_namesake_elsewhere() {
     let first_and_second = "package app\n\nfunc First() int {\n\ttype fields struct {\n\t\tSize int\n\t}\n\
                             \tf := fields{Size: 1}\n\treturn f.Size\n}\n\nfunc Second() int {\n\

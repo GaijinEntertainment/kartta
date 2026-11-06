@@ -206,11 +206,39 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
     element.children(hops.chain(passed_over))
 }
 
+/// Which of a symbol's sites a `find_references` call lists.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SiteFilter<'a> {
+    /// Whether the call kept the sites of one access.
+    pub(crate) one_access: bool,
+    /// The path prefix of the files whose sites and file-scope users are listed, or `None` for every file.
+    pub(crate) under: Option<&'a str>,
+}
+
+impl SiteFilter<'_> {
+    /// The records of `listed` in a file under the prefix, each record's file read by `file`.
+    // constraint: the graph lists a match's sites and file-scope users in path order, where the paths under a prefix
+    // sit together
+    fn kept<T>(self, listed: &[T], file: impl Fn(&T) -> &str) -> &[T] {
+        let Some(prefix) = self.under else {
+            return listed;
+        };
+        let under = |record: &T| file(record).starts_with(prefix);
+        let start = listed.iter().position(&under).unwrap_or(listed.len());
+        let end = start
+            + listed[start..]
+                .iter()
+                .take_while(|&record| under(record))
+                .count();
+        &listed[start..end]
+    }
+}
+
 /// The `find_references` answer: one `<match>` per family graph the name selects a symbol in, with the conventions
-/// that say which uses that family records. `keeps_one_access` says that the call kept the sites of one access.
+/// that say which uses that family records, listing the sites `listed` keeps.
 pub(crate) fn references(
     ask: &CallersAsk<'_>,
-    keeps_one_access: bool,
+    listed: SiteFilter<'_>,
     found: &[(&str, &Conventions, References<'_>)],
     unmatched: &Unmatched<'_>,
 ) -> String {
@@ -218,12 +246,13 @@ pub(crate) fn references(
         .attr("of", ask.selector.name)
         .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
+        .optional("sites_under", listed.under)
         .attr("matches", found.len());
     if found.is_empty() {
         return unresolved(element, ask.languages, ask.asked(), unmatched);
     }
     element.children(found.iter().map(|(family, conventions, references)| {
-        reference_match(keeps_one_access, family, conventions, references)
+        reference_match(listed, family, conventions, references)
     }))
 }
 
@@ -232,6 +261,10 @@ const LISTED_SITES: usize = 100;
 
 /// How many more files a `find_references` match names once its listed sites run out, each with its count of sites.
 const COUNTED_FILES: usize = 50;
+
+/// The note of a `find_references` match whose `sites_under` kept none of its sites and file-scope users.
+const NONE_UNDER: &str = "no recorded site and no file_scope file is under sites_under - excluded= and \
+                          file_scope_excluded= count them, and a call without sites_under lists them";
 
 /// How many `<file_scope>` records a `find_callers` or a `find_references` match lists, in path order.
 const FILE_SCOPE_LISTED: usize = 50;
@@ -246,33 +279,53 @@ fn file_scope_records<'a>(users: &'a [FileScope<'_>]) -> impl Iterator<Item = St
     })
 }
 
-/// `element` with the count of a match's file-scope `users`, and how many records it lists when the cap cut them.
-fn file_scope_count(element: Element, users: &[FileScope<'_>]) -> Element {
-    element.count("file_scope", users.len()).optional(
-        "file_scope_shown",
-        (users.len() > FILE_SCOPE_LISTED).then_some(FILE_SCOPE_LISTED),
-    )
+/// `element` with the count of a match's file-scope `users`, how many records it lists of those a filter `kept` when
+/// it lists fewer, and how many the filter left out.
+fn file_scope_count(element: Element, users: &[FileScope<'_>], kept: &[FileScope<'_>]) -> Element {
+    let listed = kept.len().min(FILE_SCOPE_LISTED);
+    element
+        .count("file_scope", users.len())
+        .optional("file_scope_shown", (users.len() > listed).then_some(listed))
+        .count("file_scope_excluded", users.len() - kept.len())
+}
+
+/// How many files `sites`, which come in file and line order, are in.
+fn file_count(sites: &[Reference<'_>]) -> usize {
+    let changes = sites
+        .windows(2)
+        .filter(|pair| pair[0].site_of.file != pair[1].site_of.file)
+        .count();
+    changes + usize::from(!sites.is_empty())
 }
 
 fn reference_match(
-    keeps_one_access: bool,
+    listed: SiteFilter<'_>,
     family: &str,
     conventions: &Conventions,
     references: &References<'_>,
 ) -> String {
     let symbol = &references.symbol;
     let counts = &references.counts;
-    let listing = Listing::of(&references.sites);
-    let shown = references.sites.len().min(LISTED_SITES);
+    let sites = listed.kept(&references.sites, |site| site.site_of.file);
+    let users = listed.kept(&references.file_scope, |user| user.file);
+    let listing = Listing::of(sites);
+    let files = if listed.under.is_some() {
+        file_count(&references.sites)
+    } else {
+        listing.files
+    };
+    let shown = sites.len().min(LISTED_SITES);
     let element = match_of(family, symbol)
         .attr("kind", kind(symbol.kind))
         .attr("count", references.total)
         .optional("shown", (references.total > shown).then_some(shown))
-        .count("files", listing.files)
+        .count("files", files)
         .optional(
             "files_shown",
-            (listing.files > listing.records.len()).then_some(listing.records.len()),
+            (files > listing.records.len()).then_some(listing.records.len()),
         )
+        .count("excluded", references.sites.len() - sites.len())
+        .count("files_excluded", files - listing.files)
         .count("calls", counts.calls)
         .count("types", counts.types)
         .count("reads", counts.reads)
@@ -281,7 +334,7 @@ fn reference_match(
         .count("ambiguous", references.ambiguous)
         .count("below_confidence", references.below_confidence)
         .count("passed_over", references.passed_over);
-    let element = file_scope_count(element, &references.file_scope);
+    let element = file_scope_count(element, &references.file_scope, users);
     let member_note = match symbol.kind.label() {
         "method" => Some(METHOD_NOTE),
         "field" => PARTIAL_DATA_ACCESS
@@ -294,7 +347,7 @@ fn reference_match(
     let passed_over = candidates(&references.candidates, "sites");
     if references.sites.is_empty() && references.file_scope.is_empty() {
         let text = if references.below_confidence > 0 {
-            let lists = if keeps_one_access {
+            let lists = if listed.one_access {
                 "min_confidence \"any\" without access lists"
             } else {
                 "min_confidence \"any\" lists"
@@ -310,6 +363,9 @@ fn reference_match(
         };
         return noted(element, &text, passed_over);
     }
+    if sites.is_empty() && users.is_empty() {
+        return noted(element, NONE_UNDER, passed_over);
+    }
     let missing = unrecorded.map(|gap| {
         format!(
             "{}, so every such use is missing from this answer",
@@ -322,7 +378,7 @@ fn reference_match(
     element.children(
         note.into_iter()
             .chain(listing.records)
-            .chain(file_scope_records(&references.file_scope))
+            .chain(file_scope_records(users))
             .chain(passed_over),
     )
 }
@@ -850,7 +906,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
         .count("below_confidence", walk.below_confidence)
         .count("passed_over", walk.passed_over);
     let mut element = if ask.role.is_none() {
-        file_scope_count(element, &walk.file_scope)
+        file_scope_count(element, &walk.file_scope, &walk.file_scope)
     } else {
         element.count("file_scope", walk.file_scope.len())
     };
