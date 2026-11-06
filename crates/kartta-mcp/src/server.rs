@@ -323,9 +323,11 @@ impl Server {
         annotations(idempotent_hint = true),
         description = "Build the code index for a repository: walk the file tree and parse every recognized source \
                        file into a per-language code graph of symbols (functions, types, methods...) with their \
-                       calls, uses and includes. Run this first - every other tool queries this index and errors \
-                       until it exists. Takes seconds on large repositories; one repository is indexed per server, \
-                       and indexing another replaces the previous one (a build of the same root, languages and \
+                       calls, uses and includes. Every other tool queries this index, and each but index_stats errors \
+                       until it exists. A \
+                       build at 2 threads takes about 0.4 s on 900 files and about a minute on 170,000. One \
+                       repository is indexed per server, and indexing another replaces the previous one (a build of \
+                       the same root, languages and \
                        index_ignored already under way is waited for, not repeated, and the index they built is \
                        answered as held, refreshed \
                        first while index_stats shows watch off). Returns an <index> envelope, its languages= \
@@ -1624,31 +1626,20 @@ impl ServerHandler for Server {
         let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "kartta answers structural questions about a code repository: where symbols are defined, who calls \
              them and what they call, where they are used, what implements an interface, which files import a file, \
-             and what an edit would break. Call index_repo with the absolute repository root FIRST - it builds the \
-             index in seconds and every other tool errors until then (a root given to the server at launch is \
-             already building, and index_stats says when it is ready); one repository is indexed at a time. The \
-             index holds a separate code graph per language; the symbol tools (find_symbols, read_definitions, \
-             find_callers, find_callees, find_references, find_call_path, find_implementations, find_unused) \
-             search every \
-             indexed language by default and \
-             take an optional 'languages' multiselect to narrow - the names are in the index_repo / index_stats \
-             answer - and cross-language links (e.g. FFI) are not traced. The file tools (find_files, glob_files, \
-             grep, list_dir, find_importers, file_outline, impact_of_edit, impact_of_change) span all languages \
-             and take \
-             repo-relative paths as returned by find_files / glob_files; a path or a path_prefix the index does not \
-             hold is a tool error naming what is wrong with it and the nearest paths it holds. An answer a cap, a \
-             depth limit or a filter \
-             cut says how much it left out in its attributes. Intent map: locate a file by name -> find_files; list \
-             files matching a glob -> glob_files; see what one directory contains -> list_dir; find lines of text \
-             by regex / quote the exact code -> grep; where is X defined -> find_symbols; where in this known file \
-             is X -> file_outline; read the source of X, Y, Z -> read_definitions; who calls X / what breaks if I \
-             change it -> find_callers; what does X call -> find_callees; where is X used -> find_references; does \
-             X reach Y through calls -> \
-             find_call_path; what implements X -> find_implementations; what code does nothing call -> \
-             find_unused; which files import this file -> \
-             find_importers; how risky is this diff hunk or edit -> impact_of_edit; what does a whole diff of \
-             several hunks reach -> impact_of_change; what languages and how much \
-             code -> index_stats; files changed while index_stats shows watch off -> refresh.",
+             and what an edit would break. Every tool answers from one index, of one repository. index_stats tells \
+             whether that index is built or building, and for which root. Call index_repo with the repository's \
+             absolute root when index_stats shows no index of it. Each language has its own code graph, and no tool \
+             follows a link from one language into another, such as a call through FFI. A path or a path_prefix the \
+             index does not hold is a tool error that names what is wrong with it and the nearest paths it holds. \
+             Intent map: locate a file by name -> find_files; list files matching a glob -> glob_files; see what one \
+             directory contains -> list_dir; find lines of text by regex / quote the exact code -> grep; where is X \
+             defined -> find_symbols; where in this known file is X -> file_outline; read the source of X, Y, Z -> \
+             read_definitions; who calls X / what breaks if I change it -> find_callers; what does X call -> \
+             find_callees; where is X used -> find_references; does X reach Y through calls -> find_call_path; what \
+             implements X -> find_implementations; what code does nothing call -> find_unused; which files import \
+             this file -> find_importers; how risky is this diff hunk or edit -> impact_of_edit; what does a whole \
+             diff of several hunks reach -> impact_of_change; what languages and how much code -> index_stats; files \
+             changed while index_stats shows watch off -> refresh.",
         );
         info.server_info = Implementation::new("kartta-mcp", env!("CARGO_PKG_VERSION"));
         info
