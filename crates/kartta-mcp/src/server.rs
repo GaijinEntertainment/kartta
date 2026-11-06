@@ -23,11 +23,11 @@ use crate::diff::{self, Changed};
 use crate::languages::{CATALOG, echo};
 use crate::llmxml::List;
 use crate::params::{
-    CallerRole, FileParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
-    FindFilesParams, FindImplementationsParams, FindReferencesParams, FindSymbolsParams,
-    FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams, ImpactOfEditParams,
-    IndexRepoParams, IndexStatsParams, ListDirParams, Parameters, ReadDefinitionsParams,
-    RefreshParams,
+    CallerRole, FileOutlineParams, FileParams, FindCallPathParams, FindCalleesParams,
+    FindCallersParams, FindFilesParams, FindImplementationsParams, FindReferencesParams,
+    FindSymbolsParams, FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams,
+    ImpactOfEditParams, IndexRepoParams, IndexStatsParams, ListDirParams, Parameters,
+    ReadDefinitionsParams, RefreshParams,
 };
 use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, relative};
 use crate::render::{
@@ -95,6 +95,9 @@ const CHANGE_LISTED: usize = 20;
 
 /// How many unused definitions `find_unused` lists when the call names no limit.
 const UNUSED: usize = 50;
+
+/// How many definitions `file_outline` lists, in source order, when the call names no limit.
+const OUTLINE_LISTED: usize = 100;
 
 /// How many hops `find_callers` walks when the call names none.
 const CALLER_HOPS: u32 = 3;
@@ -1028,8 +1031,9 @@ impl Server {
     #[tool(
         annotations(read_only_hint = true),
         description = "List the definitions of one known file in source order - \"where in this file is X?\" when the \
-                       file is known but the place in it is not. Returns an <outline> envelope with one <symbol/> \
-                       record per definition: name; qn, the qualified name, omitted when it equals name; owner, the \
+                       file is known but the place in it is not. Returns an <outline> envelope, symbols= counting \
+                       every definition, with one <symbol/> record per definition, the first 'limit' (default 100) \
+                       in source order, where shown= and a last line say the limit cut them: name; qn, the qualified name, omitted when it equals name; owner, the \
                        declaring type or namespace; in, on a definition without an owner inside another listed one - \
                        a local of a body, a member of an inline type or object literal, an item of a module block - \
                        the qn of the innermost one holding it, judged by lines, so one starting on its holder's first \
@@ -1041,13 +1045,17 @@ impl Server {
                        file with no recorded definition both report symbols=\"0\", told apart by the note. For \
                        callers and reach of a range use impact_of_edit. Requires index_repo first."
     )]
-    async fn file_outline(&self, Parameters(p): Parameters<FileParams>) -> Result<String, String> {
+    async fn file_outline(
+        &self,
+        Parameters(p): Parameters<FileOutlineParams>,
+    ) -> Result<String, String> {
         self.answer(move |indexed| {
             let file = held_file(indexed.engine.index(), &p.file)?;
             let claimed = indexed.engine.graph_of(file);
             let outline = claimed.and_then(|(_, graph)| graph.outline(file));
             let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));
-            Ok(render::outline(file, graphless, outline.as_deref()))
+            let listed = p.limit.map_or(OUTLINE_LISTED, NonZeroUsize::get);
+            Ok(render::outline(file, graphless, outline.as_deref(), listed))
         })
         .await
     }

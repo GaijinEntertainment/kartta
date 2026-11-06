@@ -619,6 +619,19 @@ pub(crate) struct FileParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct FileOutlineParams {
+    /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
+    /// "pkg/service.go") - not absolute, not a bare filename.
+    pub(crate) file: String,
+    /// Positive cap on the <symbol/> records listed, the first in source order. Omitted or null = 100. Zero and
+    /// negatives are rejected. symbols= counts every definition of the file, and shown= says how many are listed when
+    /// the cap cut them.
+    #[serde(default)]
+    pub(crate) limit: Option<NonZeroUsize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ImpactOfEditParams {
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.

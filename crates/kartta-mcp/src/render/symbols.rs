@@ -7,8 +7,8 @@ use kartta::{
 };
 
 use super::{
-    Asked, CallersAsk, Graphless, Unmatched, candidate, empty_languages_note, flat, kind, loc,
-    named, noted, one_edit, role, span, unresolved,
+    Asked, CallersAsk, Graphless, LIMIT_CUT, Unmatched, candidate, empty_languages_note, flat,
+    kind, loc, named, noted, one_edit, role, span, unresolved,
 };
 use crate::llmxml::Element;
 use crate::state::GraphRow;
@@ -330,12 +330,14 @@ pub(crate) fn importers(
         }))
 }
 
-/// The `file_outline` answer: a `<symbol/>` per definition of the file in source order, `in` naming the definition that
-/// holds one without an owner. `graphless` says why a file no graph answers for has none.
+/// The `file_outline` answer: a `<symbol/>` per definition of the file in source order, the first `listed` of them,
+/// `in` naming the definition that holds one without an owner. `graphless` says why a file no graph answers for has
+/// none.
 pub(crate) fn outline(
     file: &str,
     graphless: Graphless<'_>,
     outline: Option<&[Definition<'_>]>,
+    listed: usize,
 ) -> String {
     let element = Element::new("outline").attr("of", file);
     match outline {
@@ -346,17 +348,20 @@ pub(crate) fn outline(
         ),
         Some(definitions) => {
             let mut open = Vec::new();
+            let cut = definitions.len() > listed;
+            let records = definitions.iter().take(listed).map(|definition| {
+                named("symbol", definition)
+                    .optional("owner", definition.owner)
+                    .optional("in", holder(&mut open, definition))
+                    .attr("kind", kind(definition.kind))
+                    .attr("lines", format!("{}-{}", definition.line, definition.end_line))
+                    .optional("sig", definition.signature.map(flat))
+                    .close()
+            });
             element
                 .attr("symbols", definitions.len())
-                .children(definitions.iter().map(|definition| {
-                    named("symbol", definition)
-                        .optional("owner", definition.owner)
-                        .optional("in", holder(&mut open, definition))
-                        .attr("kind", kind(definition.kind))
-                        .attr("lines", format!("{}-{}", definition.line, definition.end_line))
-                        .optional("sig", definition.signature.map(flat))
-                        .close()
-                }))
+                .optional("shown", cut.then_some(listed))
+                .children(records.chain(cut.then(|| LIMIT_CUT.to_owned())))
         }
     }
 }
