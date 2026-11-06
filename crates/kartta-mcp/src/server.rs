@@ -564,7 +564,10 @@ impl Server {
                        by 'excludes'. A search scoped with non-empty 'includes' and omitted 'excludes' covers exactly \
                        what it includes. Returns a <grep> envelope: one <file path=..> block per matched file with \
                        'NUMBER:text' match lines (and 'NUMBER-text' context when context_lines is set), capped at \
-                       max_results match lines (default 100) spent in file-path order. A line longer than 1024 \
+                       max_results match lines (default 100) spent in file-path order. Context fills the lines up to \
+                       40,000 bytes: past that every match keeps the most context lines a side that fit, \
+                       context_shown= beside context_lines= says how many, and a last line says so; a match line is \
+                       never dropped. A line longer than 1024 \
                        bytes is cut around its match and marked \
                        [... omitted N bytes]. Binary files and files over 4 MiB are skipped and counted in binary= \
                        and oversized=; unreadable files are listed in <failures>, a path: error line each, quoted as \
@@ -604,11 +607,12 @@ impl Server {
             }
             None => None,
         };
+        let context_lines = p.context_lines.unwrap_or_default();
         stop_on(request.ct.cancelled(), |cancel| {
             self.answer(move |indexed| {
                 let index = indexed.engine.index();
                 let mut options = GrepOptions::default()
-                    .context(p.context_lines.unwrap_or_default())
+                    .context(render::grep_context(context_lines))
                     .limit(p.max_results.map_or(GREP_MATCHES, NonZeroUsize::get))
                     .max_line_bytes(GREP_LINE_BYTES)
                     .max_file_bytes(GREP_FILE_BYTES)
@@ -624,7 +628,12 @@ impl Server {
                     index,
                     globs: p.includes.as_deref().unwrap_or_default(),
                 };
-                Ok(render::grep(&p.patterns, &matches, &includes))
+                Ok(render::grep(
+                    &p.patterns,
+                    &matches,
+                    &includes,
+                    context_lines,
+                ))
             })
         })
         .await

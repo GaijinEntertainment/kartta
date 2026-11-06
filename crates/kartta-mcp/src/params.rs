@@ -367,7 +367,9 @@ pub(crate) struct GrepParams {
     #[serde(default)]
     pub(crate) case_insensitive: Option<bool>,
     /// Lines of context around each match, like grep -C. Omitted = 0 (matches only). Context lines do not count
-    /// toward max_results.
+    /// toward max_results. Context fills the answer's lines up to 40,000 bytes: past that, every match keeps the most
+    /// context lines a side that fit, and context_shown= says how many. Match lines are never dropped, so matches that
+    /// alone pass 40,000 bytes answer with no context.
     #[serde(default)]
     pub(crate) context_lines: Option<usize>,
     /// Positive cap on match lines across all files, spent in file-path order. Omitted or null = 100. Zero and

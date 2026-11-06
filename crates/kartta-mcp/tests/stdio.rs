@@ -579,6 +579,129 @@ fn grep_answers_lines_with_context_and_counts_what_it_did_not_cover() {
     assert!(client.call("grep", &json!({"patterns": [" "]})).is_error);
 }
 
+/// Line `number` of a 3,000-line file whose every thousandth line is a match of `needle`.
+fn long_file_line(number: usize) -> String {
+    if number.is_multiple_of(1000) {
+        format!("needle {number}")
+    } else {
+        format!("filler line {number:>4} of the long generated file")
+    }
+}
+
+/// The most context lines a side whose lines, the matches' with them, fit 40,000 bytes in the long file's answer.
+fn long_file_context_that_fits() -> usize {
+    let answered = |number: usize| format!("{number}-{}\n", long_file_line(number)).len();
+    let mut spent: usize = [1000, 2000, 3000]
+        .iter()
+        .map(|&number| format!("{number}:{}\n", long_file_line(number)).len())
+        .sum();
+    (1..1000)
+        .take_while(|&side| {
+            spent += [
+                1000 - side,
+                1000 + side,
+                2000 - side,
+                2000 + side,
+                3000 - side,
+            ]
+            .into_iter()
+            .map(answered)
+            .sum::<usize>();
+            spent <= 40_000
+        })
+        .count()
+}
+
+#[test]
+fn grep_cuts_every_match_s_context_to_the_most_lines_a_side_that_fit_its_answer() {
+    let tree = go_module();
+    let line = long_file_line;
+    let text: String = (1..=3000).map(|number| line(number) + "\n").collect();
+    std::fs::write(tree.path().join("long.txt"), text).expect("the file is written");
+    let fits = long_file_context_that_fits();
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+    let grep = |client: &mut Client, context_lines: usize| {
+        client.answer(
+            "grep",
+            &json!({"patterns": ["needle"], "includes": ["long.txt"], "context_lines": context_lines}),
+        )
+    };
+
+    let cut = grep(&mut client, 100_000);
+    let shown: usize = cut
+        .split_once("context_shown=\"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(shown, _)| shown.parse().expect("a count"))
+        .expect("the answer says how much context it shows");
+    let whole = grep(&mut client, shown);
+    let past = grep(&mut client, shown + 1);
+
+    assert!(cut.len() < 50_000, "{} bytes", cut.len());
+    assert_eq!(
+        shown, fits,
+        "the most lines a side whose lines, the matches' with them, fit 40,000 bytes"
+    );
+    assert_eq!(
+        cut.replacen(
+            &format!(" context_lines=\"100000\" context_shown=\"{shown}\""),
+            "",
+            1
+        )
+        .replacen(
+            "\nthe answer's size cut each match's context to context_shown lines a side - a narrower includes \
+             or a lower max_results shows more of it",
+            "",
+            1
+        ),
+        whole,
+        "the cut answer is the answer at the context it shows"
+    );
+    assert!(!whole.contains("context_shown"), "{whole}");
+    for side in [1000 - fits, 2000 + fits, 3000 - fits] {
+        assert!(
+            whole.contains(&format!("\n{side}-{}\n", line(side))),
+            "the context line {side} is shown"
+        );
+    }
+    assert!(
+        !whole.contains(&format!("\n{}-", 1000 - fits - 1)),
+        "the line past the context is not"
+    );
+    assert!(
+        past.contains(&format!(
+            "context_lines=\"{}\" context_shown=\"{shown}\"",
+            shown + 1
+        )),
+        "one line more a side does not fit"
+    );
+}
+
+#[test]
+fn grep_keeps_every_match_whose_lines_alone_pass_the_answer_s_size_and_shows_no_context() {
+    let tree = go_module();
+    let wide = format!("wide {}\nfiller\n", "x".repeat(1000)).repeat(50);
+    std::fs::write(tree.path().join("wide.txt"), wide).expect("the file is written");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer(
+        "grep",
+        &json!({"patterns": ["wide"], "includes": ["wide.txt"], "context_lines": 1}),
+    );
+
+    assert!(
+        answer.contains("matches=\"50\" context_lines=\"1\" context_shown=\"0\""),
+        "{answer}"
+    );
+    assert_eq!(
+        answer.matches(":wide ").count(),
+        50,
+        "every match is listed"
+    );
+    assert!(!answer.contains("-filler"), "no context line fits");
+}
+
 #[test]
 fn grep_echoes_each_pattern_on_a_line_of_its_own() {
     let tree = go_module();
