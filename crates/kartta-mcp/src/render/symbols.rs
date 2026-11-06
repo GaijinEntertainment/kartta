@@ -2,7 +2,8 @@ use std::fmt::Write;
 use std::io;
 
 use kartta::{
-    Definition, Dependents, Hit, Implementations, Nearness, Selector, Source, SymbolKind,
+    Definition, Dependents, Hit, Implementations, Nearness, OutsideImplementations, Selector,
+    Source, SymbolKind,
 };
 
 use super::{
@@ -266,6 +267,44 @@ pub(crate) fn implementations(
         })
     });
     element.children(selection.into_iter().chain(types))
+}
+
+/// The `find_implementations` answer for a parent no searched graph holds a type of, `outside_graph` on its envelope:
+/// a `<type/>` per type that names the parent, in path order, after a note that their own implementors were not
+/// walked.
+pub(crate) fn implementations_outside(
+    ask: &CallersAsk<'_>,
+    found: &[(&str, OutsideImplementations<'_>)],
+) -> String {
+    let count: usize = found.iter().map(|(_, found)| found.found.len()).sum();
+    let total: usize = found.iter().map(|(_, found)| found.total).sum();
+    let namesakes: usize = found.iter().map(|(_, found)| found.namesakes).sum();
+    let element = Element::new("implementations")
+        .attr("of", ask.selector.name)
+        .optional("languages", ask.languages)
+        .attr("count", count)
+        .optional("total", (total > count).then_some(total))
+        .flag("outside_graph", true)
+        .count("namesakes", namesakes);
+    let mut note = "no indexed type answers to this name - these types name it as a parent, and find_implementations \
+                    of each lists its own implementors"
+        .to_owned();
+    if namesakes > 0 {
+        note.push_str(
+            "; namesakes= counts the other indexed types and namespaces of its last segment, which the lookup \
+             reached from none of these parents, though one may still mean one through what the lookup does not \
+             follow, as a C++ namespace alias",
+        );
+    }
+    let types = found.iter().flat_map(|(family, found)| {
+        found.found.iter().map(move |symbol| {
+            named("type", symbol)
+                .attr("lang", *family)
+                .attr("loc", loc(symbol.file, symbol.line))
+                .close()
+        })
+    });
+    element.children(std::iter::once(note).chain(types))
 }
 
 /// The `find_importers` answer: a `<file/>` per file that includes the file, nearest first, `depth` marking one that
