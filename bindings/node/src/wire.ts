@@ -641,9 +641,10 @@ export type References = {
 	type_uses_unrecorded?: boolean;
 	/**
 	 * Present, and `true`, when `symbol` is a field, a variable or a constant of a kind whose reads and writes its graph
-	 * records nowhere, or a variable or a constant local to a function body, whose reads and writes no graph records:
-	 * `sites` then hold only uses that spell the name as something else, such as a call, never one of its reads or
-	 * writes, so an empty `sites` does not show that nothing uses the symbol.
+	 * records nowhere, or a variable, a constant or a function local to a function body, whose reads and writes, a
+	 * function's uses as a value among them, no graph records: `sites` then hold only uses that spell the name as
+	 * something else, such as a call, never one of its reads or writes, so an empty `sites` does not show that nothing
+	 * uses the symbol.
 	 */
 	data_uses_unrecorded?: boolean;
 };
