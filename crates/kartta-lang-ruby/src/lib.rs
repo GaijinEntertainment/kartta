@@ -166,6 +166,10 @@ const CONVENTIONS: Conventions = {
     conventions.bare_receivers = BareReceivers::Constants;
     conventions.type_uses = TypeUses::Nowhere;
     conventions.unrecorded_data = &[SymbolKind::Constant];
+    conventions.includers = Some(
+        "the files whose require or require_relative with no receiver and a plain string names this file, and not a \
+         class that includes a module it declares",
+    );
     conventions
 };
 
