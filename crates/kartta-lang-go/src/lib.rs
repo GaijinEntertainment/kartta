@@ -150,6 +150,10 @@ const CONVENTIONS: Conventions = {
     conventions.twins = Twins::Package(BuiltApart(build::built_apart));
     conventions.library_interface_methods = runtime::INTERFACE_METHODS;
     conventions.implements = Implements::MethodSets(SameMethod(method_type::same_method));
+    conventions.includers = Some(
+        "the files whose import names this file's package, the same ones for every file of the package and none for \
+         a _test.go file",
+    );
     conventions
 };
 
