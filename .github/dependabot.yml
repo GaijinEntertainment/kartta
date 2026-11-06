@@ -5,6 +5,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # constraint: Dependabot's cargo default moves the lock alone while a requirement admits the new version, which CI
+    # fails
+    versioning-strategy: increase
     groups:
       cargo-deps:
         update-types:
