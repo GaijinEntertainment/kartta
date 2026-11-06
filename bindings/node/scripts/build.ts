@@ -1,6 +1,7 @@
 /**
  * Builds the addon of crates/kartta-node for this host and puts it where the package loads it from, as
- * `kartta.<target>.node` beside package.json. `--release` builds it optimized.
+ * `kartta.<target>.node` beside package.json. Its arguments go to `cargo build`: `--release` builds it optimized, and
+ * `--profile dist` builds what a release ships.
  *
  * @module
  */
@@ -18,14 +19,13 @@ type CargoMessage = {
 };
 
 const host = target();
-const profile = process.argv.includes('--release') ? ['--release'] : [];
 // constraint: a Rust target for musl links the C library statically and builds no cdylib until told not to
 const env = host.endsWith('-musl')
 	? {...process.env, RUSTFLAGS: `${process.env.RUSTFLAGS ?? ''} -C target-feature=-crt-static`}
 	: process.env;
 const messages = execFileSync(
 	'cargo',
-	['build', '--locked', '-p', 'kartta-node', '--message-format=json-render-diagnostics', ...profile],
+	['build', '--locked', '-p', 'kartta-node', '--message-format=json-render-diagnostics', ...process.argv.slice(2)],
 	{encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 1 << 26},
 );
 const library = messages
