@@ -102,6 +102,9 @@ const CALLER_HOPS: u32 = 3;
 /// How many symbols a walk over callers or callees reaches before it stops, the symbol it starts from included.
 const CALLERS_MAX_SYMBOLS: usize = 500;
 
+/// How many callers a `find_callers` match lists, nearest first, when the call names no limit.
+const CALLERS_LISTED: usize = 100;
+
 /// How many hops `find_callees` walks when the call names none: a body's callees fan out at every hop.
 const CALLEE_HOPS: u32 = 1;
 
@@ -1423,7 +1426,10 @@ impl Server {
                        a name resolving in several languages yields one match per language. Returns a <callers> \
                        envelope of <match lang=..> records: each the resolved symbol with its loc, the caller count \
                        within the hops limit, a reach-band grade, and flat <ref hops=N> records (hops=1 = direct, \
-                       caller-ward distance from the target) carrying the caller's loc, at= for the line of its call, \
+                       caller-ward distance from the target), nearest first and at most 'limit' (default 100), where \
+                       shown= on the match and a line after the refs say the limit cut them and count= and the grade \
+                       still count every caller, each \
+                       carrying the caller's loc, at= for the line of its call, \
                        and an explicit role= (\"consumer\" for a real caller, or test/entry/generated for a reach \
                        artifact); 'role' keeps the callers of one role - the root then echoes role= and each <match> \
                        counts its callers per role in consumers, tests, entries, and generated; weakly resolved edges \
@@ -1502,7 +1508,8 @@ impl Server {
                 role: p.role.map(CallerRole::as_str),
                 built: indexed.languages.as_deref(),
             };
-            Ok(render::callers(&ask, &walks, &unmatched))
+            let listed = p.limit.map_or(CALLERS_LISTED, NonZeroUsize::get);
+            Ok(render::callers(&ask, &walks, &unmatched, listed))
         })
         .await
     }
