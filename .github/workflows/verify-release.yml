@@ -1,0 +1,148 @@
+name: Verify a release
+
+# Run by hand once a release is out (RELEASING.md): each install check of the cut, from the public registries and the
+# GitHub release, on every target of the support matrix (ADR 4.46).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The released version, without the `v`
+        required: true
+        type: string
+      run:
+        description: >-
+          The id of a Release run, whose artifacts then stand in for the GitHub release and npm, and the dispatched
+          ref for crates.io and the Go module proxy: dispatch on the branch or tag that run built
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  # `gh run download` reads the artifacts of another run.
+  actions: read
+
+env:
+  VERSION: ${{ inputs.version }}
+  RELEASE_RUN: ${{ inputs.run }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  checksums:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: fetch every tarball and SHA256SUMS
+        run: >-
+          scripts/release-check.sh fetch "$VERSION" sums SHA256SUMS aarch64-apple-darwin x86_64-pc-windows-msvc
+          x86_64-pc-windows-gnu x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-unknown-linux-musl
+          aarch64-unknown-linux-musl
+      - run: scripts/release-check.sh sums sums
+
+  # Each check runs past a failed one, so one run reports every check of a target.
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        # `addon` names the target's npm package, `kartta-<addon>` (ADR 4.40).
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-26
+            addon: darwin-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-2025-vs2026
+            addon: win32-x64-msvc
+            # ADR 4.60: the archive the Go module links on Windows, where cgo's MinGW refuses the MSVC one.
+            go-target: x86_64-pc-windows-gnu
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+            addon: linux-x64-gnu
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            addon: linux-arm64-gnu
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # constraint: Windows would run a step in PowerShell, and the checks are a POSIX shell script
+        shell: bash
+    env:
+      ADDON: ${{ matrix.addon }}
+      GO_TARGET: ${{ matrix.go-target || matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: bindings/node/.nvmrc
+      - name: fetch the archive and the packs
+        run: scripts/release-check.sh fetch "$VERSION" assets "$GO_TARGET" npm-kartta "npm-$ADDON"
+      - name: cargo install kartta-mcp
+        run: scripts/release-check.sh mcp "$VERSION"
+      - name: build a crate on kartta
+        if: ${{ !cancelled() }}
+        run: scripts/release-check.sh crate "$VERSION"
+      # After the Rust checks, so the MSVC builds find no MinGW on PATH. The go job's MinGW-w64 of ci.yml.
+      - name: install MinGW-w64
+        if: ${{ !cancelled() && endsWith(env.GO_TARGET, '-windows-gnu') }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          archive=x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev1.7z
+          curl -fsSLO "https://github.com/niXman/mingw-builds-binaries/releases/download/15.2.0-rt_v13-rev1/$archive"
+          echo "029bd02b5bce7c10fd9476165b3fe178239fe1838ad62516b5c3e0921bb283cf  $archive" | sha256sum -c
+          7z x -bd -y "$archive" | tail -3
+          cygpath -w "$PWD/mingw64/bin" >> "$GITHUB_PATH"
+      - name: run a Go program on the module
+        if: ${{ !cancelled() }}
+        run: scripts/release-check.sh go "$VERSION" "assets/kartta-ffi-$VERSION-$GO_TARGET.tar.gz"
+      - name: install the npm package
+        if: ${{ !cancelled() }}
+        run: scripts/release-check.sh npm "$VERSION" assets
+
+  # The checks of `install` inside musl images, which the Release workflow builds these targets in.
+  # constraint: the runner refuses a JavaScript action in an Alpine container on arm64, so each step enters the image
+  install-musl:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-24.04
+            addon: linux-x64-musl
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            addon: linux-arm64-musl
+    runs-on: ${{ matrix.os }}
+    env:
+      ADDON: ${{ matrix.addon }}
+      TARGET: ${{ matrix.target }}
+      RUST_MUSL: rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+      NODE_MUSL: node:24.22.0-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: false
+      - name: fetch the archive and the packs
+        run: scripts/release-check.sh fetch "$VERSION" assets "$TARGET" npm-kartta "npm-$ADDON"
+      - name: cargo install kartta-mcp
+        run: docker run --rm -v "$PWD:/src" -w /src -e RELEASE_RUN "$RUST_MUSL" scripts/release-check.sh mcp "$VERSION"
+      - name: build a crate on kartta
+        if: ${{ !cancelled() }}
+        run: >-
+          docker run --rm -v "$PWD:/src" -w /src -e RELEASE_RUN "$RUST_MUSL" scripts/release-check.sh crate "$VERSION"
+      # The runner's Go, as the go-musl job of ci.yml mounts it, on the image's musl C toolchain.
+      - name: run a Go program on the module
+        if: ${{ !cancelled() }}
+        run: >-
+          docker run --rm -v "$PWD:/src" -v "$(go env GOROOT):/usr/local/go:ro" -w /src -e RELEASE_RUN "$RUST_MUSL"
+          sh -c 'PATH=/usr/local/go/bin:$PATH exec scripts/release-check.sh go "$@"' sh
+          "$VERSION" "assets/kartta-ffi-$VERSION-$TARGET.tar.gz"
+      - name: install the npm package
+        if: ${{ !cancelled() }}
+        run: >-
+          docker run --rm -v "$PWD:/src" -w /src -e RELEASE_RUN "$NODE_MUSL"
+          scripts/release-check.sh npm "$VERSION" assets
