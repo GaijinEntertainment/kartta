@@ -104,6 +104,8 @@ const CONVENTIONS: Conventions = {
     conventions.unrecorded_data = &[SymbolKind::Field];
     conventions.value_uses = ValueUses::ImportedThenReached;
     conventions.include_reach = IncludeReach::Script;
+    conventions.includers =
+        Some("the files whose include, or #include inside an hlsl block, names this file");
     conventions
 };
 
