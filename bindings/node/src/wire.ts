@@ -710,7 +710,7 @@ export type Source = {
 	first_line: number;
 	lines: number;
 	text: string;
-	/** The lines of `text` the byte cap cut, each with its length before the cut. */
+	/** The lines of `text` the byte cap cut, each with how many bytes of it the cut left out. */
 	cut_lines: Array<{line: number; bytes: number}>;
 	/** The file's size differs from the size the build read, so the lines may have moved. */
 	resized: boolean;
