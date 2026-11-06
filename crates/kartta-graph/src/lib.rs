@@ -79,7 +79,7 @@ pub use crate::dependents::{Dependent, Dependents};
 pub use crate::graph::{
     Candidate, Definition, Definitions, Found, Graph, Nearness, Selector, is_parent, is_referent,
 };
-pub use crate::implementations::{Implementations, Implementor};
+pub use crate::implementations::{Implementations, Implementor, OutsideImplementations};
 pub use crate::resolution::{Miss, Misses, Resolution, Unbound};
 pub use crate::search::{Hit, Search};
 pub use crate::stats::Stats;
