@@ -1005,7 +1005,10 @@ impl Server {
                        function use find_callers. Returns an <importers> envelope, one <file/> record per downstream \
                        file, nearest first; depth=N marks one that reaches the file through N-1 others, and \
                        unexpanded= counts the importers at the 3-hop limit whose own importers were not followed. A \
-                       Go file counts every importer of its package. Requires index_repo first."
+                       Go file counts every importer of its package. For a file a code graph holds, a <note>, the \
+                       whole text where no file imports it, says what the file's language counts as an importer: a \
+                       Rust file counts the mod declarations that load it, not the files that use its items; for any \
+                       other file the text says why no graph holds it. Requires index_repo first."
     )]
     async fn find_importers(
         &self,
@@ -1016,8 +1019,15 @@ impl Server {
             let claimed = indexed.engine.graph_of(file);
             let dependents =
                 claimed.and_then(|(_, graph)| graph.dependents(file, IMPORTER_DEPTH, 0));
+            let counted =
+                claimed.and_then(|(family, graph)| Some((family, graph.conventions().includers?)));
             let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));
-            Ok(render::importers(file, graphless, dependents.as_ref()))
+            Ok(render::importers(
+                file,
+                graphless,
+                dependents.as_ref(),
+                counted,
+            ))
         })
         .await
     }
