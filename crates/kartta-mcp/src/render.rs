@@ -5,7 +5,7 @@ mod files;
 mod symbols;
 mod unused;
 
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
 use kartta::{
     Definition, Engine, EngineChange, Entry, EntryKind, Hit, Region, Resolution, Selector,
@@ -54,6 +54,11 @@ fn span(definition: &Definition<'_>) -> String {
     } else {
         loc(file, line)
     }
+}
+
+/// Appends the mark of a line cut before its end, with the bytes the cut left out.
+fn push_cut_end(body: &mut String, bytes: usize) {
+    let _ = write!(body, " [... omitted {bytes} bytes]");
 }
 
 /// Why no code graph answers for a file the index holds.
