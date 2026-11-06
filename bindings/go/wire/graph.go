@@ -348,7 +348,7 @@ type Source struct {
 	Resized bool `json:"resized"`
 }
 
-// CutLine is a line the byte cap cut, and its length before the cut.
+// CutLine is a line the byte cap cut, and how many bytes of it the cut left out.
 type CutLine struct {
 	Line  int `json:"line"`
 	Bytes int `json:"bytes"`
