@@ -167,6 +167,7 @@ fn daslang_conventions_are_the_default_but_macros_value_uses_type_uses_and_recei
         SymbolKind::Variable,
         SymbolKind::Constant,
     ];
+    expected.includers = Some("the files whose require or include names this file");
 
     assert_eq!(Daslang::new().conventions(), expected);
 }
