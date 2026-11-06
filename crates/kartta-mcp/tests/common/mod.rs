@@ -12,6 +12,8 @@ pub(crate) struct Client {
     input: ChildStdin,
     output: BufReader<ChildStdout>,
     next_id: u64,
+    /// The instructions the server's `initialize` answer carries.
+    pub(crate) instructions: String,
 }
 
 /// What one tool call answered: the text an agent reads, and whether it is a tool error.
@@ -95,6 +97,7 @@ impl Client {
             input,
             output,
             next_id: 1,
+            instructions: String::new(),
         };
         let initialized = client.request(
             "initialize",
@@ -105,6 +108,10 @@ impl Client {
             }),
         );
         assert_eq!(initialized["serverInfo"]["name"], "kartta-mcp");
+        initialized["instructions"]
+            .as_str()
+            .expect("the server sends instructions")
+            .clone_into(&mut client.instructions);
         client.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
         client
     }
