@@ -31,6 +31,9 @@ pub(crate) const EMPTY_LANGUAGES: &str = "[]";
 /// How many close alternatives an unknown name answers with.
 pub(crate) const SUGGESTIONS: usize = 5;
 
+/// The last line of a list a call's `limit` cut, after the records it lists.
+const LIMIT_CUT: &str = "the limit cut this list - a higher limit lists the rest";
+
 /// How many of the build's errors the index answer lists before it counts the rest.
 const LISTED_ERRORS: usize = 5;
 
