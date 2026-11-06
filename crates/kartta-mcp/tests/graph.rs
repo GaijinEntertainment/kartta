@@ -2463,6 +2463,20 @@ fn find_callers_lists_a_call_through_an_interface_the_owner_implements() {
 }
 
 #[test]
+fn a_language_of_a_family_echoes_the_family_it_searched() {
+    let answers = answers_over_an_interface(&[(
+        "find_callers",
+        json!({"name": "Kernel.boot", "languages": ["javascript"]}),
+    )]);
+
+    assert!(
+        answers[0].starts_with(r#"<callers of="Kernel.boot" languages="jsts" matches="1">"#),
+        "javascript searches the jsts graph, which holds ts/runs.ts: {}",
+        answers[0]
+    );
+}
+
+#[test]
 fn find_callers_lists_no_call_through_an_interface_the_owner_does_not_implement() {
     let answers = answers_over_an_interface(&[
         ("find_callers", json!({"name": "App\\Plain::boot"})),

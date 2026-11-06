@@ -189,6 +189,8 @@ pub(crate) struct FindCallersParams {
     /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
     /// listing the accepted set. A valid name absent from this repo contributes no match. An empty list selects no
     /// language, so the answer is empty. Null is equivalent to omission.
+    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
+    /// graph, and the answer's languages= names the families searched.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Caller-hop limit from 1 through 4294967295: 1 = direct callers only. Omitted or null uses the default 3.
@@ -240,6 +242,8 @@ pub(crate) struct FindCalleesParams {
     /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
     /// listing the accepted set. A valid name absent from this repo contributes no match. An empty list selects no
     /// language, so the answer is empty. Null is equivalent to omission.
+    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
+    /// graph, and the answer's languages= names the families searched.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Callee-hop limit from 1 through 4294967295: 1 = direct callees only. Omitted or null uses the default 1. Each
@@ -303,6 +307,8 @@ pub(crate) struct FindUnusedParams {
     /// e.g. ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
     /// listing the accepted set. A valid name absent from this repo contributes nothing. An empty list selects no
     /// language, so the answer is empty. Null is equivalent to omission.
+    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
+    /// graph, and the answer's languages= names the families searched.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Repo-relative path prefix with forward slashes: only definitions in files whose path starts with it are judged
@@ -405,10 +411,11 @@ pub(crate) struct FindSymbolsParams {
     /// query is a tool error.
     pub(crate) query: String,
     /// Optional language filter (multiselect). Omit to search every indexed language; name one or more to narrow when
-    /// you know where the symbol lives, e.g. ["go"] or ["typescript", "tsx"]. Lowercase language names - the set
+    /// you know where the symbol lives, e.g. ["go"] or ["jsts"]. Lowercase language names - the set
     /// index_repo / index_stats report; anything else is a tool error listing the accepted set. A valid name absent
     /// from this repo just contributes no hits. An empty list selects no language, so the answer is empty. Null is
-    /// equivalent to omission.
+    /// equivalent to omission. A language of a family filters as the whole family, as typescript, tsx and javascript
+    /// each search the jsts graph, and the answer's languages= names the families searched.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Positive maximum hits across all searched languages. Omitted or null uses the default 20. Zero and negatives
@@ -455,6 +462,8 @@ pub(crate) struct FindCallPathParams {
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
     /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
     /// match. An empty list selects no language, so the answer is empty. Null is equivalent to omission.
+    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
+    /// graph, and the answer's languages= names the families searched.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Longest chain searched, in calls, from 1 through 4294967295: 1 finds only a direct call. Omitted or null uses
@@ -497,6 +506,8 @@ pub(crate) struct FindReferencesParams {
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
     /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
     /// match. An empty list selects no language, so the answer is empty. Null is equivalent to omission.
+    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
+    /// graph, and the answer's languages= names the families searched.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Drop sites the resolver is less sure about than this floor: "any" (the default) keeps every site, "likely"
@@ -552,6 +563,8 @@ pub(crate) struct ReadDefinitionsParams {
     /// the set index_repo / index_stats report; anything else is a tool error listing the accepted set. A valid name
     /// absent from this repo contributes no definitions. An empty list selects no language, so every name answers no
     /// definition. Null is equivalent to omission.
+    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
+    /// graph, and the answer's languages= names the families searched.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Positive maximum definitions per name. Omitted or null uses 3. Zero and negatives are rejected.
@@ -585,6 +598,8 @@ pub(crate) struct FindImplementationsParams {
     /// contract's language, e.g. ["go"]. Lowercase language names - the set index_repo / index_stats report; anything
     /// else is a tool error listing the accepted set. A valid name absent from this repo contributes no results. An
     /// empty list selects no language, so the answer is empty. Null is equivalent to omission.
+    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
+    /// graph, and the answer's languages= names the families searched.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
 }
