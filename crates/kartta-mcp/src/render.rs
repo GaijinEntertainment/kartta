@@ -35,6 +35,13 @@ pub(crate) const SUGGESTIONS: usize = 5;
 /// The last line of a list a call's `limit` cut, after the records it lists.
 const LIMIT_CUT: &str = "the limit cut this list - a higher limit lists the rest";
 
+/// The last line of `what`, a list or a body a fixed cap cut, after its records: `way`, the call that lists the rest,
+/// or `None` where no parameter or call does.
+fn fixed_cut(what: &str, way: Option<&str>) -> String {
+    let way = way.unwrap_or("no parameter or call");
+    format!("a fixed cap cut {what} - {way} lists the rest")
+}
+
 /// How many of the build's errors the index answer lists before it counts the rest.
 const LISTED_ERRORS: usize = 5;
 
