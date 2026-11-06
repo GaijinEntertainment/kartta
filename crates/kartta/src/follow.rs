@@ -64,7 +64,7 @@ pub struct Watch {
 /// [`Watch::off`] says why.
 ///
 /// An engine built without [`BuildOptions::stamps`](kartta_fs::BuildOptions::stamps) reads every file again and builds
-/// every graph again on each refresh, so an engine that follows its tree is built with stamps.
+/// every graph again on each refresh, so [`Engine::build_watched`] refuses to build an engine without them.
 #[derive(Debug)]
 pub struct Follower {
     watcher: Watcher,

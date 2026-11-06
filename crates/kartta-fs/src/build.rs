@@ -167,6 +167,7 @@ pub struct BuildOptions {
 /// refreshes when the index has no ids left, and
 /// [`BuildError::Misspelled`] by [`Index::refresh_paths`](crate::Index::refresh_paths) for a path not spelled as the
 /// index spells one; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
+/// [`BuildError::WatchWithoutStamps`] is a consumer's, for a watched build it was asked to run without stamps.
 /// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names,
 /// so one unreadable directory yields a partial index rather than none.
 #[derive(Debug, thiserror::Error)]
@@ -260,6 +261,16 @@ pub enum BuildError {
         /// What is wrong with its spelling.
         fault: PathFault,
     },
+    /// A build asked to follow its tree through a watcher was not given [`BuildOptions::stamps`]. Each change the
+    /// watcher reports is taken in by a refresh, and without stamps a refresh reads again every file the build read.
+    ///
+    /// Returned before anything is watched or walked, by a watched build that reads files for a visitor, such as the
+    /// `kartta` engine's. The index's own `build_watched` does not return it: an index built with no visitor and no
+    /// content index reads no file, so only its caller knows what a refresh would read.
+    #[error(
+        "cannot follow the tree without stamps: a refresh from each change would read again every file the build read"
+    )]
+    WatchWithoutStamps,
     /// The directory [`BuildOptions::content_cache`] names could not be opened, written, published to or merged, or its
     /// merge could not remove files it should have: merged packs, which then hold their entries twice, temporary files
     /// of killed builds, or packs it does not map.
@@ -278,7 +289,7 @@ pub enum BuildError {
 
 impl BuildError {
     /// The word for the failure in an answer: `walk`, `thread_pool`, `ignore`, `name`, `read`, `content_index`,
-    /// `cancelled`, `content_ids_exhausted`, `misspelled` or `cache`.
+    /// `cancelled`, `content_ids_exhausted`, `misspelled`, `watch_without_stamps` or `cache`.
     #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
@@ -291,6 +302,7 @@ impl BuildError {
             Self::Stopped(_) | Self::Cancelled => "cancelled",
             Self::ContentIdsExhausted => "content_ids_exhausted",
             Self::Misspelled { .. } => "misspelled",
+            Self::WatchWithoutStamps => "watch_without_stamps",
             Self::Cache { .. } => "cache",
         }
     }
@@ -303,7 +315,8 @@ impl BuildError {
     /// could not be formed.
     ///
     /// Every collected error names a path. Only the returned [`BuildError::ThreadPool`], [`BuildError::Stopped`],
-    /// [`BuildError::Cancelled`], [`BuildError::ContentIdsExhausted`] and [`BuildError::Misspelled`] do not.
+    /// [`BuildError::Cancelled`], [`BuildError::ContentIdsExhausted`], [`BuildError::Misspelled`] and
+    /// [`BuildError::WatchWithoutStamps`] do not.
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
         match self {
@@ -317,7 +330,8 @@ impl BuildError {
             | Self::Stopped(_)
             | Self::Cancelled
             | Self::ContentIdsExhausted
-            | Self::Misspelled { .. } => None,
+            | Self::Misspelled { .. }
+            | Self::WatchWithoutStamps => None,
         }
     }
 
@@ -334,6 +348,7 @@ impl BuildError {
             Self::Cache { .. } => 8,
             Self::ThreadPool { .. } => 9,
             Self::Stopped(_) => 10,
+            Self::WatchWithoutStamps => 11,
         }
     }
 }
@@ -450,6 +465,10 @@ mod tests {
 
         assert_eq!(misspelled.label(), "misspelled");
         assert_eq!(BuildError::Cancelled.label(), "cancelled");
+        assert_eq!(
+            BuildError::WatchWithoutStamps.label(),
+            "watch_without_stamps"
+        );
         assert_eq!(
             BuildError::ContentIdsExhausted.label(),
             "content_ids_exhausted"
