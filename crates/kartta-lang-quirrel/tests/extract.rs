@@ -128,6 +128,9 @@ fn a_bare_call_in_a_member_reaches_the_class_first() {
     expected.receiver_members = ReceiverMembers::InheritedUpToFields;
     expected.own_type_receivers = Some(&["this"]);
     expected.unlisted_receivers = UnlistedReceivers::OwnMemberFieldsAsGuess;
+    expected.includers = Some(
+        "the scripts whose import, from ... import, require or require_optional of a string literal names this file",
+    );
 
     assert_eq!(conventions, expected);
 }

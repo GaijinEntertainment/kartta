@@ -128,6 +128,9 @@ const CONVENTIONS: Conventions = {
     conventions.receiver_members = ReceiverMembers::InheritedUpToFields;
     conventions.own_type_receivers = Some(&["this"]);
     conventions.unlisted_receivers = UnlistedReceivers::OwnMemberFieldsAsGuess;
+    conventions.includers = Some(
+        "the scripts whose import, from ... import, require or require_optional of a string literal names this file",
+    );
     conventions
 };
 
