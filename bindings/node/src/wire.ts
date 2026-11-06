@@ -920,6 +920,13 @@ export type Dependents = FileState & {
 	truncated?: boolean;
 	turned_away?: number;
 	unexpanded?: number;
+	/**
+	 * What the graph records as including a file, in words that follow "counts" and call the file asked about "this
+	 * file", such as a Rust file's bodiless `mod` declarations and not the files that name its items in a `use`. `found`
+	 * holds those, so a file that uses this one by another form is not among them. Absent where the graph's language
+	 * states none.
+	 */
+	includers?: string;
 };
 
 /** The params of `analyze_segment`. */

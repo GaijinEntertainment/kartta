@@ -18,6 +18,7 @@
       ],
       "graph": "cpp",
       "held": true,
+      "includers": "the files whose #include names this file, and none through a #include of a macro",
       "truncated": false,
       "turned_away": 0,
       "unexpanded": 0
