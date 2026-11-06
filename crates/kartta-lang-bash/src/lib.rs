@@ -71,6 +71,10 @@ const CONVENTIONS: Conventions = {
     let mut conventions = Conventions::DEFAULT;
     conventions.values_are_call_targets = false;
     conventions.unrecorded_data = &[SymbolKind::Variable];
+    conventions.includers = Some(
+        "the scripts whose source or . command names this file by a literal path, or by the literal tail after the \
+         expansions it starts with, as in \"$DIR/lib/x.sh\"",
+    );
     conventions
 };
 
