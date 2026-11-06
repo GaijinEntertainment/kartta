@@ -11,7 +11,8 @@ use kartta::{
 
 use super::{
     Asked, Graphless, LIMIT_CUT, Unbuilt, Unmatched, candidate, confidence, edge_role,
-    empty_languages_note, file_element, flat, kind, loc, named, noted, qn, role, span, unresolved,
+    empty_languages_note, file_element, fixed_cut, flat, kind, loc, named, noted, qn, role, span,
+    unresolved,
 };
 use crate::llmxml::Element;
 
@@ -649,6 +650,7 @@ fn widest<'s, 'g>(symbols: &'s [SegmentSymbol<'g>], listed: usize) -> Vec<&'s Se
 fn segment_symbol(symbol: &SegmentSymbol<'_>) -> String {
     let definition = &symbol.definition;
     let blast = &symbol.blast;
+    let line = definition.line;
     named("symbol", definition)
         .attr("kind", kind(definition.kind))
         .attr(
@@ -669,10 +671,22 @@ fn segment_symbol(symbol: &SegmentSymbol<'_>) -> String {
         .children(
             [
                 (symbol.users.total == 0)
-                    .then(|| direct("callers", &symbol.callers, None))
+                    .then(|| {
+                        direct("callers", &symbol.callers, None, || {
+                            format!(
+                                "find_callers of this symbol with path_prefix this file, line {line}, hops 1 and \
+                                 limit {}",
+                                symbol.callers.total
+                            )
+                        })
+                    })
                     .flatten(),
-                direct("users", &symbol.users, None),
-                direct("callees", &symbol.callees, Some(definition.file)),
+                direct("users", &symbol.users, None, || {
+                    format!("find_references of this symbol with path_prefix this file and line {line}")
+                }),
+                direct("callees", &symbol.callees, Some(definition.file), || {
+                    format!("find_callees of this symbol with path_prefix this file and line {line}")
+                }),
             ]
             .into_iter()
             .flatten(),
@@ -788,26 +802,52 @@ fn seed(seed: &Seed<'_>) -> String {
     } else {
         ("callers", "caller_dirs")
     };
+    let cut = |count: usize| {
+        (count > SEED_CALLERS).then(|| {
+            let line = symbol.line;
+            let way = if seed.user_count > 0 {
+                format!("find_references of this seed with path_prefix its file and line {line}")
+            } else {
+                format!(
+                    "find_callers of this seed with path_prefix its file, line {line}, hops 1 and limit {}",
+                    seed.caller_count
+                )
+            };
+            fixed_cut("this list", Some(&way))
+        })
+    };
     let callers = (!seed.consumers.is_empty()).then(|| {
         Element::new(listed)
             .attr("shown", seed.consumers.len().min(SEED_CALLERS))
             .attr("of", seed.consumers.len())
-            .children(seed.consumers.iter().take(SEED_CALLERS).map(|reached| {
-                edge("ref", reached)
-                    .attr("at", loc(reached.symbol.file, reached.line))
-                    .close()
-            }))
+            .children(
+                seed.consumers
+                    .iter()
+                    .take(SEED_CALLERS)
+                    .map(|reached| {
+                        edge("ref", reached)
+                            .attr("at", loc(reached.symbol.file, reached.line))
+                            .close()
+                    })
+                    .chain(cut(seed.consumers.len())),
+            )
     });
     let dirs = (!seed.consumer_dirs.is_empty()).then(|| {
         Element::new(dirs_tag)
             .attr("shown", seed.consumer_dirs.len().min(SEED_CALLERS))
             .attr("of", seed.consumer_dirs.len())
-            .children(seed.consumer_dirs.iter().take(SEED_CALLERS).map(|dir| {
-                Element::new("dir")
-                    .attr("path", dir.dir)
-                    .attr(listed, dir.count)
-                    .close()
-            }))
+            .children(
+                seed.consumer_dirs
+                    .iter()
+                    .take(SEED_CALLERS)
+                    .map(|dir| {
+                        Element::new("dir")
+                            .attr("path", dir.dir)
+                            .attr(listed, dir.count)
+                            .close()
+                    })
+                    .chain(cut(seed.consumer_dirs.len())),
+            )
     });
     element.children(callers.into_iter().chain(dirs))
 }
@@ -825,27 +865,36 @@ fn hotspot(hotspot: &Hotspot<'_>) -> String {
         .close()
 }
 
-/// One side of a symbol's direct calls, its listed refs disclosing the list's cap as `shown` of `of`. Each call is in
-/// `calling_file`, or in the listed symbol's own file when that is the caller.
+/// One side of a symbol's direct calls, its listed refs disclosing the list's cap as `shown` of `of`, and ending with
+/// `way`, the call that lists the rest, when the cap cut them. Each call is in `calling_file`, or in the listed
+/// symbol's own file when that is the caller.
 fn direct(
     tag: &'static str,
     calls: &DirectCalls<'_>,
     calling_file: Option<&str>,
+    way: impl FnOnce() -> String,
 ) -> Option<String> {
     if calls.listed.is_empty() {
         return None;
     }
+    let cut = (calls.total > calls.listed.len()).then(|| fixed_cut("this list", Some(&way())));
     Some(
         Element::new(tag)
             .attr("shown", calls.listed.len())
             .attr("of", calls.total)
             .count("below_confidence", calls.below_confidence)
-            .children(calls.listed.iter().map(|reached| {
-                let file = calling_file.unwrap_or(reached.symbol.file);
-                edge("ref", reached)
-                    .attr("at", loc(file, reached.line))
-                    .close()
-            })),
+            .children(
+                calls
+                    .listed
+                    .iter()
+                    .map(|reached| {
+                        let file = calling_file.unwrap_or(reached.symbol.file);
+                        edge("ref", reached)
+                            .attr("at", loc(file, reached.line))
+                            .close()
+                    })
+                    .chain(cut),
+            ),
     )
 }
 
