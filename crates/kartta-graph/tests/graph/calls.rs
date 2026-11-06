@@ -4726,15 +4726,20 @@ fn references_of_a_body_s_local_value_say_that_no_use_binds_it() {
             Symbol::new("resp", SymbolKind::Constant, 2, 2),
             Symbol::new("retry", SymbolKind::Variable, 3, 3),
             function("parse", 4),
+            member("Reader", "next", SymbolKind::Method, 5),
             Symbol::new("limit", SymbolKind::Constant, 9, 9),
         ],
         Vec::new(),
     );
-    body.local_symbols = vec![SymbolId(1), SymbolId(2), SymbolId(3)];
-    body.local_calls = vec![LocalCall::new(SymbolId(0), SymbolId(2), 5)];
+    body.local_symbols = vec![SymbolId(1), SymbolId(2), SymbolId(3), SymbolId(4)];
+    body.local_calls = vec![
+        LocalCall::new(SymbolId(0), SymbolId(2), 5),
+        LocalCall::new(SymbolId(0), SymbolId(3), 6),
+    ];
     body.uses = vec![
         bare_use(SymbolId(0), "resp", 6),
         bare_use(SymbolId(0), "limit", 7),
+        bare_use(SymbolId(0), "parse", 8),
     ];
 
     let graph = graph(&[body]);
@@ -4754,9 +4759,16 @@ fn references_of_a_body_s_local_value_say_that_no_use_binds_it() {
         (1, 1),
         "a local call of a value lists"
     );
+    let parse = references("parse");
+    assert!(parse.local_value, "a local function is a value");
+    assert_eq!(
+        (parse.total, parse.counts.calls),
+        (1, 1),
+        "a local function's use as a value binds nothing"
+    );
     assert!(
-        !references("parse").local_value,
-        "a local function is no value"
+        !references("next").local_value,
+        "a local type's method is no value"
     );
     let limit = references("limit");
     assert!(!limit.local_value, "a module's constant is no local");
