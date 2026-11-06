@@ -16,6 +16,7 @@ lost, and what would reopen it.
 - [4.56 Test the Go binding on musl against the archive a release ships](/design-docs/adr/4.56-go-musl-job.md)
 - [4.59 Run each channel's tests natively on every target of the support matrix](/design-docs/adr/4.59-ci-platform-coverage.md)
 - [4.65 Publish the npm packages from the release, each version once](/design-docs/adr/4.65-npm-publish.md)
+- [4.66 Verify a published release from its registries on every target](/design-docs/adr/4.66-release-verification.md)
 
 ## Cargo.toml
 
