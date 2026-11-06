@@ -17,9 +17,9 @@ pub(crate) struct Selection<'a> {
 
 impl Selection<'_> {
     /// The fix for each glob that holds no glob character nor `\`, and so names one path from the root, a trailing `/`
-    /// dropped, where that path is a directory the index holds, or one name the root does not hold that directories
-    /// below it carry: `<dir>/**` for one directory, `**/<name>/**` and their count for more. Such a glob selects
-    /// nothing, since a glob selects files alone. `None` when no glob names a directory.
+    /// dropped, where that path is a directory the index holds, or names the index does not hold that end the path of
+    /// directories below the root: `<dir>/**` for one directory, `**/<names>/**` and their count for more. Such a glob
+    /// selects nothing, since a glob selects files alone. `None` when no glob names a directory.
     fn directories(&self) -> Option<String> {
         let paths: Vec<Option<&str>> = self
             .globs
@@ -64,16 +64,16 @@ impl Selection<'_> {
         })
     }
 
-    /// For each path of one name the root does not hold, how many directories below the root carry that name and the
-    /// first of them; `(0, None)` for every other path. One pass over the index's directories, run only when such a
+    /// For each path the index does not hold, how many directories below the root have a path that its names end, and
+    /// the first of them; `(0, None)` for every other path. One pass over the index's directories, run only when such a
     /// path is asked.
     fn below(&self, paths: &[Option<&str>]) -> Vec<(usize, Option<String>)> {
         let mut below = vec![(0, None); paths.len()];
-        let unheld: Vec<usize> = (0..paths.len())
-            .filter(|&at| {
-                paths[at]
-                    .is_some_and(|path| !path.contains('/') && self.index.entry(path).is_none())
-            })
+        let unheld: Vec<(usize, &str)> = paths
+            .iter()
+            .enumerate()
+            .filter_map(|(at, path)| Some((at, (*path)?)))
+            .filter(|&(_, path)| self.index.entry(path).is_none())
             .collect();
         if unheld.is_empty() {
             return below;
@@ -81,12 +81,15 @@ impl Selection<'_> {
         let mut every = self.index.paths();
         for position in (0..self.index.len()).filter(|&at| self.index.kind_at(at) == EntryKind::Dir)
         {
-            let path = every.get(position);
-            let name = path.rsplit_once('/').map_or(path, |(_, name)| name);
-            for &at in unheld.iter().filter(|&&at| paths[at] == Some(name)) {
+            let dir = every.get(position);
+            let ended = unheld.iter().filter(|&&(_, path)| {
+                dir.strip_suffix(path)
+                    .is_some_and(|parent| parent.ends_with('/'))
+            });
+            for &(at, _) in ended {
                 let (count, first) = &mut below[at];
                 *count += 1;
-                first.get_or_insert_with(|| path.to_owned());
+                first.get_or_insert_with(|| dir.to_owned());
             }
         }
         below
