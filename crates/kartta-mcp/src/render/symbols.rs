@@ -7,8 +7,8 @@ use kartta::{
 };
 
 use super::{
-    Asked, CallersAsk, Graphless, LIMIT_CUT, Unmatched, candidate, empty_languages_note, flat,
-    kind, loc, named, noted, one_edit, push_cut_end, role, span, unresolved,
+    Asked, CallersAsk, Graphless, LIMIT_CUT, Unmatched, candidate, empty_languages_note, fixed_cut,
+    flat, kind, loc, named, noted, one_edit, push_cut_end, role, span, unresolved,
 };
 use crate::llmxml::Element;
 use crate::state::GraphRow;
@@ -271,7 +271,8 @@ pub(crate) fn implementations(
                 .close()
         })
     });
-    element.children(selection.into_iter().chain(types))
+    let cut = (total > count).then(|| fixed_cut("this list", None));
+    element.children(selection.into_iter().chain(types).chain(cut))
 }
 
 /// The `find_implementations` answer for a parent no searched graph holds a type of, `outside_graph` on its envelope:
@@ -309,7 +310,8 @@ pub(crate) fn implementations_outside(
                 .close()
         })
     });
-    element.children(std::iter::once(note).chain(types))
+    let cut = (total > count).then(|| fixed_cut("this list", None));
+    element.children(std::iter::once(note).chain(types).chain(cut))
 }
 
 /// What a `find_importers` call asked: the file, and how many of its importers the answer lists.
