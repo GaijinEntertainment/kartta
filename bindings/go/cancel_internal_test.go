@@ -109,7 +109,8 @@ func grepTracked(ctx context.Context, k *Kartta, id uint64) (<-chan error, *wire
 func openStamped(t *testing.T) *Kartta {
 	t.Helper()
 	k := openTree(t)
-	if _, err := k.Build(t.Context(), wire.BuildOptions{Stamps: true}); err != nil {
+	stamps := true
+	if _, err := k.Build(t.Context(), wire.BuildOptions{Stamps: &stamps}); err != nil {
 		t.Fatal(err)
 	}
 	return k

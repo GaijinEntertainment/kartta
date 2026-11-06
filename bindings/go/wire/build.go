@@ -32,9 +32,9 @@ type BuildOptions struct {
 	// its time, and what each file's resolution asked of the tree, most of it, 32 MiB over a tree of 182,714 entries.
 	// On unix the time is the inode change time, which no write can set back; elsewhere it is the modification time,
 	// so an edit that keeps a file's size and sets its modification time back goes unseen. A file changed within two
-	// seconds before the build began is read again by the next refresh whatever its stamp says. Watch keeps stamps
-	// whatever this says.
-	Stamps bool `json:"stamps,omitempty"`
+	// seconds before the build began is read again by the next refresh whatever its stamp says. nil keeps none, unless
+	// Watch is set, which keeps stamps, and Watch with false answers InvalidParams.
+	Stamps *bool `json:"stamps,omitempty"`
 	// Watch follows the tree through the operating system's change notifications: the library refreshes the index
 	// from each change on a thread of its own, as Refresh does, until the next Build or Close, so no Refresh is needed
 	// for a change the notifications report. Build answers once the index holds the changes reported while it was
