@@ -126,6 +126,10 @@ const CONVENTIONS: Conventions = {
     conventions.receiver_members = ReceiverMembers::Inherited;
     conventions.receivers = Receivers::InheritedFields;
     conventions.own_type_receivers = Some(&["$this", "self", "static"]);
+    conventions.includers = Some(
+        "the files whose include or require of a constant path names this file, and those whose use names a name the \
+         PSR-4 autoload of a composer.json maps to it",
+    );
     conventions
 };
 
