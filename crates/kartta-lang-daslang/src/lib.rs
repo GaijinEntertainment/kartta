@@ -147,6 +147,7 @@ const CONVENTIONS: Conventions = {
         SymbolKind::Variable,
         SymbolKind::Constant,
     ];
+    conventions.includers = Some("the files whose require or include names this file");
     conventions
 };
 
