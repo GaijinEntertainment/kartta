@@ -630,8 +630,9 @@ type Region struct {
 // Change is the answer of analyze_change: what a change to regions across files reaches. UnheldRegions counts the
 // regions whose file no graph holds; of them, MissingRegions counts those whose path the index does not hold,
 // SymlinkRegions those whose path it holds as a symlink, DirectoryRegions those whose path it holds as a directory,
-// UnclaimedRegions those of held files no language claims or declines, and Declined those of held files a language
-// leaves out of its graph. The rest are regions of held files the graph claiming them holds no record of.
+// SpecialRegions those whose path it holds as a socket, a fifo or a device node, UnclaimedRegions those of held files
+// no language claims or declines, and Declined those of held files a language leaves out of its graph. The rest are
+// regions of held files the graph claiming them holds no record of.
 type Change struct {
 	ChangedSymbols        int               `json:"changed_symbols"`
 	ChangedFiles          int               `json:"changed_files"`
@@ -647,6 +648,7 @@ type Change struct {
 	MissingRegions        int               `json:"missing_regions"`
 	SymlinkRegions        int               `json:"symlink_regions"`
 	DirectoryRegions      int               `json:"directory_regions"`
+	SpecialRegions        int               `json:"special_regions"`
 	UnclaimedRegions      int               `json:"unclaimed_regions"`
 	Declined              []DeclinedRegions `json:"declined"`
 }

@@ -442,6 +442,25 @@ fn a_file_answer_names_where_a_symlink_points() {
     assert_eq!(change["unclaimed_regions"], 0, "{change}");
 }
 
+#[cfg(unix)]
+#[test]
+fn a_change_counts_its_regions_of_special_files_apart() {
+    let tree = tree();
+    let _sockets = ["sock.go", "sock"]
+        .map(|name| std::os::unix::net::UnixListener::bind(tree.path().join(name)).expect(name));
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let change = ok(
+        &kartta,
+        "analyze_change",
+        &json!({ "regions": [{ "file": "sock.go" }, { "file": "sock" }, { "file": "run.go" }] }),
+    );
+    assert_eq!(change["special_regions"], 2, "{change}");
+    assert_eq!(change["unheld_regions"], 2, "{change}");
+    assert_eq!(change["unclaimed_regions"], 0, "{change}");
+}
+
 #[test]
 fn a_graphs_stats_count_its_uses_by_access() {
     let tree = tempfile::tempdir().expect("a temporary directory");
