@@ -507,6 +507,13 @@ pub(crate) struct FindReferencesParams {
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) line: Option<NonZeroU32>,
+    /// Repo-relative path prefix with forward slashes: only the sites and the file_scope files in files whose path
+    /// starts with it are listed, e.g. the directory of the files past the ones a match names. It narrows what is
+    /// listed, not the symbol picked, which path_prefix narrows. The counts on the match still count every site, and
+    /// excluded=, files_excluded= and file_scope_excluded= count the sites, the files and the file_scope files it left
+    /// out. Omitted lists from every file.
+    #[serde(default)]
+    pub(crate) sites_under: Option<String>,
     /// Optional language filter (multiselect). Omit to search every indexed language - a name resolving in several
     /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
     /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
