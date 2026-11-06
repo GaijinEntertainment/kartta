@@ -10,9 +10,9 @@ use kartta::{
 };
 
 use super::{
-    Asked, Graphless, LIMIT_CUT, Unbuilt, Unmatched, candidate, confidence, edge_role,
-    empty_languages_note, file_element, fixed_cut, flat, kind, loc, named, noted, qn, role, span,
-    unresolved,
+    Asked, Graphless, LIMIT_CUT, Unbuilt, Unmatched, candidate, candidates_cut, confidence,
+    edge_role, empty_languages_note, file_element, fixed_cut, flat, kind, loc, named, noted, qn,
+    role, span, unresolved,
 };
 use crate::llmxml::Element;
 
@@ -65,11 +65,24 @@ pub(crate) struct PathAsk<'a> {
     pub(crate) built: Option<&'a str>,
 }
 
-/// The `<candidate>` records of the symbols a name also selects, each with the count it ranked by under `count`.
-fn candidates(candidates: &[Candidate<'_>], count: &str) -> Vec<String> {
+/// The `<candidate>` records of the symbols a name also selects, each with the count it ranked by under `count`, and
+/// the line that names the call listing the rest of `family`'s graph when they are fewer than the `passed_over`
+/// symbols.
+fn candidates(
+    candidates: &[Candidate<'_>],
+    count: &str,
+    passed_over: usize,
+    family: &str,
+) -> Vec<String> {
     candidates
         .iter()
         .map(|listed| candidate(&listed.symbol).attr(count, listed.count).close())
+        .chain(candidates_cut(
+            passed_over > candidates.len(),
+            passed_over + 1,
+            "this name",
+            Some(family),
+        ))
         .collect()
 }
 
@@ -125,7 +138,7 @@ pub(crate) fn call_path(
                         selector,
                         built: ask.built,
                     };
-                    unresolved(Element::new(end), None, asked, unmatched)
+                    unresolved(Element::new(end), ask.languages, asked, unmatched)
                 }),
         );
     }
@@ -153,15 +166,27 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
         .count("passed_over_from", passed_over_from)
         .count("passed_over_to", passed_over_to);
     let (from_candidates, to_candidates) = &path.candidates;
-    let passed_over: Vec<String> = [("from", from_candidates), ("to", to_candidates)]
+    let ends = [
+        ("from", "the from name", from_candidates, passed_over_from),
+        ("to", "the to name", to_candidates, passed_over_to),
+    ];
+    let passed_over: Vec<String> = ends
         .into_iter()
-        .flat_map(|(end, listed)| {
-            listed.iter().map(move |listed| {
-                candidate(&listed.symbol)
-                    .attr("end", end)
-                    .attr("callers", listed.count)
-                    .close()
-            })
+        .flat_map(|(end, name, listed, passed_over)| {
+            listed
+                .iter()
+                .map(move |listed| {
+                    candidate(&listed.symbol)
+                        .attr("end", end)
+                        .attr("callers", listed.count)
+                        .close()
+                })
+                .chain(candidates_cut(
+                    passed_over > listed.len(),
+                    passed_over + 1,
+                    name,
+                    Some(family),
+                ))
         })
         .collect();
     let picked_only = if passed_over_from + passed_over_to == 0 {
@@ -345,7 +370,8 @@ fn reference_match(
         _ => None,
     };
     let unrecorded = Unrecorded::of(conventions, references);
-    let passed_over = candidates(&references.candidates, "sites");
+    let others = &references.candidates;
+    let passed_over = candidates(others, "sites", references.passed_over, family);
     if references.sites.is_empty() && references.file_scope.is_empty() {
         let text = if references.below_confidence > 0 {
             let lists = if listed.one_access {
@@ -993,7 +1019,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
             element = element.attr(attribute, callers);
         }
     }
-    let passed_over = candidates(&walk.candidates, "callers");
+    let passed_over = candidates(&walk.candidates, "callers", walk.passed_over, family);
     let itself = walk.self_call.map(|call| self_call(root, call));
     if walk.reached.is_empty() && walk.file_scope.is_empty() {
         let text = no_callers(
@@ -1070,7 +1096,7 @@ fn callee_match(family: &str, walk: &Walk<'_>) -> String {
         .count("below_confidence", walk.below_confidence)
         .count("unresolved", walk.unresolved)
         .count("passed_over", walk.passed_over);
-    let passed_over = candidates(&walk.candidates, "callers");
+    let passed_over = candidates(&walk.candidates, "callers", walk.passed_over, family);
     let itself = walk.self_call.map(|call| self_call(root, call));
     if walk.reached.is_empty() {
         let (none, other) = if itself.is_some() {
