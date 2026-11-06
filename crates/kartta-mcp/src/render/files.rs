@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use kartta_fs::{Capped, EntryKind, Failure, Index, Line, LineKind, Listing, Matches, Paths};
 
+use super::push_cut_end;
 use crate::llmxml::{Element, List};
 use crate::paths::GLOB_CHARACTERS;
 
@@ -282,7 +283,7 @@ fn push_grep_line(body: &mut String, line: &Line) {
     }
     body.push_str(line.text());
     if after > 0 {
-        let _ = write!(body, " [... omitted {after} bytes]");
+        push_cut_end(body, after);
     }
 }
 
