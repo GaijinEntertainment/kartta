@@ -113,6 +113,9 @@ pub struct EngineChange<'e> {
     pub symlink_regions: usize,
     /// The regions whose path the index holds as a directory, which no graph holds: a graph holds files.
     pub directory_regions: usize,
+    /// The regions whose path the index holds as a socket, a fifo or a device node, which no graph holds: a graph
+    /// holds regular files.
+    pub special_regions: usize,
     /// The regions of held files that no language claims or declines.
     pub unclaimed_regions: usize,
     /// The regions of held files that a language leaves out of its graph, counted per language and reason in the order
@@ -631,8 +634,8 @@ impl Engine {
     /// What a change to the lines of `regions` reaches, across the families whose languages claim their files: each
     /// family's graph analyzes the regions of its files as [`Graph::analyze_change`] does, within `limits`, and
     /// [`Change::merge`] ranks the answers together. A region whose path the index does not hold or holds as a
-    /// symlink or a directory, or whose held file no language claims, counts as unheld, and the answer says which of
-    /// these it is and, for a file a language declines, the language and its reason.
+    /// symlink, a directory or a special file, or whose held file no language claims, counts as unheld, and the answer
+    /// says which of these it is and, for a file a language declines, the language and its reason.
     #[must_use]
     pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> EngineChange<'_> {
         let mut by_family: Vec<Vec<Region<'_>>> = vec![Vec::new(); self.families.len()];
@@ -645,6 +648,8 @@ impl Engine {
                 answer.symlink_regions += 1;
             } else if kind == Some(EntryKind::Dir) {
                 answer.directory_regions += 1;
+            } else if kind == Some(EntryKind::Other) {
+                answer.special_regions += 1;
             } else if let Some(family) = self.family_claiming(region.path) {
                 by_family[family].push(region.clone());
             } else if let Some((language, reason)) = self.declined(region.path) {
@@ -679,6 +684,7 @@ impl Engine {
         answer.change.unheld_regions += answer.missing_regions
             + answer.symlink_regions
             + answer.directory_regions
+            + answer.special_regions
             + answer.unclaimed_regions
             + declined;
         answer
