@@ -569,6 +569,7 @@ pub(crate) fn change(regions: usize, answer: &EngineChange<'_>, limit: usize) ->
         .count("unheld_regions", change.unheld_regions)
         .count("missing_regions", answer.missing_regions)
         .count("symlink_regions", answer.symlink_regions)
+        .count("special_regions", answer.special_regions)
         .count("unclaimed_regions", answer.unclaimed_regions)
         .count("regions_outside_symbols", change.regions_outside_symbols);
     let declined = answer.declined.iter().map(|declined| {
