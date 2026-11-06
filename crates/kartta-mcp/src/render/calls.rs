@@ -58,6 +58,8 @@ pub(crate) struct PathAsk<'a> {
     pub(crate) to_read_as: Option<&'a str>,
     pub(crate) languages: Option<&'a str>,
     pub(crate) hops: u32,
+    /// The languages a filtered build holds, as [`crate::state::Indexed::languages`] echoes them.
+    pub(crate) built: Option<&'a str>,
 }
 
 /// The `<candidate>` records of the symbols a name also selects, each with the count it ranked by under `count`.
@@ -118,6 +120,7 @@ pub(crate) fn call_path(
                     let asked = Asked {
                         end: &parameters,
                         selector,
+                        built: ask.built,
                     };
                     unresolved(Element::new(end), None, asked, unmatched)
                 }),
@@ -682,6 +685,8 @@ pub(crate) struct CallersAsk<'a> {
     pub(crate) read_as: Option<&'a str>,
     pub(crate) languages: Option<&'a str>,
     pub(crate) role: Option<&'a str>,
+    /// The languages a filtered build holds, as [`crate::state::Indexed::languages`] echoes them.
+    pub(crate) built: Option<&'a str>,
 }
 
 impl<'a> CallersAsk<'a> {
@@ -690,6 +695,7 @@ impl<'a> CallersAsk<'a> {
         Asked {
             end: "",
             selector: self.selector,
+            built: self.built,
         }
     }
 }

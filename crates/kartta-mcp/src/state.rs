@@ -27,6 +27,9 @@ pub(crate) struct Request {
 #[derive(Debug)]
 pub(crate) struct Indexed {
     pub(crate) root: String,
+    /// The languages a `languages` filter limited the build to, as answers echo them, or `None` when it built every
+    /// one.
+    pub(crate) languages: Option<String>,
     pub(crate) gitignore: Gitignore,
     pub(crate) engine: Engine,
     pub(crate) errors: Vec<Failure>,
@@ -519,6 +522,12 @@ impl Served {
         Self {
             indexed: RwLock::new(Indexed {
                 root: request.root.display().to_string(),
+                languages: (request.languages.len() < kartta_languages::NAMES.len()).then(|| {
+                    match request.languages.as_slice() {
+                        [] => crate::render::EMPTY_LANGUAGES.to_owned(),
+                        built => built.join(", "),
+                    }
+                }),
                 gitignore: Gitignore::of(request),
                 engine: outcome.engine,
                 errors,

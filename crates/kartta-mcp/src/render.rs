@@ -277,22 +277,25 @@ fn noted(element: Element, text: &str, candidates: Vec<String>) -> String {
     element.children(std::iter::once(text.to_owned()).chain(candidates))
 }
 
-/// The selector a symbol tool was asked with, and what its narrowing parameters' names start with: "" for
-/// `path_prefix` and `line`, "from_" or "to_" for an end of `find_call_path`.
+/// The selector a symbol tool was asked with, what its narrowing parameters' names start with: "" for `path_prefix`
+/// and `line`, "from_" or "to_" for an end of `find_call_path`, and the languages a filtered build holds, as
+/// [`Indexed::languages`] echoes them.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Asked<'a> {
     pub(crate) end: &'a str,
     pub(crate) selector: Selector<'a>,
+    pub(crate) built: Option<&'a str>,
 }
 
-/// The body of an answer whose name selected nothing: the empty filter's note, what the name matches instead, or the
-/// alternatives a search found.
+/// The body of an answer whose name selected nothing, its envelope naming the languages a filtered build holds: the
+/// empty filter's note, what the name matches instead, or the alternatives a search found.
 fn unresolved(
     element: Element,
     languages: Option<&str>,
     asked: Asked<'_>,
     unmatched: &Unmatched<'_>,
 ) -> String {
+    let element = element.optional("index_languages", asked.built);
     if let Some(note) = empty_languages_note(languages) {
         return element.inline(note);
     }
@@ -376,6 +379,7 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
     let graphs = indexed.graphs();
     let element = Element::new("index")
         .attr("root", &indexed.root)
+        .optional("languages", indexed.languages.as_deref())
         .attr("files", indexed.files())
         .attr(
             "gitignore",
