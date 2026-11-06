@@ -594,7 +594,11 @@ fn failures(count: usize, failed: impl Iterator<Item = impl Display>) -> Option<
         .map(|failure| crate::llmxml::line(&failure.to_string()).into_owned())
         .collect();
     if count > LISTED_ERRORS {
-        listed.push(format!("(+{} more)", count - LISTED_ERRORS));
+        listed.push(format!(
+            "(+{} more) {}",
+            count - LISTED_ERRORS,
+            fixed_cut("this list", None)
+        ));
     }
     Some(
         Element::new("errors")
