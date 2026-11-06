@@ -119,6 +119,30 @@ fn an_assertion_whose_names_reach_another_type_names_none_of_these() {
 }
 
 #[test]
+fn an_assertion_of_an_interface_outside_the_graph_lists_the_type_it_names() {
+    let mut files = package();
+    files.retain(|extraction| extraction.file != "io/reader.go");
+    files.push(asserting(
+        "app/assert.go",
+        &[("File", "io.Reader"), ("File", "Closer")],
+        &[("io", "io")],
+    ));
+    let graph = graph(&files);
+
+    let reader = graph.implementations_outside("io.Reader", 10);
+    let closer = graph.implementations_outside("Closer", 10);
+
+    assert_eq!(graph.implementations("io.Reader", 1, 10), None);
+    assert_eq!(
+        (reader.found.iter())
+            .map(|definition| definition.qualified_name)
+            .collect::<Vec<_>>(),
+        ["app.File"]
+    );
+    assert_eq!(closer.total, 0);
+}
+
+#[test]
 fn a_type_name_two_types_of_the_package_share_names_neither() {
     let mut files = package();
     files.push(file(

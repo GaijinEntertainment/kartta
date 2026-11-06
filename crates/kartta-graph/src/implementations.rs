@@ -122,6 +122,70 @@ impl Graph {
             unexpanded: level.len(),
         })
     }
+
+    /// The types and namespaces that write a parent spelled as `name` is where that parent names no type the graph
+    /// holds, as a trait, an interface or a base class of a library outside the tree does: at most `limit` of them, in
+    /// path order.
+    ///
+    /// A written parent spells `name` when its last segments are those of `name`, whatever separators each writes:
+    /// `fmt::Display` spells `Display`, and a bare `Error` does not spell `std::error::Error`, as the bare name may
+    /// stand for another library's type of that name, as a JavaScript class's `Error` does. A parent, an assertion's
+    /// interface among them, is read as [`Graph::implementations`] reads one, and one that names a type the graph
+    /// holds, a Go defined type or an enum among them, is left out. Only the types that write the parent are found:
+    /// the graph holds nothing of what the parent itself implements, and each found type's own implementors are a
+    /// query of its name.
+    #[must_use]
+    pub fn implementations_outside(&self, name: &str, limit: usize) -> OutsideImplementations<'_> {
+        let asked = name.trim_start_matches(QUALIFIER_SEPARATORS);
+        let Some(key) = self.strings.get(last_segment(asked)) else {
+            return OutsideImplementations {
+                found: Vec::new(),
+                total: 0,
+                namesakes: 0,
+            };
+        };
+        let types = Types::new(self);
+        let namesakes: Vec<SymbolAt> = (self.named(key).iter().copied())
+            .filter(|&at| is_implementor_kind(self.sym(at).kind))
+            .collect();
+        let asked = Outside {
+            spelled: asked,
+            namesakes: Namesakes {
+                name: key,
+                types: &namesakes,
+            },
+        };
+        let mut found: Vec<SymbolAt> = Vec::new();
+        for &slot in self.parenting_files(key) {
+            types.declared_outside(slot, asked, &mut found);
+            types.asserted_outside(slot, asked, &mut found);
+        }
+        found.sort_unstable_by_key(|&at| self.order_of(at));
+        found.dedup();
+        let total = found.len();
+        let namesakes = (namesakes.iter()).filter(|at| !found.contains(at)).count();
+        found.truncate(limit);
+        OutsideImplementations {
+            found: found.into_iter().map(|at| self.definition_at(at)).collect(),
+            total,
+            namesakes,
+        }
+    }
+}
+
+/// The types and namespaces that name, as a parent, a type the graph does not hold, and how many there are.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct OutsideImplementations<'g> {
+    /// The implementors, each once, in path order, at most the query's limit.
+    pub found: Vec<Definition<'g>>,
+    /// The implementors before the limit.
+    pub total: usize,
+    /// The types and namespaces of the name's last segment the graph holds, the implementors aside, none of which the
+    /// parents named:
+    /// one may still be the parent, reached through what the lookup does not follow, as a C++ namespace alias, a
+    /// namespace a macro opens, or a member type a base declares.
+    pub namesakes: usize,
 }
 
 pub(crate) struct Types<'g> {
@@ -330,6 +394,41 @@ impl Types<'_> {
                 .into_iter()
                 .filter(|&ty| ty != implementor)
                 .for_each(|ty| found(ty, implementor));
+        }
+    }
+
+    fn declared_outside(&self, slot: u32, asked: Outside<'_>, found: &mut Vec<SymbolAt>) {
+        for parent in &self.graph.file(slot).parents {
+            let child = SymbolAt::new(slot, parent.symbol);
+            if !is_implementor_kind(self.graph.sym(child).kind)
+                || !asked.is_spelled_by(self.graph, parent.written)
+            {
+                continue;
+            }
+            let others: Vec<SymbolAt> = (asked.namesakes.types.iter().copied())
+                .filter(|&at| at != child)
+                .collect();
+            let namesakes = Namesakes {
+                name: asked.namesakes.name,
+                types: &others,
+            };
+            if self.named_by(child, parent, namesakes).is_empty() {
+                found.push(child);
+            }
+        }
+    }
+
+    fn asserted_outside(&self, slot: u32, asked: Outside<'_>, found: &mut Vec<SymbolAt>) {
+        for assertion in &self.graph.file(slot).assertions {
+            if !asked.is_spelled_by(self.graph, assertion.interface)
+                || !self
+                    .asserted_interface(slot, assertion, asked.namesakes)
+                    .is_empty()
+            {
+                continue;
+            }
+            let written = (assertion.type_name, assertion.type_file);
+            found.extend(self.asserted_name(slot, written));
         }
     }
 
@@ -682,6 +781,28 @@ type ImplementorsOfEach = HashMap<SymbolAt, Vec<SymbolAt>, FixedState>;
 struct Namesakes<'a> {
     name: Str,
     types: &'a [SymbolAt],
+}
+
+/// A parent name the graph may hold no type of, as a query spells it, and the types it would name in the graph.
+#[derive(Debug, Clone, Copy)]
+struct Outside<'a> {
+    spelled: &'a str,
+    namesakes: Namesakes<'a>,
+}
+
+impl Outside<'_> {
+    /// Whether `written` is a parent of the asked name: of its listing key, its last segments those of the name.
+    fn is_spelled_by(&self, graph: &Graph, written: Str) -> bool {
+        let mut written_back = segments_back(graph.strings.resolve(written));
+        graph.listing_key(written) == Some(self.namesakes.name)
+            && segments_back(self.spelled).all(|spelled| written_back.next() == Some(spelled))
+    }
+}
+
+/// The segments of a qualified name, the last first, whatever separators it writes.
+fn segments_back(name: &str) -> impl Iterator<Item = &str> {
+    name.rsplit(QUALIFIER_SEPARATORS)
+        .filter(|segment| !segment.is_empty())
 }
 
 struct Selected {

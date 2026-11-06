@@ -1,7 +1,7 @@
 //! The types that name a type as a parent: how a written parent meets the type it names, transitively, and what the
 //! depth bound and the limit left out.
 
-use kartta_graph::{Graph, Implementations, Limits, Selector};
+use kartta_graph::{Graph, Implementations, Limits, OutsideImplementations, Selector};
 use kartta_lang::{Conventions, ImportBinding, Symbol, SymbolKind, ValueUses};
 
 use crate::{file, graph_of as graph, including};
@@ -756,6 +756,124 @@ fn a_name_that_selects_no_type_answers_none() {
 
     assert_eq!(graph.implementations("run", 1, 10), None);
     assert_eq!(graph.implementations("absent", 1, 10), None);
+}
+
+fn outside(found: &OutsideImplementations<'_>) -> Vec<String> {
+    (found.found.iter())
+        .map(|definition| format!("{}:{}", definition.file, definition.qualified_name))
+        .collect()
+}
+
+fn rust() -> Conventions {
+    let mut conventions = Conventions::default();
+    conventions.owner_chain_separator = Some("::");
+    conventions
+}
+
+#[test]
+fn a_parent_the_graph_holds_no_type_of_lists_the_types_whose_parents_end_with_it() {
+    let mut function = Symbol::new("show", SymbolKind::Function, 30, 31);
+    function.parents.push("Display".to_owned());
+    let graph = graph(
+        rust(),
+        &[file(
+            "src/show.rs",
+            vec![
+                ty("Bare", "Bare", 1, &["Display"]),
+                ty("Module", "Module", 9, &["fmt::Display"]),
+                ty("Path", "Path", 17, &["std::fmt::Display"]),
+                ty("Debugged", "Debugged", 25, &["fmt::Debug"]),
+                function,
+            ],
+        )],
+    );
+
+    let bare = graph.implementations_outside("Display", 10);
+    let module = graph.implementations_outside("fmt.Display", 10);
+    let path = graph.implementations_outside("std::fmt::Display", 10);
+    let other_module = graph.implementations_outside("io::Display", 10);
+    let limited = graph.implementations_outside("Display", 2);
+
+    let every = ["src/show.rs:Bare", "src/show.rs:Module", "src/show.rs:Path"];
+    assert_eq!(outside(&bare), every);
+    assert_eq!(outside(&module), every[1..]);
+    assert_eq!(outside(&path), every[2..]);
+    assert_eq!(outside(&other_module), [] as [&str; 0]);
+    assert_eq!(outside(&limited), every[..2]);
+    assert_eq!(limited.total, 3);
+    assert_eq!(bare.namesakes, 0);
+    assert_eq!(graph.implementations("Display", 1, 10), None);
+}
+
+#[test]
+fn a_parent_that_names_a_type_the_graph_holds_is_not_outside_it() {
+    let graph = graph(
+        rust(),
+        &[
+            file(
+                "src/error.rs",
+                vec![
+                    ty("Error", "Error", 1, &[]),
+                    ty("Own", "Own", 9, &["Error"]),
+                    ty("Std", "Std", 17, &["std::error::Error"]),
+                ],
+            ),
+            file(
+                "src/own.rs",
+                vec![ty("Error", "own::Error", 1, &["std::error::Error"])],
+            ),
+        ],
+    );
+
+    let bare = graph.implementations_outside("Error", 10);
+    let path = graph.implementations_outside("std::error::Error", 10);
+
+    let outside_only = ["src/error.rs:Std", "src/own.rs:own::Error"];
+    assert_eq!(outside(&bare), outside_only);
+    assert_eq!(outside(&path), outside_only);
+    assert_eq!(bare.namesakes, 1);
+    assert_eq!(graph.implementations_outside("Shape", 10).total, 0);
+    assert_eq!(hierarchy().implementations_outside("Shape", 10).total, 0);
+}
+
+#[test]
+fn a_type_whose_parent_shares_its_name_names_no_type_of_itself() {
+    let graph = graph(
+        cpp(),
+        &[file("app/foo.h", vec![ty("Foo", "app::Foo", 1, &["Foo"])])],
+    );
+
+    assert_eq!(
+        outside(&graph.implementations_outside("Foo", 10)),
+        ["app/foo.h:app::Foo"]
+    );
+}
+
+#[test]
+fn a_parent_that_names_a_defined_type_of_its_package_is_not_outside_the_graph() {
+    let mut conventions = Conventions::default();
+    conventions.directory_packages = true;
+    let mut header = Symbol::new("header", SymbolKind::DefinedType, 1, 1);
+    "app.header".clone_into(&mut header.qualified_name);
+    let graph = graph(
+        conventions,
+        &[
+            file("app/header.go", vec![header]),
+            file(
+                "app/files.go",
+                vec![
+                    ty("Files", "app.Files", 1, &["header"]),
+                    ty("Locked", "app.Locked", 9, &["sync.Mutex"]),
+                ],
+            ),
+        ],
+    );
+
+    assert_eq!(graph.implementations_outside("header", 10).total, 0);
+    assert_eq!(
+        outside(&graph.implementations_outside("sync.Mutex", 10)),
+        ["app/files.go:app.Locked"]
+    );
 }
 
 #[test]
