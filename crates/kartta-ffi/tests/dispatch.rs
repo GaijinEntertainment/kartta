@@ -1791,6 +1791,48 @@ fn a_function_s_local_function_flags_its_references_and_a_module_function_does_n
 }
 
 #[test]
+fn a_function_s_local_type_flags_its_references_and_a_module_type_does_not() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("m.py"),
+        "def outer():\n    class Inner:\n        pass\n\n    q: Inner = Inner()\n    return q\n\n\n\
+         class Outer:\n    pass\n\n\ndef control():\n    q: Outer = Outer()\n    return q\n",
+    )
+    .expect("m.py");
+    fs::write(
+        tree.path().join("lib.rs"),
+        "pub fn outer() -> usize {\n    struct Inner;\n    let made = Inner;\n    std::mem::size_of_val(&made)\n}\n\n\
+         pub struct Outer;\n\npub fn control() -> Outer {\n    Outer\n}\n",
+    )
+    .expect("lib.rs");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let local = ok(&kartta, "references", &json!({ "name": "Inner" }));
+    let module = ok(&kartta, "references", &json!({ "name": "Outer" }));
+    let module_rust = part(&module, "rust");
+    assert_eq!(module_rust["total"], 1, "{module_rust}");
+    assert_eq!(module_rust["type_uses_unrecorded"], true, "{module_rust}");
+    assert_eq!(
+        module_rust.get("data_uses_unrecorded"),
+        None,
+        "{module_rust}"
+    );
+
+    let python = part(&local, "python");
+    assert_eq!(python["total"], 1, "{python}");
+    assert_eq!(python["data_uses_unrecorded"], true, "{python}");
+    assert_eq!(python.get("type_uses_unrecorded"), None, "{python}");
+    let rust = part(&local, "rust");
+    assert_eq!(rust["total"], 0, "{rust}");
+    assert_eq!(rust["type_uses_unrecorded"], true, "{rust}");
+    assert_eq!(rust["data_uses_unrecorded"], true, "{rust}");
+    let module = part(&module, "python");
+    assert_eq!(module["total"], 2, "{module}");
+    assert_eq!(keys(module), REFERENCES_KEYS, "{module}");
+}
+
+#[test]
 fn a_rust_field_with_no_recorded_site_is_told_from_an_unused_constant() {
     let tree = tempfile::tempdir().expect("a temporary directory");
     fs::write(
