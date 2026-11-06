@@ -184,6 +184,7 @@ lost, and what would reopen it.
 - [3.200 Walk a Python class's parents up to any field, within what the file imports](/design-docs/adr/3.200-python-class-members.md)
 - [3.201 Read a Go selector by depth through the embedded types the graph can see](/design-docs/adr/3.201-go-embedded-selectors.md)
 - [3.207 List a method's callers through the parents its owner implements](/design-docs/adr/3.207-callers-through-parents.md)
+- [3.208 List the types that name a parent the graph holds no definition of, one hop](/design-docs/adr/3.208-parents-outside-the-graph.md)
 
 ## crates/kartta-lang
 
