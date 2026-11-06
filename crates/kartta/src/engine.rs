@@ -246,14 +246,31 @@ impl Engine {
         Ok(outcome)
     }
 
+    /// Checks that [`Engine::build_watched`] would take `options`, which it does itself before it watches or walks, so
+    /// that a caller holding an engine can refuse a wrong call before it lets that engine go.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::WatchWithoutStamps`] when `options` keeps no [stamps](BuildOptions::stamps): each change the
+    /// watcher reports is taken in by a refresh, which without them reads every file again and builds every graph
+    /// again.
+    #[cfg(feature = "watch")]
+    pub const fn check_watched(options: &BuildOptions) -> Result<(), BuildError> {
+        if options.stamps {
+            Ok(())
+        } else {
+            Err(BuildError::WatchWithoutStamps)
+        }
+    }
+
     /// Starts a [`Watcher`] on `root`, then builds as [`Engine::build`] does, walking the tree as
     /// [`kartta_fs::Index::build_watched`] does, so the watcher holds every change made while the build walked, which
     /// [`Watcher::drain`] then hands over for [`Engine::refresh_paths_watched`].
     ///
     /// # Errors
     ///
-    /// As [`Engine::build`]. The watcher's own failures are the second value, as
-    /// [`kartta_fs::Index::build_watched`] says.
+    /// As [`Engine::build`], and the refusal of [`Engine::check_watched`] before anything is watched or walked. The
+    /// watcher's own failures are the second value, as [`kartta_fs::Index::build_watched`] says.
     #[cfg(feature = "watch")]
     pub fn build_watched(
         root: impl AsRef<Path>,
@@ -261,6 +278,7 @@ impl Engine {
         languages: Vec<Box<dyn Language>>,
         cancel: Option<&CancelToken>,
     ) -> Result<(EngineOutcome, Result<Watcher, WatchError>), BuildError> {
+        Self::check_watched(options)?;
         let root = root.as_ref();
         Self::build_from_walk(options, languages, cancel, |visitor| {
             Index::build_watched(root, options, Some(visitor), cancel)
