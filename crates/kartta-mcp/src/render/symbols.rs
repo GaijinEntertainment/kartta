@@ -203,6 +203,15 @@ fn definition(read: &Read<'_>) -> String {
             push_cut_end(&mut body, cut.bytes);
         }
     }
+    if !source.resized && answered_through < definition.end_line {
+        let way = format!(
+            "a read of lines {}-{} of its file",
+            answered_through + 1,
+            definition.end_line
+        );
+        body.push('\n');
+        body.push_str(&fixed_cut("this body", Some(&way)));
+    }
     element.wrap(&body)
 }
 

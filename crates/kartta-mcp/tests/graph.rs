@@ -125,6 +125,34 @@ fn read_definitions_marks_each_line_it_cut_and_counts_them() {
 }
 
 #[test]
+fn read_definitions_names_the_lines_past_its_500_line_cap() {
+    let tree = go_module();
+    let mut source = String::from("package long\n\nfunc Long() {\n");
+    for at in 0..600 {
+        writeln!(source, "\t_ = {at}").expect("a string takes the text");
+    }
+    source.push_str("}\n");
+    std::fs::create_dir_all(tree.path().join("long")).expect("the directory");
+    std::fs::write(tree.path().join("long/long.go"), source).expect("the file");
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("read_definitions", &json!({"names": ["Long"]}));
+
+    assert!(
+        answer.contains(r#"loc="long/long.go:3-604" scope="other" truncated="true">"#),
+        "{answer}"
+    );
+    assert!(
+        answer.contains(
+            "\n   502\t\t_ = 498\na fixed cap cut this body - a read of lines 503-604 of its file lists the rest\n\
+             </definition>"
+        ),
+        "{answer}"
+    );
+}
+
+#[test]
 fn read_definitions_answers_each_body_with_its_doc_comment() {
     let answers = answers(&[
         (
