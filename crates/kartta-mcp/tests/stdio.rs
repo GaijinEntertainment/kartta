@@ -430,6 +430,41 @@ fn a_listed_answer_and_a_name_below_the_root_name_the_glob_that_names_a_director
 }
 
 #[test]
+fn a_glob_of_several_names_names_the_directories_whose_path_it_ends() {
+    let tree = go_module();
+    for dir in ["pkg/sub/deep", "cmd/sub/deep", "cmd/app/inner"] {
+        std::fs::create_dir_all(tree.path().join(dir)).expect("the directory is created");
+        std::fs::write(tree.path().join(dir).join("x.txt"), "x\n").expect("the file is written");
+    }
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["app/inner"]})),
+        format!(
+            "no files match \"app/inner\" - {DIRECTORY_FIX} \"cmd/app/inner/**\" in place of \"app/inner\""
+        ),
+        "names that end one directory's path name that directory"
+    );
+    assert_eq!(
+        client.answer("glob_files", &json!({"globs": ["sub/deep/", "**/*.mod"]})),
+        format!(
+            "go.mod\n({DIRECTORY_FIX} \"**/sub/deep/**\" (2 directories are named \"sub/deep\") in place of \
+             \"sub/deep/\")"
+        ),
+        "names that end several directories' paths name them all, with their count"
+    );
+    assert_eq!(
+        client.answer(
+            "glob_files",
+            &json!({"globs": ["md/app", "app/main.go", "inner/deep"]})
+        ),
+        "no files match \"md/app\", \"app/main.go\", \"inner/deep\"",
+        "names end a directory's path only at a whole name, of a directory, in their order"
+    );
+}
+
+#[test]
 fn grep_answers_lines_with_context_and_counts_what_it_did_not_cover() {
     let tree = go_module();
     std::fs::create_dir_all(tree.path().join("vendor/lib")).expect("the directory is created");
