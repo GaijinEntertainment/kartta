@@ -178,6 +178,11 @@ fn a_wrong_argument_names_its_parameter_and_its_path_inside_the_arguments() {
             "hops: invalid value: integer `0`, expected a nonzero u32",
         ),
         (
+            "file_outline",
+            json!({"file": "a.go", "limit": 0}),
+            "limit: invalid value: integer `0`, expected a nonzero usize",
+        ),
+        (
             "find_unused",
             json!({"limit": 0}),
             "limit: invalid value: integer `0`, expected a nonzero usize",
