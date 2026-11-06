@@ -306,6 +306,38 @@ fn find_implementations_lists_at_most_500_across_every_graph() {
             .count(),
         500
     );
+    assert!(
+        answer.ends_with(
+            "/>\na fixed cap cut this list - no parameter or call lists the rest\n</implementations>"
+        ),
+        "{answer}"
+    );
+}
+
+#[test]
+fn find_implementations_of_a_parent_outside_the_graph_says_no_call_lists_the_types_past_500() {
+    let mut python = String::from("from lib import External\n");
+    for at in 0..501 {
+        let _ = writeln!(python, "class P{at}(External):\n    pass");
+    }
+    let tree = tree(&[("app.py", &python)]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let answer = client.answer("find_implementations", &json!({"name": "External"}));
+
+    assert!(
+        answer.starts_with(
+            r#"<implementations of="External" count="500" total="501" outside_graph="true">"#
+        ),
+        "{answer}"
+    );
+    assert!(
+        answer.ends_with(
+            "/>\na fixed cap cut this list - no parameter or call lists the rest\n</implementations>"
+        ),
+        "{answer}"
+    );
 }
 
 /// A Go module whose packages import each other in a chain: `e` imports `d`, ..., `b` imports `a`.
