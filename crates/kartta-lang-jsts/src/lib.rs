@@ -164,6 +164,9 @@ const CONVENTIONS: Conventions = {
     conventions.value_uses = ValueUses::Imported;
     conventions.untyped_members = UntypedMembers::Unbound;
     conventions.type_uses = TypeUses::Nowhere;
+    conventions.includers = Some(
+        "the files whose import, export ... from, require or import() of a string resolves to this file",
+    );
     conventions
 };
 
