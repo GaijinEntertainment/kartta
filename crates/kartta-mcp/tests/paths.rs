@@ -531,6 +531,29 @@ fn a_file_answer_about_a_socket_names_no_graph() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn a_change_counts_its_regions_of_special_files_apart() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        ("pkg/a.go", "package pkg\n\nfunc A() {}\n"),
+    ]);
+    let _sockets = ["sock.go", "sock"].map(|name| {
+        std::os::unix::net::UnixListener::bind(tree.path().join(name)).expect("a socket")
+    });
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let change = client.answer(
+        "impact_of_change",
+        &json!({"regions": [{"file": "sock.go"}, {"file": "sock"}, {"file": "pkg/a.go"}]}),
+    );
+    assert!(
+        change.contains(r#"unheld_regions="2" special_regions="2">"#),
+        "{change}"
+    );
+}
+
 #[test]
 fn a_held_file_no_graph_answers_for_says_why() {
     let tree = tree(&[
