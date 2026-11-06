@@ -488,6 +488,11 @@ struct ImplementorDef<'g> {
 }
 
 #[derive(Debug, Serialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the wire answers `missing`, `directory` and `special` as keys of their own, and tests/reference.rs \
+              reads a section's keys from these fields"
+)]
 pub(crate) struct FileView<'a, T> {
     file: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -497,6 +502,8 @@ pub(crate) struct FileView<'a, T> {
     missing: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     directory: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    special: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     symlink: Option<SymlinkView<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -539,7 +546,8 @@ struct DeclinedView<'a> {
 
 impl<'a, T> FileView<'a, T> {
     /// What `ask` answers of `file` from the graph that claims it, or why no graph answers: the index holds no such
-    /// path, the path is a directory or a symlink, a language leaves the held file out, or no language claims it.
+    /// path, the path is a directory, a symlink or a special file, a language leaves the held file out, or no language
+    /// claims it.
     pub(crate) fn new(
         engine: &'a Engine,
         file: &'a str,
@@ -566,6 +574,7 @@ impl<'a, T> FileView<'a, T> {
             held: answer.is_some(),
             missing,
             directory,
+            special: unheld == Some(Some(EntryKind::Other)),
             symlink: symlink.map(SymlinkView::new),
             declined: declined.map(|(language, reason)| DeclinedView { language, reason }),
             answer,

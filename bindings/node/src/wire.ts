@@ -863,9 +863,10 @@ export type OutlineParams = {
  * What an answer about one file says of the file. `graph` is the graph of the language that claims the file, absent
  * when none does or when `missing` or `directory` is true; when that graph does not hold the file, `held` is false and
  * the answer holds these fields alone. `missing` is true when the index holds no such path, `directory` when it holds
- * the path as a directory, whose files are the ones to ask about, `symlink` names where a path the index holds as a
- * symlink points, which no graph holds, and `declined` names the language that leaves the held file out of its graph;
- * a held file with neither `graph` nor `declined` is one no language claims.
+ * the path as a directory, whose files are the ones to ask about, and `special` when it holds the path as a socket, a
+ * fifo or a device node, which no graph holds. `symlink` names where a path the index holds as a symlink points, which
+ * no graph holds, and `declined` names the language that leaves the held file out of its graph; a held file with
+ * neither `graph` nor `declined` is one no language claims.
  */
 export type FileState = {
 	file: string;
@@ -873,6 +874,7 @@ export type FileState = {
 	held: boolean;
 	missing?: boolean;
 	directory?: boolean;
+	special?: boolean;
 	symlink?: Symlink;
 	declined?: Declined;
 };
