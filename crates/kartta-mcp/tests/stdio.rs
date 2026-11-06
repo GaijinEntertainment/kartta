@@ -33,6 +33,42 @@ fn a_grep_index_that_cannot_be_kept_costs_only_itself_and_stays_named_through_a_
     assert!(!refreshed.contains("<errors"), "{refreshed}");
 }
 
+// constraint: only unix mode bits close a directory to its owner
+#[cfg(unix)]
+#[test]
+fn the_index_answer_says_no_call_lists_the_errors_past_its_5() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tree = go_module();
+    let closed: Vec<std::path::PathBuf> = (0..6)
+        .map(|at| tree.path().join(format!("closed{at}")))
+        .collect();
+    for dir in &closed {
+        std::fs::create_dir(dir).expect("the directory");
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o000))
+            .expect("the permissions");
+    }
+    // constraint: root reads a directory whatever its mode, so no listing fails to give the walk an error
+    if std::fs::read_dir(&closed[0]).is_ok() {
+        return;
+    }
+    let mut client = Client::start(&[]);
+
+    let indexed = client.index(tree.path());
+    for dir in &closed {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755))
+            .expect("the permissions");
+    }
+
+    assert!(indexed.contains("<errors count=\"6\">"), "{indexed}");
+    assert!(
+        indexed.contains(
+            "\n(+1 more) a fixed cap cut this list - no parameter or call lists the rest\n</errors>"
+        ),
+        "{indexed}"
+    );
+}
+
 #[test]
 fn a_server_told_nothing_shares_a_cache_under_the_user_s_and_narrows_grep_by_an_index() {
     let tree = go_module();
@@ -1247,8 +1283,8 @@ fn grep_quotes_an_unreadable_path_that_opens_with_a_parenthesis_and_not_the_coun
     assert_eq!(
         client.answer("grep", &json!({"patterns": ["x"]})),
         format!(
-            "<grep patterns=\"x\" candidates=\"6\" files=\"0\" matches=\"0\">\n<failures count=\"6\">\n{}\n(+1 more)\n\
-             </failures>\n</grep>",
+            "<grep patterns=\"x\" candidates=\"6\" files=\"0\" matches=\"0\">\n<failures count=\"6\">\n{}\n(+1 more) a \
+             fixed cap cut this list - grep with narrower includes lists the rest\n</failures>\n</grep>",
             listed.join("\n")
         )
     );
