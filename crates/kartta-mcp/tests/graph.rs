@@ -2251,6 +2251,53 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
 const LIMIT_CUT: &str = "the limit cut this list - a higher limit lists the rest";
 
 #[test]
+fn find_callers_and_find_references_list_the_first_50_file_scope_users_and_count_every_one() {
+    let scripts: Vec<(String, &str)> = (0..51)
+        .map(|at| (format!("bin/run{at:02}.sh"), ". lib/common.sh\nshared\n"))
+        .collect();
+    let mut files: Vec<(&str, &str)> = scripts
+        .iter()
+        .map(|(path, text)| (path.as_str(), *text))
+        .collect();
+    files.push(("lib/common.sh", "shared() {\n\techo shared\n}\n"));
+    let answers = answers_over(
+        &files,
+        &[
+            ("find_callers", json!({"name": "shared"})),
+            ("find_references", json!({"name": "shared"})),
+            ("find_callers", json!({"name": "shared", "role": "entry"})),
+        ],
+    );
+
+    let first: Vec<&str> = scripts[..50]
+        .iter()
+        .map(|(path, _)| path.as_str())
+        .collect();
+    for answer in &answers[..2] {
+        assert!(
+            answer.contains(r#"file_scope="51" file_scope_shown="50""#),
+            "{answer}"
+        );
+        let listed: Vec<&str> = answer
+            .lines()
+            .filter_map(|line| line.strip_prefix(r#"<file_scope path=""#))
+            .filter_map(|line| line.split('"').next())
+            .collect();
+        assert_eq!(listed, first, "the first 50 in path order: {answer}");
+    }
+    assert!(
+        answers[2].contains(r#"file_scope="51" consumers="#),
+        "{}",
+        answers[2]
+    );
+    assert!(
+        !answers[2].contains("file_scope_shown") && !answers[2].contains("<file_scope "),
+        "a role lists no file-scope record: {}",
+        answers[2]
+    );
+}
+
+#[test]
 fn find_callers_lists_the_nearest_callers_up_to_its_limit_and_counts_every_one() {
     let mut callers =
         String::from("package lib\n\nfunc helper() {}\n\nfunc Top() {\n\tc000()\n}\n");
