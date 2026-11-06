@@ -8,8 +8,8 @@ mod unused;
 use std::fmt::Display;
 
 use kartta::{
-    Definition, Engine, Entry, EntryKind, Hit, Resolution, Selector, SymbolFlags, SymbolKind,
-    Symlink, UnmatchedKind,
+    Definition, Engine, EngineChange, Entry, EntryKind, Hit, Region, Resolution, Selector,
+    SymbolFlags, SymbolKind, Symlink, UnmatchedKind,
 };
 
 pub(crate) use self::calls::{
@@ -20,6 +20,7 @@ pub(crate) use self::symbols::{
     Found, NameDefinitions, Read, definitions, hits, implementations, importers, outline,
 };
 pub(crate) use self::unused::{UnusedAsk, unused};
+use crate::languages::CATALOG;
 use crate::llmxml::Element;
 use crate::state::{Gitignore, Indexed, Refreshed, Unready};
 
@@ -58,8 +59,10 @@ pub(crate) enum Graphless<'e> {
     Symlink(Symlink<'e>),
     /// The index holds the path as a socket, a fifo or a device node, which no graph holds whatever its name.
     Special,
-    /// No indexed language claims the file or declines it.
+    /// No language kartta ships claims the file or declines it.
     Unclaimed,
+    /// `index_repo`'s `languages` filter left out of the build the language, one kartta ships, that claims the file.
+    Unbuilt(&'static str),
     /// `language` leaves the file, one of its kind, out of its graph for `reason`.
     Declined { language: &'e str, reason: &'e str },
     /// The graph of this family claims the file and holds no record of it.
@@ -79,17 +82,24 @@ impl<'e> Graphless<'e> {
         {
             return Self::Special;
         }
-        family.map_or_else(
-            || {
-                engine
-                    .declined(file)
-                    .map_or(Self::Unclaimed, |(language, reason)| Self::Declined {
-                        language,
-                        reason,
-                    })
-            },
-            Self::Unheld,
-        )
+        family.map_or_else(|| Self::unclaimed(engine, file), Self::Unheld)
+    }
+
+    /// Why no graph answers for `file`, a held file no indexed language claims: an indexed language declines it, a
+    /// language the build left out claims or declines it, or no language kartta ships takes it.
+    fn unclaimed(engine: &'e Engine, file: &str) -> Self {
+        if let Some((language, reason)) = engine.declined(file) {
+            return Self::Declined { language, reason };
+        }
+        if let Some(language) = CATALOG.claimant(file) {
+            return Self::Unbuilt(language);
+        }
+        CATALOG
+            .declined(file)
+            .map_or(Self::Unclaimed, |(language, reason)| Self::Declined {
+                language,
+                reason,
+            })
     }
 
     fn note(self) -> String {
@@ -103,6 +113,13 @@ impl<'e> Graphless<'e> {
             Self::Unclaimed => {
                 "no indexed language claims this file, so no code graph holds it".to_owned()
             }
+            Self::Unbuilt(language) => {
+                return format!(
+                    "the {language} language claims this file, and index_repo's languages filter left it out of \
+                     this index, so no code graph holds it - read or grep it, or index_repo with {language} in \
+                     languages"
+                );
+            }
             Self::Declined { language, reason } => {
                 format!("the {language} language leaves this file out of its graph: {reason}")
             }
@@ -112,6 +129,61 @@ impl<'e> Graphless<'e> {
             ),
         };
         format!("{why} - read or grep it")
+    }
+}
+
+/// What the languages a build left out say of the regions an `impact_of_change` engine answer counts as unclaimed,
+/// each list in the order the regions first name its entries.
+#[derive(Debug, Default)]
+pub(crate) struct Unbuilt {
+    /// Per language that claims their files, the regions.
+    pub(crate) claimed: Vec<(&'static str, usize)>,
+    /// Per language that leaves their files out of its graph and the reason it states, the regions.
+    pub(crate) declined: Vec<(&'static str, &'static str, usize)>,
+}
+
+impl Unbuilt {
+    /// What the languages the build left out say of `change`'s unclaimed regions; nothing when it counts none.
+    pub(crate) fn of(engine: &Engine, regions: &[Region<'_>], change: &EngineChange<'_>) -> Self {
+        let mut unbuilt = Self::default();
+        if change.unclaimed_regions == 0 {
+            return unbuilt;
+        }
+        for region in regions {
+            let file = region.path;
+            let unclaimed = engine
+                .index()
+                .entry(file)
+                .is_some_and(|entry| entry.kind() == EntryKind::File)
+                && engine.graph_of(file).is_none()
+                && engine.declined(file).is_none();
+            if !unclaimed {
+                continue;
+            }
+            if let Some(language) = CATALOG.claimant(file) {
+                match unbuilt.claimed.iter_mut().find(|(met, _)| *met == language) {
+                    Some((_, count)) => *count += 1,
+                    None => unbuilt.claimed.push((language, 1)),
+                }
+            } else if let Some((language, reason)) = CATALOG.declined(file) {
+                let met = unbuilt
+                    .declined
+                    .iter_mut()
+                    .find(|(met, why, _)| *met == language && *why == reason);
+                match met {
+                    Some((_, _, count)) => *count += 1,
+                    None => unbuilt.declined.push((language, reason, 1)),
+                }
+            }
+        }
+        unbuilt
+    }
+
+    /// How many unclaimed regions the languages the build left out claim or decline.
+    pub(crate) fn regions(&self) -> usize {
+        let claimed: usize = self.claimed.iter().map(|(_, regions)| regions).sum();
+        let declined: usize = self.declined.iter().map(|(_, _, regions)| regions).sum();
+        claimed + declined
     }
 }
 

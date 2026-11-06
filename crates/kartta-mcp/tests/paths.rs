@@ -592,3 +592,99 @@ fn a_held_file_no_graph_answers_for_says_why() {
         );
     }
 }
+
+#[test]
+fn a_held_file_of_a_language_the_build_left_out_names_the_filter() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        ("pkg/app.go", "package pkg\n\nfunc Run() {}\n"),
+        ("pkg/_skip.go", "package pkg\n\nfunc Skipped() {}\n"),
+        ("lib/core.rs", "pub fn run() {}\n"),
+        ("README.md", "# app\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.answer(
+        "index_repo",
+        &json!({"root": tree.path(), "languages": ["rust"]}),
+    );
+
+    let unbuilt = "the go language claims this file, and index_repo's languages filter left it out of this index, \
+                   so no code graph holds it - read or grep it, or index_repo with go in languages";
+    let declined = "the go language leaves this file out of its graph: no Go build reads a file whose name starts \
+                    with _ or . - read or grep it";
+    let unclaimed =
+        "no indexed language claims this file, so no code graph holds it - read or grep it";
+    for (file, note) in [
+        ("pkg/app.go", unbuilt),
+        ("pkg/_skip.go", declined),
+        ("README.md", unclaimed),
+    ] {
+        assert_eq!(
+            [
+                client.answer("file_outline", &json!({"file": file})),
+                client.answer("find_importers", &json!({"file": file})),
+                client.answer("impact_of_edit", &json!({"file": file, "start_line": 1})),
+            ],
+            [
+                format!(r#"<outline of="{file}" symbols="0">{note}</outline>"#),
+                format!(r#"<importers of="{file}" count="0">{note}</importers>"#),
+                format!(
+                    r#"<impact of="{file}" start_line="1" end_line="end" symbols="0">{note}</impact>"#
+                ),
+            ]
+        );
+    }
+}
+
+#[test]
+fn a_change_to_files_of_a_language_the_build_left_out_counts_them_under_it() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        ("pkg/app.go", "package pkg\n\nfunc Run() {}\n"),
+        ("pkg/more.go", "package pkg\n\nfunc More() {}\n"),
+        ("pkg/_skip.go", "package pkg\n\nfunc Skipped() {}\n"),
+        ("lib/core.rs", "pub fn run() {}\n"),
+        ("README.md", "# app\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.answer(
+        "index_repo",
+        &json!({"root": tree.path(), "languages": ["rust"]}),
+    );
+
+    let answer = client.answer(
+        "impact_of_change",
+        &json!({"regions": [
+            {"file": "pkg/app.go"},
+            {"file": "pkg/_skip.go"},
+            {"file": "README.md"},
+            {"file": "pkg/more.go"},
+        ]}),
+    );
+
+    assert_eq!(
+        answer,
+        [
+            concat!(
+                r#"<change regions="4" changed_symbols="0" changed_files="0" footprint="0" footprint_files="0" "#,
+                r#"unheld_regions="4" unclaimed_regions="1">"#,
+            ),
+            concat!(
+                "no symbols in these regions - they cover only file-scope code (imports, comments) or files no code ",
+                "graph holds (counted in unheld_regions); zero symbols is not proof the change is safe, and ",
+                "find_importers lists the files that include a changed file",
+            ),
+            concat!(
+                r#"<declined language="go" regions="1">the go language leaves these regions' files out of its "#,
+                "graph: no Go build reads a file whose name starts with _ or . - read or grep them</declined>",
+            ),
+            concat!(
+                r#"<unbuilt language="go" regions="2">the go language claims these regions' files, and "#,
+                "index_repo's languages filter left it out of this index - read or grep them, or index_repo with ",
+                "go in languages</unbuilt>",
+            ),
+            "</change>",
+        ]
+        .join("\n")
+    );
+}

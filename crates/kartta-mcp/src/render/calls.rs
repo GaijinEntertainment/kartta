@@ -8,7 +8,7 @@ use kartta::{
 };
 
 use super::{
-    Asked, Graphless, Unmatched, candidate, confidence, edge_role, empty_languages_note,
+    Asked, Graphless, Unbuilt, Unmatched, candidate, confidence, edge_role, empty_languages_note,
     file_element, flat, kind, loc, named, noted, qn, role, span, unresolved,
 };
 use crate::llmxml::Element;
@@ -553,8 +553,14 @@ pub(crate) fn impact(
 
 /// The `impact_of_change` answer: what the change reaches in all, then the changed symbols, widest reach first, and
 /// the symbols where their reaches meet, each list cut to `limit` and saying so as `shown` of `of`, then each language
-/// that leaves a region's file out of its graph, with its reason.
-pub(crate) fn change(regions: usize, answer: &EngineChange<'_>, limit: usize) -> String {
+/// that leaves a region's file out of its graph, with its reason, and each language the build's `languages` filter
+/// left out that claims a region's file, as `unbuilt` counts them.
+pub(crate) fn change(
+    regions: usize,
+    answer: &EngineChange<'_>,
+    unbuilt: &Unbuilt,
+    limit: usize,
+) -> String {
     const NO_SYMBOLS: &str = "no symbols in these regions - they cover only file-scope code (imports, comments) or \
                               files no code graph holds (counted in unheld_regions); zero symbols is not proof the \
                               change is safe, and find_importers lists the files that include a changed file";
@@ -570,22 +576,40 @@ pub(crate) fn change(regions: usize, answer: &EngineChange<'_>, limit: usize) ->
         .count("missing_regions", answer.missing_regions)
         .count("symlink_regions", answer.symlink_regions)
         .count("special_regions", answer.special_regions)
-        .count("unclaimed_regions", answer.unclaimed_regions)
+        .count(
+            "unclaimed_regions",
+            answer.unclaimed_regions - unbuilt.regions(),
+        )
         .count("regions_outside_symbols", change.regions_outside_symbols);
-    let declined = answer.declined.iter().map(|declined| {
-        Element::new("declined")
-            .attr("language", declined.language)
-            .attr("regions", declined.regions)
+    let declined = answer
+        .declined
+        .iter()
+        .map(|declined| (declined.language, declined.reason, declined.regions))
+        .chain(unbuilt.declined.iter().copied())
+        .map(|(language, reason, regions)| {
+            Element::new("declined")
+                .attr("language", language)
+                .attr("regions", regions)
+                .inline(&format!(
+                    "the {language} language leaves these regions' files out of its graph: {reason} - read or grep \
+                     them"
+                ))
+        });
+    let left_out = unbuilt.claimed.iter().map(|&(language, regions)| {
+        Element::new("unbuilt")
+            .attr("language", language)
+            .attr("regions", regions)
             .inline(&format!(
-                "the {} language leaves these regions' files out of its graph: {} - read or grep them",
-                declined.language, declined.reason
+                "the {language} language claims these regions' files, and index_repo's languages filter left it \
+                 out of this index - read or grep them, or index_repo with {language} in languages"
             ))
     });
+    let reasons = declined.chain(left_out);
     if change.changed_symbols == 0 {
-        if answer.declined.is_empty() {
+        if answer.declined.is_empty() && unbuilt.regions() == 0 {
             return element.inline(NO_SYMBOLS);
         }
-        return element.children(iter::once(NO_SYMBOLS.to_owned()).chain(declined));
+        return element.children(iter::once(NO_SYMBOLS.to_owned()).chain(reasons));
     }
     let seeds = Element::new("seeds")
         .attr("shown", change.seeds.len().min(limit))
@@ -597,7 +621,7 @@ pub(crate) fn change(regions: usize, answer: &EngineChange<'_>, limit: usize) ->
             .attr("of", change.total_hotspots)
             .children(change.hotspots.iter().take(limit).map(hotspot))
     });
-    element.children(iter::once(seeds).chain(hotspots).chain(declined))
+    element.children(iter::once(seeds).chain(hotspots).chain(reasons))
 }
 
 /// A changed symbol: how far a change to it reaches, what its walk left out, and its direct callers, or a field's, a
