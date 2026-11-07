@@ -59,6 +59,7 @@ fn find_symbols_ranks_the_named_symbol_first_and_counts_what_the_limit_cut() {
             lines(&[
                 r#"<symbols of="service" count="1" total="3" truncated="true">"#,
                 r#"<hit name="Service" qn="pkg.Service" kind="struct" lang="go" loc="pkg/service.go:4"/>"#,
+                LIMIT_CUT,
                 "</symbols>",
             ]),
             lines(&[concat!(
@@ -201,6 +202,47 @@ fn read_definitions_answers_each_body_with_its_doc_comment() {
 }
 
 #[test]
+fn read_definitions_ends_each_name_its_limit_cut_with_the_line_that_names_limit() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+            ("a/a.go", "package a\n\nfunc Open() {}\n"),
+            ("b/b.go", "package b\n\nfunc Open() {}\n"),
+            ("c/c.go", "package c\n\nfunc Shut() {}\n"),
+        ],
+        &[
+            (
+                "read_definitions",
+                json!({"names": ["Open", "Shut"], "limit": 1}),
+            ),
+            ("read_definitions", json!({"names": ["Open"], "limit": 2})),
+        ],
+    );
+
+    let (cut, whole) = (&answers[0], &answers[1]);
+    assert!(
+        cut.contains(r#"<name of="Open" total="2" shown="1">"#),
+        "{cut}"
+    );
+    assert_eq!(cut.matches("<definition ").count(), 2, "{cut}");
+    assert!(
+        cut.contains(&format!(
+            "</definition>\n{LIMIT_CUT}\n</name>\n<name of=\"Shut\" total=\"1\">"
+        )),
+        "{cut}"
+    );
+    assert_eq!(
+        cut.matches(LIMIT_CUT).count(),
+        1,
+        "the name the limit did not cut ends with no line: {cut}"
+    );
+    assert!(
+        whole.contains(r#"<name of="Open" total="2">"#) && !whole.contains(LIMIT_CUT),
+        "{whole}"
+    );
+}
+
+#[test]
 fn read_definitions_answers_an_unknown_name_with_close_alternatives() {
     let answers = answers(&[
         ("read_definitions", json!({"names": ["Gret", "New"]})),
@@ -297,6 +339,7 @@ fn find_symbols_tops_up_with_fuzzy_hits_only_when_every_graph_underfills_the_lim
         lines(&[
             r#"<symbols of="service" count="1" total="3" truncated="true">"#,
             r#"<hit name="Service" qn="pkg.Service" kind="struct" lang="go" loc="pkg/service.go:4"/>"#,
+            LIMIT_CUT,
             "</symbols>",
         ])
     );
@@ -4892,7 +4935,7 @@ diff --git a/README.md b/README.md
                         r#"<seeds shown="1" of="2">"#,
                     ][..],
                     &GREET_SEED,
-                    &["</seeds>"],
+                    &[LIMIT_CUT, "</seeds>"],
                     &MAIN_HOTSPOT,
                     &["</change>"],
                 ]
@@ -4907,6 +4950,50 @@ diff --git a/README.md b/README.md
             )
             .to_owned(),
         ]
+    );
+}
+
+#[test]
+fn impact_of_change_ends_the_hotspots_its_limit_cut_with_the_line_that_names_limit() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+            (
+                "app.go",
+                "package app\n\nfunc A() {}\n\nfunc B() {}\n\nfunc X() {\n\tA()\n\tB()\n}\n\n\
+                 func Y() {\n\tA()\n\tB()\n}\n\nfunc Z() {\n\tA()\n\tB()\n}\n",
+            ),
+        ],
+        &[
+            (
+                "impact_of_change",
+                json!({"regions": [{"file": "app.go", "start_line": 3, "end_line": 5}], "limit": 2}),
+            ),
+            (
+                "impact_of_change",
+                json!({"regions": [{"file": "app.go", "start_line": 3, "end_line": 5}], "limit": 3}),
+            ),
+        ],
+    );
+
+    let (cut, whole) = (&answers[0], &answers[1]);
+    assert!(
+        cut.contains(r#"<seeds shown="2" of="2">"#)
+            && cut.contains(r#"<hotspots shown="2" of="3">"#),
+        "{cut}"
+    );
+    assert!(
+        cut.contains(&format!("/>\n{LIMIT_CUT}\n</hotspots>")),
+        "{cut}"
+    );
+    assert_eq!(
+        cut.matches(LIMIT_CUT).count(),
+        1,
+        "the seeds the limit did not cut end with no line: {cut}"
+    );
+    assert!(
+        whole.contains(r#"<hotspots shown="3" of="3">"#) && !whole.contains(LIMIT_CUT),
+        "{whole}"
     );
 }
 
@@ -5029,6 +5116,7 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
                 r#"<unused count="1" total="2" truncated="true" live="2">"#,
                 r#"<excluded test="1" entry="1"/>"#,
                 r#"<symbol name="unused" qn="main.unused" kind="function" lang="go" loc="main.go:10"/>"#,
+                LIMIT_CUT,
                 "</unused>",
             ]),
             lines(&[
