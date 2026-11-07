@@ -70,7 +70,7 @@ pub(crate) fn hits(
         }
         return element.children(std::iter::once(text).chain(suggested));
     }
-    element.children(suggested.chain(found.hits.iter().map(|(family, hit)| {
+    let hits = found.hits.iter().map(|(family, hit)| {
         let definition = &hit.definition;
         named("hit", definition)
             .optional("owner", definition.owner)
@@ -81,7 +81,12 @@ pub(crate) fn hits(
             .attr("loc", span(definition))
             .optional("sig", definition.signature.map(flat))
             .close()
-    })))
+    });
+    element.children(
+        suggested
+            .chain(hits)
+            .chain(truncated.then(|| LIMIT_CUT.to_owned())),
+    )
 }
 
 fn no_hits(languages: Option<&str>, coverage: &[&GraphRow]) -> String {
@@ -153,11 +158,12 @@ pub(crate) fn definitions(
             };
             return unresolved(name, languages, asked, &answer.unmatched);
         }
-        name.optional(
-            "shown",
-            (answer.total > answer.definitions.len()).then_some(answer.definitions.len()),
-        )
-        .children(answer.definitions.iter().map(definition))
+        let cut = answer.total > answer.definitions.len();
+        name.optional("shown", cut.then_some(answer.definitions.len()))
+            .children(
+                (answer.definitions.iter().map(definition))
+                    .chain(cut.then(|| LIMIT_CUT.to_owned())),
+            )
     }))
 }
 

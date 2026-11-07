@@ -714,18 +714,18 @@ impl Server {
                        one-line sig. A hit whose name is the query outranks every other. To read a definition's \
                        source, pass its name to read_definitions. When keyword matches underfill the limit, fuzzy \
                        name matches top the answer up - those records carry fuzzy=true and are not matches for the \
-                       query as requested. truncated=true with total= on <symbols> means the limit cut the answer: a \
-                       higher limit or a narrower query shows more; unmatched= names the query's words no definition \
-                       holds, and then up to 5 <suggestion/> records before the hits list the definitions named one \
-                       edit from the whole query - a character swapped with the next, dropped, or replaced or added \
-                       by an ASCII letter, a digit, _ or a character of the query - which one_edit= counts; ask an \
-                       unmatched word alone for those of that word. A record carrying a 'role' attribute is a reach \
-                       artifact rather than ordinary code - one of test, entry or generated, in that precedence; an \
-                       ordinary record carries none. Symbols in GENERATED or vendored code rank below hand-written \
-                       ones. An answer with NO hits says so, and names any searched language holding files that \
-                       yielded no symbols (an unsupported dialect or a failed parse) - read that as missing coverage \
-                       rather than as the symbol not existing, and call index_stats for the per-language counts. \
-                       Requires index_repo first."
+                       query as requested. truncated=true with total= on <symbols>, and a last line after the hits, \
+                       mean the limit cut the answer: a higher limit or a narrower query shows more; unmatched= names \
+                       the query's words no definition holds, and then up to 5 <suggestion/> records before the hits \
+                       list the definitions named one edit from the whole query - a character swapped with the next, \
+                       dropped, or replaced or added by an ASCII letter, a digit, _ or a character of the query - \
+                       which one_edit= counts; ask an unmatched word alone for those of that word. A record carrying \
+                       a 'role' attribute is a reach artifact rather than ordinary code - one of test, entry or \
+                       generated, in that precedence; an ordinary record carries none. Symbols in GENERATED or \
+                       vendored code rank below hand-written ones. An answer with NO hits says so, and names any \
+                       searched language holding files that yielded no symbols (an unsupported dialect or a failed \
+                       parse) - read that as missing coverage rather than as the symbol not existing, and call \
+                       index_stats for the per-language counts. Requires index_repo first."
     )]
     async fn find_symbols(
         &self,
@@ -837,10 +837,10 @@ impl Server {
                        old span, and resized=true marks a file whose size changed since. truncated=true marks a body \
                        cut before the span ends, or missing because the file no longer reaches the span; a definition \
                        whose file could not be read has no body, carries error= with the reason and its sig when one \
-                       was captured. total on a <name> counts every definition the name selects; shown=N means the \
-                       limit cut the list to N. A name nothing defines answers total=0 with up to 5 close \
-                       alternatives (did you mean): those named one edit from it, which one_edit= counts, or else \
-                       the best search hits. Requires index_repo first."
+                       was captured. total on a <name> counts every definition the name selects; shown=N and a last \
+                       line after its definitions mean the limit cut the list to N. A name nothing defines answers \
+                       total=0 with up to 5 close alternatives (did you mean): those named one edit from it, which \
+                       one_edit= counts, or else the best search hits. Requires index_repo first."
     )]
     async fn read_definitions(
         &self,
@@ -1372,9 +1372,10 @@ impl Server {
                        as <dir path callers/> (in <caller_dirs shown= of=>) - a field, a variable or a constant with \
                        users= lists those users in <users> and <user_dirs> instead; and, when two or more changed \
                        symbols reach one, a <hotspots> list of those symbols, reached_by= how many and hops= how near, \
-                       changed=true on one the change touches itself. Each list shows at most 'limit' (default 20) \
-                       with shown= of=. A change that overlaps no symbol answers changed_symbols=0 with a note in \
-                       place of the lists. Each \
+                       changed=true on one the change touches itself. <seeds> and <hotspots> each show at most \
+                       'limit' (default 20) with shown= of=, and end with a line naming the limit when it cut them. \
+                       A change that overlaps no \
+                       symbol answers changed_symbols=0 with a note in place of the lists. Each \
                        count of what was left out appears only when it is not zero: unheld_regions= the regions in \
                        files no code graph holds, of them missing_regions= those whose path the index does not hold, \
                        symlink_regions= those whose path it holds as a symlink, special_regions= those whose path it \
@@ -1424,10 +1425,11 @@ impl Server {
                        calls, and Go types, fields, variables and constants through their uses. Judges every indexed \
                        language unless narrowed with 'languages'; path_prefix narrows it to a subtree, and on a large \
                        repository an unscoped call takes seconds, so scope it to the code you are cleaning. Returns an \
-                       <unused> envelope: count= the definitions listed, total= with truncated=true when 'limit' \
-                       (default 50) cut the list, live= the definitions judged and found used, then an <excluded/> \
-                       record counting what was not judged, each only when it is not zero - test, generated, entry \
-                       (main, registered handlers, constructors, operators), vendored, unobservable (locals, and \
+                       <unused> envelope: count= the definitions listed, total= with truncated=true, and a last \
+                       line after the records, when 'limit' (default 50) cut the list, live= the definitions judged \
+                       and found used, then an <excluded/> record counting what was not judged, each only when it is \
+                       not zero - test, generated, entry (main, registered handlers, constructors, operators), \
+                       vendored, unobservable (locals, and \
                        fields, values and types outside Go), uncertain (a call or a use of the name bound nothing \
                        certain, so it may reach this one), dispatched (a \
                        method an interface, a trait or a parent can route a call to), and reflected (no use reaches \
