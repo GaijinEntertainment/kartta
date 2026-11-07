@@ -1,6 +1,6 @@
 use std::ops::RangeInclusive;
 
-use kartta::{Access, Limits, Selector, SiteQuery, SymbolKind};
+use kartta::{Access, ChangeQuery, Limits, SegmentQuery, Selector, SiteQuery, SymbolKind};
 use serde::Deserialize;
 
 use crate::error::{Error, ErrorCode};
@@ -18,6 +18,11 @@ pub(crate) const IMPLEMENTATIONS: usize = 100;
 pub(crate) const DEPENDENTS_DEPTH: u32 = 3;
 pub(crate) const DEPENDENTS: usize = 100;
 pub(crate) const SEGMENT_DEPTH: u32 = 3;
+pub(crate) const SEGMENT_CALLS: usize = 50;
+pub(crate) const CHANGE_CONSUMERS: usize = 30;
+pub(crate) const CHANGE_SEEDS: usize = 300;
+pub(crate) const CHANGE_HOTSPOTS: usize = 300;
+pub(crate) const CANDIDATES: usize = 5;
 pub(crate) const DEAD_CODE: usize = 100;
 pub(crate) const UNBOUND: usize = 20;
 
@@ -57,7 +62,9 @@ pub(crate) struct WalkParams {
 
 impl WalkParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref()).with_line(self.line)
+        Selector::new(&self.name, self.path_prefix.as_deref())
+            .with_line(self.line)
+            .with_candidate_limit(CANDIDATES)
     }
 
     pub(crate) fn limits(&self, depth: u32) -> Limits {
@@ -95,11 +102,15 @@ pub(crate) struct CallPathParams {
 
 impl CallPathParams {
     pub(crate) fn from(&self) -> Selector<'_> {
-        Selector::new(&self.from, self.from_path_prefix.as_deref()).with_line(self.from_line)
+        Selector::new(&self.from, self.from_path_prefix.as_deref())
+            .with_line(self.from_line)
+            .with_candidate_limit(CANDIDATES)
     }
 
     pub(crate) fn to(&self) -> Selector<'_> {
-        Selector::new(&self.to, self.to_path_prefix.as_deref()).with_line(self.to_line)
+        Selector::new(&self.to, self.to_path_prefix.as_deref())
+            .with_line(self.to_line)
+            .with_candidate_limit(CANDIDATES)
     }
 
     pub(crate) fn limits(&self) -> Limits {
@@ -132,7 +143,9 @@ pub(crate) struct ReferencesParams {
 
 impl ReferencesParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref()).with_line(self.line)
+        Selector::new(&self.name, self.path_prefix.as_deref())
+            .with_line(self.line)
+            .with_candidate_limit(CANDIDATES)
     }
 
     pub(crate) fn query(&self) -> SiteQuery {
@@ -175,7 +188,9 @@ pub(crate) struct ImplementationsParams {
 
 impl ImplementationsParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref()).with_line(self.line)
+        Selector::new(&self.name, self.path_prefix.as_deref())
+            .with_line(self.line)
+            .with_candidate_limit(CANDIDATES)
     }
 
     pub(crate) fn depth(&self) -> u32 {
@@ -290,13 +305,14 @@ impl SegmentParams {
         lines(self.start_line, self.end_line)
     }
 
-    pub(crate) fn limits(&self) -> Limits {
-        limits(
+    pub(crate) fn query(&self) -> SegmentQuery {
+        let limits = limits(
             self.depth,
             self.min_confidence,
             self.max_symbols,
             (SEGMENT_DEPTH, WALK_MAX_SYMBOLS),
-        )
+        );
+        SegmentQuery::new(limits).with_call_limit(SEGMENT_CALLS)
     }
 }
 
@@ -313,13 +329,17 @@ pub(crate) struct ChangeParams {
 }
 
 impl ChangeParams {
-    pub(crate) fn limits(&self) -> Limits {
-        limits(
+    pub(crate) fn query(&self) -> ChangeQuery {
+        let limits = limits(
             self.depth,
             self.min_confidence,
             self.max_symbols,
             (SEGMENT_DEPTH, WALK_MAX_SYMBOLS),
-        )
+        );
+        ChangeQuery::new(limits)
+            .with_consumer_limit(CHANGE_CONSUMERS)
+            .with_seed_limit(CHANGE_SEEDS)
+            .with_hotspot_limit(CHANGE_HOTSPOTS)
     }
 }
 

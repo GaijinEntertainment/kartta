@@ -10,7 +10,7 @@ use kartta_fs::{
 };
 #[cfg(feature = "watch")]
 use kartta_fs::{WatchError, Watcher};
-use kartta_graph::{Change, Definition, Graph, Limits, Region, Resolution};
+use kartta_graph::{Change, ChangeQuery, Definition, Graph, Region, Resolution};
 use kartta_lang::{DocComments, Language};
 
 use crate::extracting::{Extracting, FileCounts, claimant};
@@ -650,12 +650,17 @@ impl Engine {
     }
 
     /// What a change to the lines of `regions` reaches, across the families whose languages claim their files: each
-    /// family's graph analyzes the regions of its files as [`Graph::analyze_change`] does, within `limits`, and
-    /// [`Change::merge`] ranks the answers together. A region whose path the index does not hold or holds as a
+    /// family's graph analyzes the regions of its files as [`Graph::analyze_change`] does, under `query`, and
+    /// [`Change::merge`] ranks the answers together and cuts them at its limits. A region whose path the index does not hold or holds as a
     /// symlink, a directory or a special file, or whose held file no language claims, counts as unheld, and the answer
     /// says which of these it is and, for a file a language declines, the language and its reason.
     #[must_use]
-    pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> EngineChange<'_> {
+    pub fn analyze_change(
+        &self,
+        regions: &[Region<'_>],
+        query: impl Into<ChangeQuery>,
+    ) -> EngineChange<'_> {
+        let query = query.into();
         let mut by_family: Vec<Vec<Region<'_>>> = vec![Vec::new(); self.families.len()];
         let mut answer = EngineChange::default();
         for region in regions {
@@ -692,7 +697,8 @@ impl Engine {
                 .iter()
                 .zip(&by_family)
                 .filter(|(_, regions)| !regions.is_empty())
-                .map(|(family, regions)| family.graph.analyze_change(regions, limits)),
+                .map(|(family, regions)| family.graph.analyze_change(regions, query)),
+            query,
         );
         let declined: usize = answer
             .declined

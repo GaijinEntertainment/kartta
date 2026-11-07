@@ -145,17 +145,21 @@ pub struct Selector<'s> {
     /// file, as C++ overloads or a declaration beside its out-of-line definition, are told apart by it. `None` looks
     /// at every line.
     pub line: Option<u32>,
+    /// How many of the other symbols the name selects an answer lists as its `candidates`; `usize::MAX` lists them
+    /// all, and 0 counts them alone.
+    pub candidate_limit: usize,
 }
 
 impl<'s> Selector<'s> {
     /// The symbol `name` selects in the files whose path starts with `path_prefix`, or in any file for `None`, on any
-    /// line.
+    /// line, listing every other symbol it selects.
     #[must_use]
     pub const fn new(name: &'s str, path_prefix: Option<&'s str>) -> Self {
         Self {
             name,
             path_prefix,
             line: None,
+            candidate_limit: usize::MAX,
         }
     }
 
@@ -165,7 +169,17 @@ impl<'s> Selector<'s> {
         Self { line, ..self }
     }
 
-    /// This selector with `name` in place of its own, looking in the same files and at the same line.
+    /// This selector, listing at most `candidate_limit` of the other symbols the name selects.
+    #[must_use]
+    pub const fn with_candidate_limit(self, candidate_limit: usize) -> Self {
+        Self {
+            candidate_limit,
+            ..self
+        }
+    }
+
+    /// This selector with `name` in place of its own, looking in the same files and at the same line, and listing as
+    /// many other symbols.
     #[must_use]
     pub const fn with_name<'n>(self, name: &'n str) -> Selector<'n>
     where
@@ -175,6 +189,7 @@ impl<'s> Selector<'s> {
             name,
             path_prefix: self.path_prefix,
             line: self.line,
+            candidate_limit: self.candidate_limit,
         }
     }
 
@@ -192,9 +207,6 @@ impl<'s> From<&'s str> for Selector<'s> {
         Self::new(name, None)
     }
 }
-
-/// How many of the symbols a name selects and a query passes over its answer lists.
-pub(crate) const LISTED_CANDIDATES: usize = 5;
 
 /// A symbol a name selects that a query passed over, and the count the query ranks a name's symbols by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -390,10 +402,14 @@ impl Graph {
     }
 
     /// The symbols a query passed over, `others` each with its count, ranked by count and then path order, at most
-    /// [`LISTED_CANDIDATES`] of them.
-    pub(crate) fn candidates(&self, mut others: Vec<(SymbolAt, usize)>) -> Vec<Candidate<'_>> {
+    /// `limit` of them.
+    pub(crate) fn candidates(
+        &self,
+        mut others: Vec<(SymbolAt, usize)>,
+        limit: usize,
+    ) -> Vec<Candidate<'_>> {
         let rank = |&(at, count): &(SymbolAt, usize)| (Reverse(count), self.order_of(at));
-        keep_first(&mut others, LISTED_CANDIDATES, |left, right| {
+        keep_first(&mut others, limit, |left, right| {
             rank(left).cmp(&rank(right))
         });
         others.sort_unstable_by_key(rank);

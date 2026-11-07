@@ -29,7 +29,8 @@ pub struct Implementations<'g> {
     pub root: Definition<'g>,
     /// The other types [`Graph::definitions`] lists for the name, whose implementors these are not.
     pub passed_over: usize,
-    /// The most implemented of those, the most direct implementors first, then in path order, at most five.
+    /// The most implemented of those, the most direct implementors first, then in path order, at most the selector's
+    /// [`candidate_limit`](crate::Selector::candidate_limit).
     pub candidates: Vec<Candidate<'g>>,
     /// The implementors, each once, nearest first, then in path order, at most the query's limit.
     pub found: Vec<Implementor<'g>>,
@@ -234,7 +235,10 @@ impl<'g> Types<'g> {
                 (at, count)
             })
             .collect();
-        (count, self.graph.candidates(ranked))
+        (
+            count,
+            self.graph.candidates(ranked, selector.candidate_limit),
+        )
     }
 }
 

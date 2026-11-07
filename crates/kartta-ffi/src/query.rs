@@ -222,7 +222,7 @@ fn analyze_segment(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: SegmentParams = wire::params(params)?;
     wire::ok(&FileView::new(&built.engine, &params.file, |graph| {
         graph
-            .analyze_segment(&params.file, params.lines(), params.limits())
+            .analyze_segment(&params.file, params.lines(), params.query())
             .map(Wired)
     }))
 }
@@ -235,7 +235,7 @@ fn analyze_change(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         .map(|region| Region::new(&region.file, region.lines()))
         .collect();
     wire::ok(&ChangeView::new(
-        built.engine.analyze_change(&regions, params.limits()),
+        built.engine.analyze_change(&regions, params.query()),
     ))
 }
 
