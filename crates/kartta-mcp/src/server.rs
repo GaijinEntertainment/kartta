@@ -1311,7 +1311,8 @@ impl Server {
                        edges marked confidence=likely/guess, and a caller that reaches a method only through an \
                        interface, trait or base-class method marked through= as find_callers marks it; a shown=/of= \
                        pair on the enclosing <callers>/<callees> \
-                       discloses the 50-ref sampling cap), ambiguous= for the calls of its name that bound no \
+                       discloses the 50-ref sampling cap, or the fewer refs a wide answer's size leaves each list), \
+                       ambiguous= for the calls of its name that bound no \
                        definition because several definitions of the name may be meant, any of which may call it and \
                        none of which callers= or the reach counts, unresolved= for the calls into code the graph does \
                        not hold, each of the two only when it is not zero, for a field, a variable or a constant \
