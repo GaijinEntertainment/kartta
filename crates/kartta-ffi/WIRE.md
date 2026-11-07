@@ -309,6 +309,8 @@ Left empty, a refresh walks the whole tree again.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a call needs to be taken.
 - `max_symbols` (integer, optional): Caps the symbols the walk reaches, its root included, `WALK_MAX_SYMBOLS` by
   default, and 0 sets no cap.
+- `candidate_limit` (integer, optional): Caps the `candidates` answered of the other symbols the name selects,
+  `CANDIDATES` by default, and 0 answers `passed_over` alone.
 
 ### CallPathParams
 
@@ -323,6 +325,7 @@ Left empty, a refresh walks the whole tree again.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a call needs to be taken.
 - `max_symbols` (integer, optional): Caps the symbols the search reaches, `CALL_PATH_MAX_SYMBOLS` by default, and 0 sets
   no cap.
+- `candidate_limit` (integer, optional): As in [`WalkParams`](#walkparams), for each end.
 
 ### ReferencesParams
 
@@ -334,6 +337,7 @@ Left empty, a refresh walks the whole tree again.
 - `access` ([`AccessParam`](#accessparam), optional): Keeps the uses of one access and drops the calls: `read` also
   keeps the updates and the uses as a type, and `write` the updates.
 - `limit` (integer, optional): Caps the sites answered, `REFERENCES` by default, and 0 answers the counts alone.
+- `candidate_limit` (integer, optional): As in [`WalkParams`](#walkparams).
 
 ### AccessParam
 
@@ -354,6 +358,7 @@ How a site touches a symbol. A call reads it.
   finds none.
 - `limit` (integer, optional): Caps the implementors answered, `IMPLEMENTATIONS` by default, and 0 answers the total
   alone.
+- `candidate_limit` (integer, optional): As in [`WalkParams`](#walkparams).
 
 ### DefinitionsParams
 
@@ -397,6 +402,8 @@ How a site touches a symbol. A call reads it.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a call needs to be taken.
 - `max_symbols` (integer, optional): Caps the symbols each blast reaches, `WALK_MAX_SYMBOLS` by default, and 0 sets no
   cap.
+- `call_limit` (integer, optional): Caps the direct callers, callees and users answered of each symbol, each side on
+  its own, `SEGMENT_CALLS` by default, and 0 answers each side's `total` alone.
 
 ### ChangeParams
 
@@ -406,6 +413,12 @@ How a site touches a symbol. A call reads it.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a call needs to be taken.
 - `max_symbols` (integer, optional): Caps the symbols each walk reaches, `WALK_MAX_SYMBOLS` by default, and 0 sets no
   cap.
+- `consumer_limit` (integer, optional): The most direct callers or users a changed symbol lists, `CHANGE_CONSUMERS` by
+  default; past it the symbol counts them by directory.
+- `seed_limit` (integer, optional): Caps the changed symbols answered, `CHANGE_SEEDS` by default, and 0 answers
+  `changed_symbols` alone.
+- `hotspot_limit` (integer, optional): Caps the hotspots answered, `CHANGE_HOTSPOTS` by default, and 0 answers
+  `total_hotspots` alone.
 
 ### RegionParams
 

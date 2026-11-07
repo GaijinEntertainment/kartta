@@ -1,0 +1,66 @@
+{
+  "answer": {
+    "ok": {
+      "changed_files": 1,
+      "changed_symbols": 2,
+      "declined": [],
+      "directory_regions": 0,
+      "footprint": 2,
+      "footprint_files": 2,
+      "hotspots": [],
+      "missing_regions": 0,
+      "regions_outside_symbols": 0,
+      "seeds": [
+        {
+          "band": "low",
+          "below_confidence": 0,
+          "caller_count": 1,
+          "consumer_dirs": [
+            {
+              "count": 1,
+              "dir": "go"
+            }
+          ],
+          "consumers": [],
+          "reach": 2,
+          "symbol": {
+            "end_line": 8,
+            "exported": false,
+            "file": "go/run.go",
+            "kind": "func",
+            "line": 8,
+            "name": "helper",
+            "qualified_name": "main.helper",
+            "signature": "func helper()"
+          },
+          "truncated": false,
+          "turned_away": 0,
+          "unexpanded": 0
+        }
+      ],
+      "special_regions": 0,
+      "symlink_regions": 0,
+      "total_hotspots": 1,
+      "transitive_sum": 3,
+      "truncated_seeds": 0,
+      "unclaimed_regions": 0,
+      "unheld_regions": 0
+    }
+  },
+  "method": "analyze_change",
+  "params": {
+    "consumer_limit": 0,
+    "depth": 3,
+    "hotspot_limit": 0,
+    "max_symbols": 100,
+    "min_confidence": 1,
+    "regions": [
+      {
+        "end_line": 8,
+        "file": "go/run.go",
+        "start_line": 4
+      }
+    ],
+    "seed_limit": 1
+  }
+}

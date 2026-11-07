@@ -58,13 +58,15 @@ pub(crate) struct WalkParams {
     min_confidence: u8,
     #[serde(default)]
     max_symbols: Option<usize>,
+    #[serde(default)]
+    candidate_limit: Option<usize>,
 }
 
 impl WalkParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
         Selector::new(&self.name, self.path_prefix.as_deref())
             .with_line(self.line)
-            .with_candidate_limit(CANDIDATES)
+            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
     }
 
     pub(crate) fn limits(&self, depth: u32) -> Limits {
@@ -98,19 +100,21 @@ pub(crate) struct CallPathParams {
     min_confidence: u8,
     #[serde(default)]
     max_symbols: Option<usize>,
+    #[serde(default)]
+    candidate_limit: Option<usize>,
 }
 
 impl CallPathParams {
     pub(crate) fn from(&self) -> Selector<'_> {
         Selector::new(&self.from, self.from_path_prefix.as_deref())
             .with_line(self.from_line)
-            .with_candidate_limit(CANDIDATES)
+            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
     }
 
     pub(crate) fn to(&self) -> Selector<'_> {
         Selector::new(&self.to, self.to_path_prefix.as_deref())
             .with_line(self.to_line)
-            .with_candidate_limit(CANDIDATES)
+            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
     }
 
     pub(crate) fn limits(&self) -> Limits {
@@ -139,13 +143,15 @@ pub(crate) struct ReferencesParams {
     access: Option<AccessParam>,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    candidate_limit: Option<usize>,
 }
 
 impl ReferencesParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
         Selector::new(&self.name, self.path_prefix.as_deref())
             .with_line(self.line)
-            .with_candidate_limit(CANDIDATES)
+            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
     }
 
     pub(crate) fn query(&self) -> SiteQuery {
@@ -184,13 +190,15 @@ pub(crate) struct ImplementationsParams {
     depth: Option<u32>,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    candidate_limit: Option<usize>,
 }
 
 impl ImplementationsParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
         Selector::new(&self.name, self.path_prefix.as_deref())
             .with_line(self.line)
-            .with_candidate_limit(CANDIDATES)
+            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
     }
 
     pub(crate) fn depth(&self) -> u32 {
@@ -298,6 +306,8 @@ pub(crate) struct SegmentParams {
     min_confidence: u8,
     #[serde(default)]
     max_symbols: Option<usize>,
+    #[serde(default)]
+    call_limit: Option<usize>,
 }
 
 impl SegmentParams {
@@ -312,7 +322,7 @@ impl SegmentParams {
             self.max_symbols,
             (SEGMENT_DEPTH, WALK_MAX_SYMBOLS),
         );
-        SegmentQuery::new(limits).with_call_limit(SEGMENT_CALLS)
+        SegmentQuery::new(limits).with_call_limit(self.call_limit.unwrap_or(SEGMENT_CALLS))
     }
 }
 
@@ -326,6 +336,12 @@ pub(crate) struct ChangeParams {
     min_confidence: u8,
     #[serde(default)]
     max_symbols: Option<usize>,
+    #[serde(default)]
+    consumer_limit: Option<usize>,
+    #[serde(default)]
+    seed_limit: Option<usize>,
+    #[serde(default)]
+    hotspot_limit: Option<usize>,
 }
 
 impl ChangeParams {
@@ -337,9 +353,9 @@ impl ChangeParams {
             (SEGMENT_DEPTH, WALK_MAX_SYMBOLS),
         );
         ChangeQuery::new(limits)
-            .with_consumer_limit(CHANGE_CONSUMERS)
-            .with_seed_limit(CHANGE_SEEDS)
-            .with_hotspot_limit(CHANGE_HOTSPOTS)
+            .with_consumer_limit(self.consumer_limit.unwrap_or(CHANGE_CONSUMERS))
+            .with_seed_limit(self.seed_limit.unwrap_or(CHANGE_SEEDS))
+            .with_hotspot_limit(self.hotspot_limit.unwrap_or(CHANGE_HOTSPOTS))
     }
 }
 
