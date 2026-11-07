@@ -9,12 +9,63 @@ use crate::calls::{Calls, Edge, Limits, Reached, WalkState};
 use crate::graph::{Definition, Graph, is_data_kind, keep_first};
 use crate::stored::SymbolAt;
 
-// constraint: the docs of `Seed::consumers` and `Seed::consumer_dirs` and the README state this number
-const LISTED_CONSUMERS: usize = 30;
+/// How far [`Graph::analyze_change`] walks from each changed symbol, and how much of what it reaches it lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct ChangeQuery {
+    /// The walk over each changed symbol's callers, and the confidence floor of its direct callers.
+    pub limits: Limits,
+    /// How many direct callers or users a changed symbol lists before it counts them by directory instead;
+    /// `usize::MAX` lists them all.
+    pub consumer_limit: usize,
+    /// How many changed symbols are listed; `usize::MAX` lists them all, and 0 counts them alone.
+    pub seed_limit: usize,
+    /// How many hotspots are listed; `usize::MAX` lists them all, and 0 counts them alone.
+    pub hotspot_limit: usize,
+}
 
-// constraint: the docs of `Change::hotspots` and `Change::seeds` and the README state these numbers
-const LISTED_HOTSPOTS: usize = 300;
-const LISTED_SEEDS: usize = 300;
+impl ChangeQuery {
+    /// A query that walks within `limits` and lists everything it reaches.
+    #[must_use]
+    pub const fn new(limits: Limits) -> Self {
+        Self {
+            limits,
+            consumer_limit: usize::MAX,
+            seed_limit: usize::MAX,
+            hotspot_limit: usize::MAX,
+        }
+    }
+
+    /// This query, listing a changed symbol's direct callers or users while `consumer_limit` or fewer pass the floor.
+    #[must_use]
+    pub const fn with_consumer_limit(self, consumer_limit: usize) -> Self {
+        Self {
+            consumer_limit,
+            ..self
+        }
+    }
+
+    /// This query, listing at most `seed_limit` changed symbols.
+    #[must_use]
+    pub const fn with_seed_limit(self, seed_limit: usize) -> Self {
+        Self { seed_limit, ..self }
+    }
+
+    /// This query, listing at most `hotspot_limit` hotspots.
+    #[must_use]
+    pub const fn with_hotspot_limit(self, hotspot_limit: usize) -> Self {
+        Self {
+            hotspot_limit,
+            ..self
+        }
+    }
+}
+
+impl From<Limits> for ChangeQuery {
+    fn from(limits: Limits) -> Self {
+        Self::new(limits)
+    }
+}
 
 /// A range of one-based lines a change touches in one file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -78,11 +129,11 @@ pub struct Seed<'g> {
     /// may call it, and neither `caller_count` nor `reach` counts them.
     pub ambiguous: usize,
     /// Its direct users for a field, a variable or a constant, and its direct callers for any other kind, in path
-    /// order and those outside test, generated and entry code first, when 30 or fewer of them pass the floor; empty
-    /// otherwise.
+    /// order and those outside test, generated and entry code first, when the query's
+    /// [`consumer_limit`](ChangeQuery::consumer_limit) or fewer of them pass the floor; empty otherwise.
     pub consumers: Vec<Reached<'g>>,
-    /// The directories of the files that hold those direct users or callers, the most first, when more than 30 of
-    /// them pass the floor; empty otherwise.
+    /// The directories of the files that hold those direct users or callers, the most first, when more than the
+    /// query's [`consumer_limit`](ChangeQuery::consumer_limit) of them pass the floor; empty otherwise.
     pub consumer_dirs: Vec<DirCount<'g>>,
     /// Whether the symbol cap stopped the walk over its callers.
     pub truncated: bool,
@@ -113,13 +164,14 @@ pub struct Change<'g> {
     pub footprint_files: usize,
     /// The reaches of the changed symbols, summed: what exceeds `footprint` is where they overlap.
     pub transitive_sum: usize,
-    /// The symbols two or more changed symbols reach, at most 300: those outside test, generated and entry code
-    /// first, then the most reached, then the nearest.
+    /// The symbols two or more changed symbols reach, at most the query's
+    /// [`hotspot_limit`](ChangeQuery::hotspot_limit): those outside test, generated and entry code first, then the
+    /// most reached, then the nearest.
     pub hotspots: Vec<Hotspot<'g>>,
     /// Every such symbol, before the list was cut.
     pub total_hotspots: usize,
-    /// The changed symbols, at most 300 of `changed_symbols`: those outside test, generated and entry code first,
-    /// then the widest reach, then the most direct callers.
+    /// The changed symbols, at most the query's [`seed_limit`](ChangeQuery::seed_limit) of `changed_symbols`: those
+    /// outside test, generated and entry code first, then the widest reach, then the most direct callers.
     pub seeds: Vec<Seed<'g>>,
     /// The changed symbols whose walk the symbol cap stopped.
     pub truncated_seeds: usize,
@@ -127,9 +179,9 @@ pub struct Change<'g> {
 
 impl Change<'_> {
     /// The changes of several graphs as one, as a change across language families answers: the counts summed, the
-    /// hotspots and seeds ranked together and cut again.
+    /// hotspots and seeds ranked together and cut again at the seed and hotspot limits of `query`.
     #[must_use]
-    pub fn merge(parts: impl IntoIterator<Item = Self>) -> Self {
+    pub fn merge(parts: impl IntoIterator<Item = Self>, query: ChangeQuery) -> Self {
         let mut merged = Self::default();
         for part in parts {
             merged.changed_symbols += part.changed_symbols;
@@ -144,14 +196,14 @@ impl Change<'_> {
             merged.hotspots.extend(part.hotspots);
             merged.seeds.extend(part.seeds);
         }
-        merged.ranked()
+        merged.ranked(query)
     }
 
-    fn ranked(mut self) -> Self {
+    fn ranked(mut self, query: ChangeQuery) -> Self {
         self.hotspots.sort_by_key(convergence);
-        self.hotspots.truncate(LISTED_HOTSPOTS);
+        self.hotspots.truncate(query.hotspot_limit);
         self.seeds.sort_by_key(fan_out);
-        self.seeds.truncate(LISTED_SEEDS);
+        self.seeds.truncate(query.seed_limit);
         self
     }
 }
@@ -176,20 +228,26 @@ fn fan_out<'g>(seed: &Seed<'g>) -> impl Ord + use<'g> {
 
 impl Graph {
     /// What a change to the lines of `regions` reaches: the symbols they overlap, the callers a walk over each one's
-    /// callers reaches within `limits`, the symbols two or more of them reach, and the direct callers of each.
+    /// callers reaches within the query's limits, the symbols two or more of them reach, and the direct callers of
+    /// each, each list cut at its limit of the query.
     ///
     /// A declaration and the definition it links to are one changed symbol, answered as the first occurrence the
     /// regions overlap in path order. A field, a variable or a constant reaches first its users, the symbols whose code
     /// reads or writes it, as a function reaches its callers. The direct callers and users take the confidence floor
-    /// of `limits`. Calls and uses are resolved when this asks, and each name's sites once for the whole change. A
+    /// of the limits. Calls and uses are resolved when this asks, and each name's sites once for the whole change. A
     /// region whose file this graph does not hold counts as unheld, and one that overlaps no symbol as outside
     /// symbols; [`Change::merge`] combines the answers of several graphs.
     #[must_use]
-    pub fn analyze_change(&self, regions: &[Region<'_>], limits: Limits) -> Change<'_> {
+    pub fn analyze_change(
+        &self,
+        regions: &[Region<'_>],
+        query: impl Into<ChangeQuery>,
+    ) -> Change<'_> {
+        let query = query.into();
         let mut change = Change::default();
         let mut changed: HashMap<SymbolAt, SymbolAt, FixedState> = HashMap::default();
         let mut changed_files: HashSet<u32, FixedState> = HashSet::default();
-        let mut analysis = Analysis::new(self, limits);
+        let mut analysis = Analysis::new(self, query.limits);
 
         for region in regions {
             let Some(slot) = self
@@ -214,13 +272,13 @@ impl Graph {
 
         let mut hits: HashMap<SymbolAt, (usize, u32), FixedState> = HashMap::default();
         let by_fan_out = |left: &Seed<'_>, right: &Seed<'_>| fan_out(left).cmp(&fan_out(right));
-        for (&canonical, &at) in &changed {
-            let seed = analysis.seed(canonical, at, &mut hits);
+        for &at in changed.values() {
+            let seed = analysis.seed(at, &mut hits, query.consumer_limit);
             change.transitive_sum += seed.reach;
             change.truncated_seeds += usize::from(seed.truncated);
             change.seeds.push(seed);
-            if change.seeds.len() >= 2 * LISTED_SEEDS {
-                keep_first(&mut change.seeds, LISTED_SEEDS, by_fan_out);
+            if change.seeds.len() >= query.seed_limit.saturating_mul(2) {
+                keep_first(&mut change.seeds, query.seed_limit, by_fan_out);
             }
         }
 
@@ -240,17 +298,18 @@ impl Graph {
             })
             .collect();
         change.total_hotspots = change.hotspots.len();
-        change.ranked()
+        change.ranked(query)
     }
 }
 
 impl<'g> Analysis<'g> {
     fn seed(
         &mut self,
-        canonical: SymbolAt,
         at: SymbolAt,
         hits: &mut HashMap<SymbolAt, (usize, u32), FixedState>,
+        consumer_limit: usize,
     ) -> Seed<'g> {
+        let canonical = self.calls.canonical(at);
         let mut reach = 0;
         let walk = WalkState::new(canonical, self.limits);
         let left_out = self.calls.reach(walk, Calls::dependents_of, |edge, depth| {
@@ -272,7 +331,7 @@ impl<'g> Analysis<'g> {
         let direct_count = direct.iter().filter(passes).count();
         let (caller_count, user_count) =
             data_callers.map_or((direct_count, 0), |callers| (callers, direct_count));
-        let (consumers, consumer_dirs) = if direct_count > LISTED_CONSUMERS {
+        let (consumers, consumer_dirs) = if direct_count > consumer_limit {
             (Vec::new(), consumer_dirs(graph, &direct, floor))
         } else {
             (consumers(graph, &direct, floor), Vec::new())

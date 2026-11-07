@@ -267,6 +267,25 @@ fn a_name_read_with_the_other_separator_keeps_its_line() {
 }
 
 #[test]
+fn a_name_read_with_the_other_separator_keeps_its_candidate_limit() {
+    let cpp = overloads("app::parse");
+
+    let (found, [read_as]) = ask_reading(
+        [("cpp", &cpp)].into_iter(),
+        [Selector::new("app.parse", None).with_candidate_limit(0)],
+        |_| true,
+        |(_, graph), [named]| {
+            graph
+                .callers(named, Limits::new(1))
+                .map(|walk| (walk.passed_over, walk.candidates.len()))
+        },
+    );
+
+    assert_eq!(read_as.as_deref(), Some("app::parse"));
+    assert_eq!(found, [(1, 0)]);
+}
+
+#[test]
 fn a_definition_of_a_kind_the_query_does_not_select_is_not_counted() {
     let go = graph(&[
         (

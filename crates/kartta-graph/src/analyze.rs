@@ -9,8 +9,39 @@ use crate::calls::{Calls, Edge, Limits, Reached, WalkState};
 use crate::graph::{Definition, Graph, narrow};
 use crate::stored::SymbolAt;
 
-// constraint: the docs of `DirectCalls::listed` and the README state this number
-const LISTED_CALLS: usize = 50;
+/// How far [`Graph::analyze_segment`] walks from each symbol, and how many direct calls it lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct SegmentQuery {
+    /// The walk over each symbol's callers, and the confidence floor of its direct calls.
+    pub limits: Limits,
+    /// How many of each side of a symbol's direct calls are listed; `usize::MAX` lists them all, and 0 counts them
+    /// alone.
+    pub call_limit: usize,
+}
+
+impl SegmentQuery {
+    /// A query that walks within `limits` and lists every direct call.
+    #[must_use]
+    pub const fn new(limits: Limits) -> Self {
+        Self {
+            limits,
+            call_limit: usize::MAX,
+        }
+    }
+
+    /// This query, listing at most `call_limit` of each side of a symbol's direct calls.
+    #[must_use]
+    pub const fn with_call_limit(self, call_limit: usize) -> Self {
+        Self { call_limit, ..self }
+    }
+}
+
+impl From<Limits> for SegmentQuery {
+    fn from(limits: Limits) -> Self {
+        Self::new(limits)
+    }
+}
 
 /// How widely a change to a symbol reaches, from the callers a walk over them reaches.
 ///
@@ -98,7 +129,8 @@ pub struct Blast {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct DirectCalls<'g> {
-    /// At most 50 of them, in path order, each with its most confident call or use.
+    /// At most the query's [`call_limit`](SegmentQuery::call_limit) of them, in path order, each with its most
+    /// confident call or use.
     pub listed: Vec<Reached<'g>>,
     /// Every one that passes the confidence floor, before the list was cut.
     pub total: usize,
@@ -148,21 +180,22 @@ pub struct Segment<'g> {
 
 impl Graph {
     /// The symbols of the file at `path` whose lines overlap `lines`, each with its direct callers and callees and the
-    /// callers a change to it reaches within `limits`, or `None` when the graph does not hold the file. `1..=u32::MAX`
-    /// asks about the whole file, and a range that starts past its end overlaps no symbol.
+    /// callers a change to it reaches within the query's limits, or `None` when the graph does not hold the file.
+    /// `1..=u32::MAX` asks about the whole file, and a range that starts past its end overlaps no symbol.
     ///
     /// A declaration answers for the definition it links to. A field, a variable or a constant also answers its direct
     /// users, the symbols whose code reads or writes it, and the walk from it starts from them. The direct calls take
-    /// the confidence floor of `limits`; its depth and symbol cap bound the walk over each symbol's callers, and its
-    /// depth the files that include the file. Calls and uses are resolved when this asks, and each name's sites once
-    /// for the whole segment.
+    /// the confidence floor of the limits, and each side lists at most the query's call limit; their depth and symbol
+    /// cap bound the walk over each symbol's callers, and their depth the files that include the file. Calls and uses
+    /// are resolved when this asks, and each name's sites once for the whole segment.
     #[must_use]
     pub fn analyze_segment(
         &self,
         path: &str,
         lines: RangeInclusive<u32>,
-        limits: Limits,
+        query: impl Into<SegmentQuery>,
     ) -> Option<Segment<'_>> {
+        let SegmentQuery { limits, call_limit } = query.into();
         let slot = self.slot_of(self.strings.get(path)?)?;
         let file = self.file(slot);
 
@@ -174,7 +207,7 @@ impl Graph {
             let mut analysis = Analysis::new(self, limits);
             overlapping
                 .into_iter()
-                .map(|at| analysis.segment_symbol(at, &includers))
+                .map(|at| analysis.segment_symbol(at, &includers, call_limit))
                 .collect()
         };
 
@@ -269,11 +302,12 @@ impl<'g> Analysis<'g> {
         &mut self,
         at: SymbolAt,
         includers: &HashSet<u32, FixedState>,
+        call_limit: usize,
     ) -> SegmentSymbol<'g> {
         let root = self.calls.canonical(at);
         let floor = self.limits.min_confidence;
-        let callers = DirectCalls::of(self.graph, &self.calls.callers_of(root), floor);
-        let users = DirectCalls::of(self.graph, &self.calls.user_edges(root), floor);
+        let callers = DirectCalls::of(self.graph, &self.calls.callers_of(root), floor, call_limit);
+        let users = DirectCalls::of(self.graph, &self.calls.user_edges(root), floor, call_limit);
         let unresolved_before = self.calls.unresolved();
         let outgoing = self.calls.callees_of(root);
         let unresolved = self.calls.unresolved() - unresolved_before;
@@ -283,7 +317,7 @@ impl<'g> Analysis<'g> {
             callers,
             users,
             ambiguous: self.calls.ambiguous_calls(root),
-            callees: DirectCalls::of(self.graph, &outgoing, floor),
+            callees: DirectCalls::of(self.graph, &outgoing, floor, call_limit),
             unresolved,
             blast: self.blast(at, root, includers),
         }
@@ -325,11 +359,11 @@ impl<'g> Analysis<'g> {
 }
 
 impl<'g> DirectCalls<'g> {
-    fn of(graph: &'g Graph, edges: &[Edge], floor: u8) -> Self {
+    fn of(graph: &'g Graph, edges: &[Edge], floor: u8, limit: usize) -> Self {
         let mut passing = edges.iter().filter(|edge| edge.confidence >= floor);
         let listed: Vec<Reached<'g>> = passing
             .by_ref()
-            .take(LISTED_CALLS)
+            .take(limit)
             .map(|edge| edge.reached(graph, 1))
             .collect();
         let total = listed.len() + passing.count();

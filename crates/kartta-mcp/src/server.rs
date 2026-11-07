@@ -5,9 +5,9 @@ use std::sync::Arc;
 use std::{fmt, iter};
 
 use kartta::{
-    CancelToken, Graph, Hit, Limits, OutsideImplementations, Region, Search, Selector, SiteQuery,
-    SourceOptions, SymbolKind, UnmatchedKind, ask_reading, is_parent, is_referent,
-    selects_as_callers,
+    CancelToken, ChangeQuery, Graph, Hit, Limits, OutsideImplementations, Region, Search,
+    SegmentQuery, Selector, SiteQuery, SourceOptions, SymbolKind, UnmatchedKind, ask_reading,
+    is_parent, is_referent, selects_as_callers,
 };
 use kartta_fs::{
     Case, EntryKind, Filter, FuzzyOptions, GlobOptions, GrepOptions, Index, ListError, ListOptions,
@@ -96,8 +96,20 @@ const IMPACT_MAX_SYMBOLS: usize = 500;
 /// How many symbols, and how many files of each include list, `impact_of_edit` lists when the call names no limit.
 const IMPACT_LISTED: usize = 10;
 
+/// How many of each side of a symbol's direct calls `impact_of_edit` reads from the engine.
+const IMPACT_CALLS: usize = 50;
+
 /// How many changed symbols, and how many hotspots, `impact_of_change` lists when the call names no limit.
 const CHANGE_LISTED: usize = 20;
+
+/// How many direct callers or users of a changed symbol `impact_of_change` lists before it counts them by directory.
+const CHANGE_CONSUMERS: usize = 30;
+
+/// How many changed symbols, and how many hotspots, `impact_of_change` reads from the engine.
+const CHANGE_RANKED: usize = 300;
+
+/// How many of the other symbols a name selects a symbol tool lists.
+const CANDIDATES: usize = 5;
 
 /// How many unused definitions `find_unused` lists when the call names no limit.
 const UNUSED: usize = 50;
@@ -972,8 +984,9 @@ impl Server {
         self.answer(move |indexed| {
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
-            let written =
-                Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
+            let written = Selector::new(&p.name, path_prefix)
+                .with_line(p.line.map(NonZeroU32::get))
+                .with_candidate_limit(CANDIDATES);
             let (mut found, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [written],
@@ -1141,12 +1154,14 @@ impl Server {
                     &p.from,
                     prefix_of(indexed, "from_path_prefix", p.from_path_prefix.as_deref())?,
                 )
-                .with_line(p.from_line.map(NonZeroU32::get)),
+                .with_line(p.from_line.map(NonZeroU32::get))
+                .with_candidate_limit(CANDIDATES),
                 Selector::new(
                     &p.to,
                     prefix_of(indexed, "to_path_prefix", p.to_path_prefix.as_deref())?,
                 )
-                .with_line(p.to_line.map(NonZeroU32::get)),
+                .with_line(p.to_line.map(NonZeroU32::get))
+                .with_candidate_limit(CANDIDATES),
             ];
             let (paths, [from_read_as, to_read_as]) = ask_reading(
                 searched.iter().copied(),
@@ -1262,8 +1277,9 @@ impl Server {
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
             let sites_under = prefix_of(indexed, "sites_under", p.sites_under.as_deref())?;
-            let written =
-                Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
+            let written = Selector::new(&p.name, path_prefix)
+                .with_line(p.line.map(NonZeroU32::get))
+                .with_candidate_limit(CANDIDATES);
             let (found, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [written],
@@ -1340,10 +1356,11 @@ impl Server {
         }
         self.answer(move |indexed| {
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
+            let query = SegmentQuery::new(limits).with_call_limit(IMPACT_CALLS);
             let file = held_file(indexed.engine.index(), &p.file)?;
             let claimed = indexed.engine.graph_of(file);
             let segment = claimed
-                .and_then(|(_, graph)| graph.analyze_segment(file, start_line..=end_line, limits));
+                .and_then(|(_, graph)| graph.analyze_segment(file, start_line..=end_line, query));
             let graphless = Graphless::of(&indexed.engine, file, claimed.map(|(family, _)| family));
             let ask = EditAsk {
                 file,
@@ -1412,7 +1429,11 @@ impl Server {
                 .map(|changed| Region::new(&changed.path, changed.lines.clone()))
                 .collect();
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
-            let change = indexed.engine.analyze_change(&regions, limits);
+            let query = ChangeQuery::new(limits)
+                .with_consumer_limit(CHANGE_CONSUMERS)
+                .with_seed_limit(CHANGE_RANKED)
+                .with_hotspot_limit(CHANGE_RANKED);
+            let change = indexed.engine.analyze_change(&regions, query);
             let unbuilt = Unbuilt::of(&indexed.engine, &regions, &change);
             Ok(render::change(regions.len(), &change, &unbuilt, limit))
         })
@@ -1534,8 +1555,9 @@ impl Server {
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
-            let written =
-                Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
+            let written = Selector::new(&p.name, path_prefix)
+                .with_line(p.line.map(NonZeroU32::get))
+                .with_candidate_limit(CANDIDATES);
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [written],
@@ -1606,8 +1628,9 @@ impl Server {
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
-            let written =
-                Selector::new(&p.name, path_prefix).with_line(p.line.map(NonZeroU32::get));
+            let written = Selector::new(&p.name, path_prefix)
+                .with_line(p.line.map(NonZeroU32::get))
+                .with_candidate_limit(CANDIDATES);
             let (walks, [read_as]) = ask_reading(
                 searched.iter().copied(),
                 [written],

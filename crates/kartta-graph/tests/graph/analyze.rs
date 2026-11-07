@@ -3,7 +3,10 @@
 
 use std::ops::RangeInclusive;
 
-use kartta_graph::{Change, DirCount, DirectCalls, Graph, Limits, ReachBand, Region, Segment};
+use kartta_graph::{
+    Change, ChangeQuery, DirCount, DirectCalls, Graph, Limits, ReachBand, Region, Segment,
+    SegmentQuery,
+};
 use kartta_lang::{
     Access, Callable, CallableRole, Conventions, Extraction, IncludeRef, Receiver, Symbol,
     SymbolFlags, SymbolId, SymbolKind, UseRef, ValueUses,
@@ -460,8 +463,13 @@ fn the_confidence_floor_leaves_out_weak_calls_and_counts_them() {
 }
 
 #[test]
-fn a_symbol_lists_at_most_fifty_direct_callers_and_counts_them_all() {
-    let target = File::new("lib/target.c").function("target", (1, 2));
+fn a_symbol_lists_its_direct_calls_up_to_the_call_limit_and_counts_them_all() {
+    let target = File::new("lib/target.c")
+        .function("target", (1, 2))
+        .calls(0, "callee", 1)
+        .calls(0, "other", 2)
+        .function("callee", (3, 3))
+        .function("other", (4, 4));
     let mut callers = File::new("app/callers.c");
     for index in 0..60 {
         callers = callers
@@ -470,15 +478,39 @@ fn a_symbol_lists_at_most_fifty_direct_callers_and_counts_them_all() {
     }
     let graph = graph(vec![target, callers]);
 
-    let segment = graph
+    let cut = graph
+        .analyze_segment(
+            "lib/target.c",
+            1..=2,
+            SegmentQuery::new(Limits::new(1)).with_call_limit(1),
+        )
+        .expect("held");
+    let whole = graph
         .analyze_segment("lib/target.c", 1..=2, Limits::new(1))
         .expect("held");
-    let callers = &segment.symbols[0].callers;
 
-    assert_eq!(callers.listed.len(), 50);
-    assert_eq!(callers.total, 60);
-    assert_eq!(segment.symbols[0].blast.reach, 60);
-    assert_eq!(segment.symbols[0].blast.band, ReachBand::High);
+    assert_eq!(cut.symbols[0].callers.listed.len(), 1);
+    assert_eq!(cut.symbols[0].callers.total, 60);
+    assert_eq!(cut.symbols[0].callees.listed.len(), 1);
+    assert_eq!(cut.symbols[0].callees.total, 2);
+    assert_eq!(whole.symbols[0].callers.listed.len(), 60);
+    assert_eq!(whole.symbols[0].callees.listed.len(), 2);
+    assert_eq!(whole.symbols[0].blast.reach, 60);
+    assert_eq!(whole.symbols[0].blast.band, ReachBand::High);
+}
+
+#[test]
+fn a_constant_lists_its_direct_users_up_to_the_call_limit() {
+    let graph = limit_read_and_written();
+    let query = SegmentQuery::new(Limits::new(1)).with_call_limit(0);
+
+    let segment = graph
+        .analyze_segment("lib/limits.h", 1..=1, query)
+        .expect("held");
+    let users = &segment.symbols[0].users;
+
+    assert_eq!(users.listed, Vec::new());
+    assert_eq!(users.total, 2);
 }
 
 #[test]
@@ -580,13 +612,15 @@ fn regions_the_graph_does_not_hold_or_that_overlap_no_symbol_are_counted() {
 }
 
 #[test]
-fn a_seed_lists_up_to_thirty_direct_callers_and_counts_more_by_directory() {
+fn a_seed_lists_its_direct_callers_up_to_the_consumer_limit_and_counts_more_by_directory() {
     let listed = fan_in(&[("app/a.c", 30)]);
     let counted = fan_in(&[("app/a.c", 20), ("tools/t.c", 10), ("main.c", 1)]);
     let target = [Region::new("lib/target.c", 1..=2)];
+    let query = ChangeQuery::new(Limits::new(1)).with_consumer_limit(30);
 
-    let few = listed.analyze_change(&target, Limits::new(1));
-    let many = counted.analyze_change(&target, Limits::new(1));
+    let few = listed.analyze_change(&target, query);
+    let many = counted.analyze_change(&target, query);
+    let whole = counted.analyze_change(&target, Limits::new(1));
     let dirs: Vec<(&str, usize)> = many.seeds[0]
         .consumer_dirs
         .iter()
@@ -599,10 +633,12 @@ fn a_seed_lists_up_to_thirty_direct_callers_and_counts_more_by_directory() {
     assert_eq!(many.seeds[0].caller_count, 31);
     assert_eq!(many.seeds[0].consumers, Vec::new());
     assert_eq!(dirs, [("app", 20), ("tools", 10), (".", 1)]);
+    assert_eq!(whole.seeds[0].consumers.len(), 31);
+    assert_eq!(whole.seeds[0].consumer_dirs, Vec::<DirCount<'_>>::new());
 }
 
 #[test]
-fn a_seed_of_a_constant_counts_more_than_thirty_users_by_directory() {
+fn a_seed_of_a_constant_counts_users_past_the_consumer_limit_by_directory() {
     let mut files = vec![File::new("lib/limits.h").constant("LIMIT", 1)];
     for (path, count) in [("app/a.c", 20), ("tools/t.c", 10), ("main.c", 1)] {
         let mut file = File::new(path).includes("lib/limits.h");
@@ -615,7 +651,10 @@ fn a_seed_of_a_constant_counts_more_than_thirty_users_by_directory() {
     }
     let graph = graph_reading_included_values(files);
 
-    let change = graph.analyze_change(&[Region::new("lib/limits.h", 1..=1)], Limits::new(1));
+    let change = graph.analyze_change(
+        &[Region::new("lib/limits.h", 1..=1)],
+        ChangeQuery::new(Limits::new(1)).with_consumer_limit(30),
+    );
     let seed = &change.seeds[0];
     let dirs: Vec<(&str, usize)> = seed
         .consumer_dirs
@@ -707,7 +746,7 @@ fn a_seed_the_symbol_cap_stops_counts_what_it_turned_away() {
 }
 
 #[test]
-fn a_change_lists_at_most_three_hundred_seeds_test_code_last_and_counts_them_all() {
+fn a_change_lists_seeds_up_to_the_seed_limit_test_code_last_and_counts_them_all() {
     let mut many = File::new("lib/many.c")
         .function("f000", (1, 1))
         .flagged_as_test();
@@ -719,12 +758,20 @@ fn a_change_lists_at_most_three_hundred_seeds_test_code_last_and_counts_them_all
         .calls(0, "f000", 1);
     let graph = graph(vec![many, caller]);
 
-    let change = graph.analyze_change(&[Region::new("lib/many.c", 1..=u32::MAX)], Limits::new(1));
+    let regions = [Region::new("lib/many.c", 1..=u32::MAX)];
+
+    let change = graph.analyze_change(
+        &regions,
+        ChangeQuery::new(Limits::new(1)).with_seed_limit(300),
+    );
+    let whole = graph.analyze_change(&regions, Limits::new(1));
 
     assert_eq!(change.changed_symbols, 301);
     assert_eq!(change.seeds.len(), 300);
     assert_eq!(change.seeds[0].symbol.name, "f001");
     assert!(seeds(&change).iter().all(|&name| name != "f000"));
+    assert_eq!(whole.seeds.len(), 301);
+    assert_eq!(seeds(&whole).last(), Some(&"f000"));
 }
 
 #[test]
@@ -740,7 +787,10 @@ fn a_change_of_many_symbols_keeps_the_widest_reaching_seeds_wherever_they_sit() 
         .calls(0, "f350", 4);
     let graph = graph(vec![many, caller]);
 
-    let change = graph.analyze_change(&[Region::new("lib/many.c", 1..=u32::MAX)], Limits::new(1));
+    let change = graph.analyze_change(
+        &[Region::new("lib/many.c", 1..=u32::MAX)],
+        ChangeQuery::new(Limits::new(1)).with_seed_limit(300),
+    );
 
     assert_eq!(change.changed_symbols, 700);
     assert_eq!(change.seeds.len(), 300);
@@ -753,21 +803,28 @@ fn merged_changes_sum_their_counts_and_rank_their_seeds_together() {
     let chain = chain();
     let fan = fan_in(&[("app/a.c", 5)]);
 
-    let merged = Change::merge([
-        chain.analyze_change(&[Region::new("lib/core.c", 5..=9)], Limits::new(3)),
-        fan.analyze_change(
-            &[
-                Region::new("lib/target.c", 1..=2),
-                Region::new("lib/absent.c", 1..=1),
-            ],
-            Limits::new(3),
-        ),
-    ]);
+    let query = ChangeQuery::new(Limits::new(3));
+    let parts = || {
+        [
+            chain.analyze_change(&[Region::new("lib/core.c", 5..=9)], query),
+            fan.analyze_change(
+                &[
+                    Region::new("lib/target.c", 1..=2),
+                    Region::new("lib/absent.c", 1..=1),
+                ],
+                query,
+            ),
+        ]
+    };
+
+    let merged = Change::merge(parts(), query);
+    let cut = Change::merge(parts(), query.with_seed_limit(1));
 
     assert_eq!(merged.changed_symbols, 2);
     assert_eq!(merged.unheld_regions, 1);
     assert_eq!(merged.transitive_sum, 7);
     assert_eq!(seeds(&merged), ["target", "helper"]);
+    assert_eq!((seeds(&cut), cut.changed_symbols), (vec!["target"], 2));
 }
 
 #[test]
@@ -796,14 +853,49 @@ fn merged_changes_rank_their_hotspots_together_and_sum_their_totals() {
             .calls(1, "t2", 7),
     ]);
 
-    let merged = Change::merge([
-        first.analyze_change(&[Region::new("lib/a.c", 1..=2)], Limits::new(3)),
-        second.analyze_change(&[Region::new("lib/b.c", 1..=3)], Limits::new(3)),
-    ]);
+    let query = ChangeQuery::new(Limits::new(3));
+    let parts = || {
+        [
+            first.analyze_change(&[Region::new("lib/a.c", 1..=2)], query),
+            second.analyze_change(&[Region::new("lib/b.c", 1..=3)], query),
+        ]
+    };
+
+    let merged = Change::merge(parts(), query);
+    let cut = Change::merge(parts(), query.with_hotspot_limit(1));
 
     assert_eq!(
         hotspots(&merged),
         [("y", 3, 1, false), ("x", 2, 1, false), ("z", 2, 1, false)]
     );
     assert_eq!(merged.total_hotspots, 3);
+    assert_eq!(hotspots(&cut), [("y", 3, 1, false)]);
+    assert_eq!(cut.total_hotspots, 3);
+}
+
+#[test]
+fn a_change_lists_hotspots_up_to_the_hotspot_limit_and_counts_them_all() {
+    let mut callers = File::new("app/callers.c");
+    for index in 0..301 {
+        callers = callers
+            .function(&format!("caller{index:03}"), (index * 3 + 1, index * 3 + 3))
+            .calls(index, "s1", index * 3 + 2)
+            .calls(index, "s2", index * 3 + 3);
+    }
+    let graph = graph(vec![
+        File::new("lib/a.c")
+            .function("s1", (1, 1))
+            .function("s2", (2, 2)),
+        callers,
+    ]);
+    let regions = [Region::new("lib/a.c", 1..=2)];
+
+    let cut = graph.analyze_change(
+        &regions,
+        ChangeQuery::new(Limits::new(1)).with_hotspot_limit(300),
+    );
+    let whole = graph.analyze_change(&regions, Limits::new(1));
+
+    assert_eq!((cut.hotspots.len(), cut.total_hotspots), (300, 301));
+    assert_eq!((whole.hotspots.len(), whole.total_hotspots), (301, 301));
 }

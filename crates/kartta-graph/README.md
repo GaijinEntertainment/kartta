@@ -138,20 +138,19 @@ file holds goes stale when another file changes.
   directory or of the directory its import binds where a package is a directory, the type its owner chain or its
   enclosing scopes reach first where a language has them, else the type of that name nearest the file.
 - `Graph::analyze_segment` — the symbols a range of a file's lines overlaps, each with its direct callers and callees,
-  at most 50 of each listed and all of them counted, and the blast of a change to it: the callers a walk over its
-  callers reaches by depth, the files they and the file's includers sit in, and a reach band, counting what the cap,
-  the depth bound and the floor left out, and the calls of its name left ambiguous as `Graph::callers` counts them;
-  `None` for a file the graph does not hold. A field, a variable or a constant also has its users, the symbols that
-  read, write or call it, listed and counted as its callers are, and its walk starts from them, as a function's
-  starts from its callers. Each name's sites are resolved once for the whole segment.
-- `Graph::analyze_change` — what a change to a set of line regions reaches: the symbols they overlap, a declaration
-  and its definition counting once, the callers a walk over each one's callers reaches, the footprint those walks
-  cover together, and the hotspots two or more of them reach, at most 300 hotspots and 300 changed symbols listed and
-  all of them counted. Each changed symbol lists its direct callers while 30 or fewer pass the floor, and counts them
-  by directory past that, a field, a variable or a constant its direct users in their place, the symbols that read,
-  write or call it, from which its walk starts, and counts the calls of its name left ambiguous as `Graph::callers`
-  does. The regions whose file the graph does not hold, those that overlap no symbol, and the walks the cap stopped
-  are counted.
+  at most the query's call limit of each listed and all of them counted, and the blast of a change to it: the callers a
+  walk over its callers reaches by depth, the files they and the file's includers sit in, and a reach band, counting
+  what the cap, the depth bound and the floor left out, and the calls of its name left ambiguous as `Graph::callers`
+  counts them; `None` for a file the graph does not hold. A field, a variable or a constant also has its users, the
+  symbols that read, write or call it, listed and counted as its callers are, and its walk starts from them, as a
+  function's starts from its callers. Each name's sites are resolved once for the whole segment.
+- `Graph::analyze_change` — what a change to a set of line regions reaches: the symbols they overlap, a declaration and
+  its definition counting once, the callers a walk over each one's callers reaches, the footprint those walks cover
+  together, and the hotspots two or more of them reach, each list cut at the query's limit and all of them counted. Each
+  changed symbol lists its direct callers while the query's consumer limit or fewer pass the floor, and counts them by
+  directory past that, a field, a variable or a constant its direct users in their place, the symbols that read, write
+  or call it, from which its walk starts, and counts the calls of its name left ambiguous as `Graph::callers` does. The
+  regions whose file the graph does not hold, those that overlap no symbol, and the walks the cap stopped are counted.
   `Change::merge` ranks the answers of several graphs together, as a change across language families needs.
 - `Graph::dead_code` — the definitions no call and no use reaches, in path order, cut to a limit and counting every one
   found, those found reached, and those it did not judge, by reason: of a kind not asked for; test, generated, entry

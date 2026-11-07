@@ -5394,8 +5394,8 @@ fn passed_over_lists_the_other_callables_the_most_called_first() {
     );
 }
 
-#[test]
-fn passed_over_lists_at_most_five_and_counts_the_rest() {
+/// Seven copies of `parse`, in `p0.go` to `p6.go`, each with as many callers as its file's number.
+fn copies_called_apart() -> Graph {
     let copies: Vec<Extraction> = (0..7_u32)
         .map(|callers| {
             let mut symbols = vec![function("parse", 1)];
@@ -5408,10 +5408,16 @@ fn passed_over_lists_at_most_five_and_counts_the_rest() {
             file(&format!("p{callers}.go"), symbols, calls)
         })
         .collect();
-    let graph = graph(&copies);
+    graph(&copies)
+}
+
+#[test]
+fn passed_over_lists_up_to_the_candidate_limit_and_counts_the_rest() {
+    let graph = copies_called_apart();
+    let five = Selector::from("parse").with_candidate_limit(5);
 
     let walk = graph
-        .callers("parse", Limits::new(1))
+        .callers(five, Limits::new(1))
         .expect("parse is defined");
 
     assert_eq!((walk.root.file, walk.passed_over), ("p6.go", 6));
@@ -5426,6 +5432,27 @@ fn passed_over_lists_at_most_five_and_counts_the_rest() {
         ],
         "the least called copy, p0.go, is counted and not listed"
     );
+}
+
+#[test]
+fn every_answer_lists_each_symbol_it_passed_over_when_no_candidate_limit_is_set() {
+    let graph = copies_called_apart();
+    let every = Selector::from("parse");
+    let none = every.with_candidate_limit(0);
+
+    let upward = graph.callers(every, Limits::new(1)).expect("parse");
+    let downward = graph.callees(every, Limits::new(1)).expect("parse");
+    let references = graph.references(every, SiteQuery::new(10)).expect("parse");
+    let path = graph
+        .call_path(every, every, Limits::new(1))
+        .expect("parse");
+    let counted = graph.callers(none, Limits::new(1)).expect("parse");
+
+    assert_eq!(upward.candidates.len(), 6);
+    assert_eq!(downward.candidates.len(), 6);
+    assert_eq!(references.candidates.len(), 6);
+    assert_eq!((path.candidates.0.len(), path.candidates.1.len()), (6, 6));
+    assert_eq!((counted.candidates.len(), counted.passed_over), (0, 6));
 }
 
 #[test]
