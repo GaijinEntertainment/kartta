@@ -1,0 +1,67 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "at_depth_bound": 0,
+          "below_confidence": 0,
+          "candidates": {
+            "from": [
+              {
+                "count": 0,
+                "symbol": {
+                  "end_line": 9,
+                  "exported": false,
+                  "file": "go/close.go",
+                  "kind": "method",
+                  "line": 9,
+                  "name": "close",
+                  "owner": "conn",
+                  "qualified_name": "main.conn.close",
+                  "signature": "func (conn) close()"
+                }
+              }
+            ],
+            "to": []
+          },
+          "found": false,
+          "from": {
+            "end_line": 5,
+            "exported": false,
+            "file": "go/close.go",
+            "kind": "method",
+            "line": 5,
+            "name": "close",
+            "owner": "file",
+            "qualified_name": "main.file.close",
+            "signature": "func (file) close()"
+          },
+          "graph": "go",
+          "hops": [],
+          "passed_over": {
+            "from": 3,
+            "to": 0
+          },
+          "to": {
+            "end_line": 14,
+            "exported": false,
+            "file": "go/close.go",
+            "kind": "func",
+            "line": 11,
+            "name": "shut",
+            "qualified_name": "main.shut",
+            "signature": "func shut(f file, open func() conn)"
+          },
+          "truncated": false,
+          "turned_away": 0
+        }
+      ]
+    }
+  },
+  "method": "call_path",
+  "params": {
+    "candidate_limit": 1,
+    "from": "close",
+    "to": "shut"
+  }
+}

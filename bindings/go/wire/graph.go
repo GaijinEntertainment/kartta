@@ -71,6 +71,8 @@ type WalkParams struct {
 	MinConfidence int `json:"min_confidence,omitempty"`
 	// MaxSymbols caps the symbols the walk reaches, its root included; nil takes the default, 500, and 0 sets no cap.
 	MaxSymbols *int `json:"max_symbols,omitempty"`
+	// CandidateLimit caps the Candidates answered; nil takes the default, 5, and 0 answers PassedOver alone.
+	CandidateLimit *int `json:"candidate_limit,omitempty"`
 }
 
 // Walk is what a walk over calls reached in one graph, and what it left out.
@@ -79,7 +81,7 @@ type Walk struct {
 	Root  Definition `json:"root"`
 	// PassedOver counts the other symbols the name selects, of which Root was chosen.
 	PassedOver int `json:"passed_over"`
-	// Candidates lists the most called of those, the most first, at most five; Count is each one's callers.
+	// Candidates lists the most called of those, the most first, at most CandidateLimit; Count is each one's callers.
 	Candidates []Candidate `json:"candidates,omitempty"`
 	Reached    []Reached   `json:"reached"`
 	// Truncated reports that the symbol cap stopped the walk.
@@ -189,6 +191,9 @@ type CallPathParams struct {
 	MinConfidence int  `json:"min_confidence,omitempty"`
 	// MaxSymbols caps the symbols the search reaches; nil takes the default, 20,000, and 0 sets no cap.
 	MaxSymbols *int `json:"max_symbols,omitempty"`
+	// CandidateLimit caps the Candidates answered for each end; nil takes the default, 5, and 0 answers PassedOver
+	// alone.
+	CandidateLimit *int `json:"candidate_limit,omitempty"`
 }
 
 // CallPath is what a search for a chain of calls between two symbols found in one graph, and what it left out.
@@ -210,8 +215,8 @@ type CallPath struct {
 	Candidates *PathCandidates `json:"candidates,omitempty"`
 }
 
-// PathCandidates lists the most called of each end's passed-over symbols, the most first, at most five each;
-// Count is each one's callers.
+// PathCandidates lists the most called of each end's passed-over symbols, the most first, at most the params'
+// CandidateLimit each; Count is each one's callers.
 type PathCandidates struct {
 	From []Candidate `json:"from"`
 	To   []Candidate `json:"to"`
@@ -241,6 +246,8 @@ type ReferencesParams struct {
 	Access string `json:"access,omitempty"`
 	// Limit caps the sites answered; nil takes the default, 500, and 0 answers the counts alone.
 	Limit *int `json:"limit,omitempty"`
+	// CandidateLimit caps the Candidates answered; nil takes the default, 5, and 0 answers PassedOver alone.
+	CandidateLimit *int `json:"candidate_limit,omitempty"`
 }
 
 // References are the sites that call or use a symbol in one graph.
@@ -248,8 +255,8 @@ type References struct {
 	Graph      string     `json:"graph"`
 	Symbol     Definition `json:"symbol"`
 	PassedOver int        `json:"passed_over"`
-	// Candidates lists the most used of the symbols passed over, the most first, at most five; Count is each one's
-	// sites.
+	// Candidates lists the most used of the symbols passed over, the most first, at most the params' CandidateLimit;
+	// Count is each one's sites.
 	Candidates []Candidate `json:"candidates,omitempty"`
 	Sites      []Site      `json:"sites"`
 	// Total counts the sites that pass the confidence floor and the access kept, before the limit.
@@ -404,6 +411,8 @@ type ImplementationsParams struct {
 	Depth *int `json:"depth,omitempty"`
 	// Limit caps the implementors answered; nil takes the default, 100, and 0 answers the total alone.
 	Limit *int `json:"limit,omitempty"`
+	// CandidateLimit caps the Candidates answered; nil takes the default, 5, and 0 answers PassedOver alone.
+	CandidateLimit *int `json:"candidate_limit,omitempty"`
 }
 
 // Implementations are the types that implement or extend a type in one graph.
@@ -411,8 +420,8 @@ type Implementations struct {
 	Graph      string     `json:"graph"`
 	Root       Definition `json:"root"`
 	PassedOver int        `json:"passed_over"`
-	// Candidates lists the most implemented of the types passed over, the most first, at most five; Count is each
-	// one's direct implementors.
+	// Candidates lists the most implemented of the types passed over, the most first, at most the params'
+	// CandidateLimit; Count is each one's direct implementors.
 	Candidates []Candidate   `json:"candidates,omitempty"`
 	Found      []Implementor `json:"found"`
 	// Total counts the implementors within the depth bound, before the limit.
@@ -545,6 +554,9 @@ type SegmentParams struct {
 	MinConfidence int  `json:"min_confidence,omitempty"`
 	// MaxSymbols caps the symbols each blast reaches; nil takes the default, 500, and 0 sets no cap.
 	MaxSymbols *int `json:"max_symbols,omitempty"`
+	// CallLimit caps the direct callers, callees and users answered of each symbol, each side on its own; nil takes
+	// the default, 50, and 0 answers each side's Total alone.
+	CallLimit *int `json:"call_limit,omitempty"`
 }
 
 // Segment is the answer of analyze_segment: what a change to a range of a file's lines reaches. Graph, Held, Missing,
@@ -591,8 +603,8 @@ type SegmentSymbol struct {
 	Blast      Blast       `json:"blast"`
 }
 
-// DirectCalls are a symbol's direct callers or callees: at most 50 listed, and Total of them that pass the
-// confidence floor.
+// DirectCalls are a symbol's direct callers or callees: at most the params' CallLimit listed, and Total of them that
+// pass the confidence floor.
 type DirectCalls struct {
 	Listed          []Reached `json:"listed"`
 	Total           int       `json:"total"`
@@ -623,6 +635,13 @@ type ChangeParams struct {
 	MinConfidence int  `json:"min_confidence,omitempty"`
 	// MaxSymbols caps the symbols each walk reaches; nil takes the default, 500, and 0 sets no cap.
 	MaxSymbols *int `json:"max_symbols,omitempty"`
+	// ConsumerLimit is the most direct callers or users a changed symbol lists, past which it counts them by
+	// directory; nil takes the default, 30.
+	ConsumerLimit *int `json:"consumer_limit,omitempty"`
+	// SeedLimit caps the changed symbols answered; nil takes the default, 300, and 0 answers ChangedSymbols alone.
+	SeedLimit *int `json:"seed_limit,omitempty"`
+	// HotspotLimit caps the hotspots answered; nil takes the default, 300, and 0 answers TotalHotspots alone.
+	HotspotLimit *int `json:"hotspot_limit,omitempty"`
 }
 
 // Region is a changed range of a file's lines.
@@ -693,9 +712,10 @@ type Seed struct {
 	// call it, and neither CallerCount nor Reach counts them. Absent when 0.
 	Ambiguous int `json:"ambiguous,omitempty"`
 	// Consumers are its direct users for a field, a variable or a constant, and its direct callers for any other
-	// kind, when there are 30 or fewer; empty otherwise.
+	// kind, when there are the params' ConsumerLimit or fewer; empty otherwise.
 	Consumers []Reached `json:"consumers"`
-	// ConsumerDirs count those direct users or callers by directory, the most first, when there are more than 30.
+	// ConsumerDirs count those direct users or callers by directory, the most first, when there are more than the
+	// params' ConsumerLimit.
 	ConsumerDirs    []DirCount `json:"consumer_dirs"`
 	Truncated       bool       `json:"truncated"`
 	TurnedAway      int        `json:"turned_away"`

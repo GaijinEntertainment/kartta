@@ -1,0 +1,31 @@
+{
+  "answer": {
+    "ok": {
+      "matches": [
+        {
+          "found": [],
+          "graph": "go",
+          "passed_over": 1,
+          "root": {
+            "end_line": 5,
+            "exported": false,
+            "file": "go/lib/closer.go",
+            "kind": "iface",
+            "line": 3,
+            "name": "closer",
+            "qualified_name": "lib.closer"
+          },
+          "total": 0,
+          "unexpanded": 0
+        }
+      ]
+    }
+  },
+  "method": "implementations",
+  "params": {
+    "candidate_limit": 0,
+    "depth": 1,
+    "lang": "go",
+    "name": "closer"
+  }
+}

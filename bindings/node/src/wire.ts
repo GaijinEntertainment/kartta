@@ -454,6 +454,8 @@ export type WalkParams = {
 	min_confidence?: number;
 	/** Caps the symbols the walk reaches, its root included; 500 by default, and 0 sets no cap. */
 	max_symbols?: number;
+	/** Caps the `candidates` answered; 5 by default, and 0 answers `passed_over` alone. */
+	candidate_limit?: number;
 };
 
 /** What a walk over calls reached in one graph, and what it left out. */
@@ -462,7 +464,7 @@ export type Walk = {
 	root: Definition;
 	/** The other symbols the name selects, of which `root` was chosen. */
 	passed_over: number;
-	/** The most called of those, the most first, at most five; `count` is each one's callers. */
+	/** The most called of those, the most first, at most `candidate_limit`; `count` is each one's callers. */
 	candidates?: Candidate[];
 	reached: Reached[];
 	/** The symbol cap stopped the walk. */
@@ -555,6 +557,8 @@ export type CallPathParams = {
 	min_confidence?: number;
 	/** Caps the symbols the search reaches; 20,000 by default, and 0 sets no cap. */
 	max_symbols?: number;
+	/** Caps the `candidates` answered for each end; 5 by default, and 0 answers `passed_over` alone. */
+	candidate_limit?: number;
 };
 
 /** What a search for a chain of calls between two symbols found in one graph, and what it left out. */
@@ -575,8 +579,8 @@ export type CallPath = {
 	/** The other symbols each end's name selects. */
 	passed_over: {from: number; to: number};
 	/**
-	 * The most called of each end's passed-over symbols, the most first, at most five each; `count` is each one's
-	 * callers. Absent when neither end passed one over.
+	 * The most called of each end's passed-over symbols, the most first, at most `candidate_limit` each; `count` is each
+	 * one's callers. Absent when neither end passed one over.
 	 */
 	candidates?: {from: Candidate[]; to: Candidate[]};
 };
@@ -603,6 +607,8 @@ export type ReferencesParams = {
 	access?: Access;
 	/** Caps the sites answered; 500 by default, and 0 answers the counts alone. */
 	limit?: number;
+	/** Caps the `candidates` answered; 5 by default, and 0 answers `passed_over` alone. */
+	candidate_limit?: number;
 };
 
 /** How a site touches a symbol; a call reads it. */
@@ -613,7 +619,7 @@ export type References = {
 	graph: string;
 	symbol: Definition;
 	passed_over: number;
-	/** The most used of the symbols passed over, the most first, at most five; `count` is each one's sites. */
+	/** The most used of the symbols passed over, the most first, at most `candidate_limit`; `count` is each one's sites. */
 	candidates?: Candidate[];
 	sites: Site[];
 	/** The sites that pass the confidence floor and the access kept, before the limit. */
@@ -769,6 +775,8 @@ export type ImplementationsParams = {
 	depth?: number;
 	/** Caps the implementors answered; 100 by default, and 0 answers the total alone. */
 	limit?: number;
+	/** Caps the `candidates` answered; 5 by default, and 0 answers `passed_over` alone. */
+	candidate_limit?: number;
 };
 
 /** The types that implement or extend a type in one graph. */
@@ -777,8 +785,8 @@ export type Implementations = {
 	root: Definition;
 	passed_over: number;
 	/**
-	 * The most implemented of the types passed over, the most first, at most five; `count` is each one's direct
-	 * implementors.
+	 * The most implemented of the types passed over, the most first, at most `candidate_limit`; `count` is each one's
+	 * direct implementors.
 	 */
 	candidates?: Candidate[];
 	found: Array<{symbol: Definition; depth: number}>;
@@ -943,6 +951,11 @@ export type SegmentParams = {
 	min_confidence?: number;
 	/** Caps the symbols each blast reaches; 500 by default, and 0 sets no cap. */
 	max_symbols?: number;
+	/**
+	 * Caps the direct callers, callees and users answered of each symbol, each side on its own; 50 by default, and 0
+	 * answers each side's `total` alone.
+	 */
+	call_limit?: number;
 };
 
 /**
@@ -978,7 +991,10 @@ export type SegmentSymbol = {
 	blast: Blast;
 };
 
-/** A symbol's direct callers or callees: at most 50 listed, and `total` of them that pass the confidence floor. */
+/**
+ * A symbol's direct callers or callees: at most the params' `call_limit` listed, and `total` of them that pass the
+ * confidence floor.
+ */
 export type DirectCalls = {
 	listed: Reached[];
 	total: number;
@@ -1009,6 +1025,12 @@ export type ChangeParams = {
 	min_confidence?: number;
 	/** Caps the symbols each walk reaches; 500 by default, and 0 sets no cap. */
 	max_symbols?: number;
+	/** The most direct callers or users a changed symbol lists, past which it counts them by directory; 30 by default. */
+	consumer_limit?: number;
+	/** Caps the changed symbols answered; 300 by default, and 0 answers `changed_symbols` alone. */
+	seed_limit?: number;
+	/** Caps the hotspots answered; 300 by default, and 0 answers `total_hotspots` alone. */
+	hotspot_limit?: number;
 };
 
 /** A changed range of a file's lines; absent ends take the file's first and last lines. */
@@ -1083,10 +1105,10 @@ export type Seed = {
 	ambiguous?: number;
 	/**
 	 * Its direct users for a field, a variable or a constant, and its direct callers for any other kind, when there are
-	 * 30 or fewer; empty otherwise.
+	 * the params' `consumer_limit` or fewer; empty otherwise.
 	 */
 	consumers: Reached[];
-	/** Those direct users or callers by directory, the most first, when there are more than 30. */
+	/** Those direct users or callers by directory, the most first, when there are more than the params' `consumer_limit`. */
 	consumer_dirs: Array<{dir: string; count: number}>;
 	truncated: boolean;
 	turned_away: number;

@@ -5,10 +5,12 @@ import {expect, onTestFinished, test} from 'vite-plus/test';
 import {Kartta, KarttaError, type Methods} from '../src/kartta.ts';
 import analyzeChangeConsumerDirs from '../../../crates/kartta-ffi/tests/golden/analyze_change-consumer_dirs.json' with {type: 'json'};
 import analyzeChangeHotspots from '../../../crates/kartta-ffi/tests/golden/analyze_change-hotspots.json' with {type: 'json'};
+import analyzeChangeLimits from '../../../crates/kartta-ffi/tests/golden/analyze_change-limits.json' with {type: 'json'};
 import analyzeChangeUnheld from '../../../crates/kartta-ffi/tests/golden/analyze_change-unheld.json' with {type: 'json'};
 import analyzeChangeUsers from '../../../crates/kartta-ffi/tests/golden/analyze_change-users.json' with {type: 'json'};
 import analyzeChange from '../../../crates/kartta-ffi/tests/golden/analyze_change.json' with {type: 'json'};
 import analyzeSegmentBounds from '../../../crates/kartta-ffi/tests/golden/analyze_segment-bounds.json' with {type: 'json'};
+import analyzeSegmentCallLimit from '../../../crates/kartta-ffi/tests/golden/analyze_segment-call_limit.json' with {type: 'json'};
 import analyzeSegmentDeclined from '../../../crates/kartta-ffi/tests/golden/analyze_segment-declined.json' with {type: 'json'};
 import analyzeSegmentDirectory from '../../../crates/kartta-ffi/tests/golden/analyze_segment-directory.json' with {type: 'json'};
 import analyzeSegmentMissing from '../../../crates/kartta-ffi/tests/golden/analyze_segment-missing.json' with {type: 'json'};
@@ -16,12 +18,14 @@ import analyzeSegmentUsers from '../../../crates/kartta-ffi/tests/golden/analyze
 import analyzeSegment from '../../../crates/kartta-ffi/tests/golden/analyze_segment.json' with {type: 'json'};
 import buildEveryOption from '../../../crates/kartta-ffi/tests/golden/build-every_option.json' with {type: 'json'};
 import build from '../../../crates/kartta-ffi/tests/golden/build.json' with {type: 'json'};
+import callPathCandidateLimit from '../../../crates/kartta-ffi/tests/golden/call_path-candidate_limit.json' with {type: 'json'};
 import callPathCandidates from '../../../crates/kartta-ffi/tests/golden/call_path-candidates.json' with {type: 'json'};
 import callPathFromUnmatched from '../../../crates/kartta-ffi/tests/golden/call_path-from_unmatched.json' with {type: 'json'};
 import callPathUnmatched from '../../../crates/kartta-ffi/tests/golden/call_path-unmatched.json' with {type: 'json'};
 import callPath from '../../../crates/kartta-ffi/tests/golden/call_path.json' with {type: 'json'};
 import calleesOffLine from '../../../crates/kartta-ffi/tests/golden/callees-off_line.json' with {type: 'json'};
 import callees from '../../../crates/kartta-ffi/tests/golden/callees.json' with {type: 'json'};
+import callersCandidateLimit from '../../../crates/kartta-ffi/tests/golden/callers-candidate_limit.json' with {type: 'json'};
 import callersCandidates from '../../../crates/kartta-ffi/tests/golden/callers-candidates.json' with {type: 'json'};
 import callersFileScope from '../../../crates/kartta-ffi/tests/golden/callers-file_scope.json' with {type: 'json'};
 import callersInvalidParams from '../../../crates/kartta-ffi/tests/golden/callers-invalid_params.json' with {type: 'json'};
@@ -49,6 +53,7 @@ import glob from '../../../crates/kartta-ffi/tests/golden/glob.json' with {type:
 import grepCut from '../../../crates/kartta-ffi/tests/golden/grep-cut.json' with {type: 'json'};
 import grepInvalidPattern from '../../../crates/kartta-ffi/tests/golden/grep-invalid_pattern.json' with {type: 'json'};
 import grep from '../../../crates/kartta-ffi/tests/golden/grep.json' with {type: 'json'};
+import implementationsCandidateLimit from '../../../crates/kartta-ffi/tests/golden/implementations-candidate_limit.json' with {type: 'json'};
 import implementationsCandidates from '../../../crates/kartta-ffi/tests/golden/implementations-candidates.json' with {type: 'json'};
 import implementationsOtherKind from '../../../crates/kartta-ffi/tests/golden/implementations-other_kind.json' with {type: 'json'};
 import implementations from '../../../crates/kartta-ffi/tests/golden/implementations.json' with {type: 'json'};
@@ -61,6 +66,7 @@ import outlineDirectory from '../../../crates/kartta-ffi/tests/golden/outline-di
 import outlineMissing from '../../../crates/kartta-ffi/tests/golden/outline-missing.json' with {type: 'json'};
 import outline from '../../../crates/kartta-ffi/tests/golden/outline.json' with {type: 'json'};
 import referencesAccess from '../../../crates/kartta-ffi/tests/golden/references-access.json' with {type: 'json'};
+import referencesCandidateLimit from '../../../crates/kartta-ffi/tests/golden/references-candidate_limit.json' with {type: 'json'};
 import referencesFileScope from '../../../crates/kartta-ffi/tests/golden/references-file_scope.json' with {type: 'json'};
 import referencesType from '../../../crates/kartta-ffi/tests/golden/references-type.json' with {type: 'json'};
 import referencesUnmatched from '../../../crates/kartta-ffi/tests/golden/references-unmatched.json' with {type: 'json'};
@@ -110,18 +116,22 @@ type Goldens = typeof goldens;
 const laterGoldens = {
 	'analyze_change-consumer_dirs': analyzeChangeConsumerDirs,
 	'analyze_change-hotspots': analyzeChangeHotspots,
+	'analyze_change-limits': analyzeChangeLimits,
 	'analyze_change-unheld': analyzeChangeUnheld,
 	'analyze_change-users': analyzeChangeUsers,
 	'analyze_segment-bounds': analyzeSegmentBounds,
+	'analyze_segment-call_limit': analyzeSegmentCallLimit,
 	'analyze_segment-declined': analyzeSegmentDeclined,
 	'analyze_segment-directory': analyzeSegmentDirectory,
 	'analyze_segment-missing': analyzeSegmentMissing,
 	'analyze_segment-users': analyzeSegmentUsers,
 	'build-every_option': buildEveryOption,
+	'call_path-candidate_limit': callPathCandidateLimit,
 	'call_path-candidates': callPathCandidates,
 	'call_path-from_unmatched': callPathFromUnmatched,
 	'call_path-unmatched': callPathUnmatched,
 	'callees-off_line': calleesOffLine,
+	'callers-candidate_limit': callersCandidateLimit,
 	'callers-candidates': callersCandidates,
 	'callers-file_scope': callersFileScope,
 	'callers-one_edit': callersOneEdit,
@@ -138,6 +148,7 @@ const laterGoldens = {
 	'dependents-missing': dependentsMissing,
 	'fuzzy-globs': fuzzyGlobs,
 	'grep-cut': grepCut,
+	'implementations-candidate_limit': implementationsCandidateLimit,
 	'implementations-candidates': implementationsCandidates,
 	'implementations-other_kind': implementationsOtherKind,
 	'list-collapse': listCollapse,
@@ -145,6 +156,7 @@ const laterGoldens = {
 	'outline-directory': outlineDirectory,
 	'outline-missing': outlineMissing,
 	'references-access': referencesAccess,
+	'references-candidate_limit': referencesCandidateLimit,
 	'references-file_scope': referencesFileScope,
 	'references-type': referencesType,
 	'references-unmatched': referencesUnmatched,
