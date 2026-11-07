@@ -3137,6 +3137,57 @@ fn impact_of_edit_names_the_call_that_lists_a_variable_s_users_past_its_50() {
 }
 
 #[test]
+fn impact_of_edit_holds_a_whole_file_under_50_000_characters_by_cutting_every_list_alike() {
+    let mut source = String::from("package lib\n");
+    for hub in 0..10 {
+        write!(source, "\nfunc Hub{hub}() {{}}\n").expect("a string takes the text");
+    }
+    let padding = "x".repeat(120);
+    for hub in 0..10 {
+        for at in 0..50 {
+            write!(
+                source,
+                "\nfunc caller{hub}_{at:02}_{padding}() {{\n\tHub{hub}()\n}}\n"
+            )
+            .expect("a string takes the text");
+        }
+    }
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            ("lib.go", &source),
+        ],
+        &[("impact_of_edit", json!({"file": "lib.go", "start_line": 1}))],
+    );
+
+    let answer = &answers[0];
+    assert!(
+        answer.chars().count() < 50_000,
+        "{} characters",
+        answer.chars().count()
+    );
+    let shown: Vec<&str> = answer
+        .lines()
+        .filter_map(|line| line.strip_prefix(r#"<callers shown=""#))
+        .filter_map(|line| line.strip_suffix(r#"" of="50">"#))
+        .collect();
+    assert_eq!(shown.len(), 10, "every hub lists its callers: {answer}");
+    assert!(
+        shown
+            .iter()
+            .all(|&count| count == shown[0] && count != "50"),
+        "the same cut for every list: {shown:?}"
+    );
+    assert!(
+        answer.contains(
+            "\nthe answer's size cut this list - find_callers of this symbol with path_prefix this file, line 3, \
+             hops 1 and limit 50 lists the rest\n</callers>"
+        ),
+        "{answer}"
+    );
+}
+
+#[test]
 fn impact_of_change_names_the_call_that_lists_a_seed_s_callers_past_its_10() {
     let mut lib = String::from("package lib\n\nfunc Few() {}\n\nfunc Many() {}\n");
     for at in 0..11 {
