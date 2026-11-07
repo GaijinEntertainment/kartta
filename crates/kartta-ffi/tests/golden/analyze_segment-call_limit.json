@@ -1,0 +1,159 @@
+{
+  "answer": {
+    "ok": {
+      "end_line": 14,
+      "file": "go/close.go",
+      "graph": "go",
+      "held": true,
+      "included_by": [],
+      "includes": [],
+      "start_line": 5,
+      "symbols": [
+        {
+          "ambiguous": 1,
+          "blast": {
+            "affected_files": 0,
+            "band": "low",
+            "below_confidence": 0,
+            "by_depth": [
+              1
+            ],
+            "reach": 1,
+            "truncated": false,
+            "turned_away": 0,
+            "unexpanded": 0
+          },
+          "callees": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "callers": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 1
+          },
+          "definition": {
+            "end_line": 5,
+            "exported": false,
+            "file": "go/close.go",
+            "kind": "method",
+            "line": 5,
+            "name": "close",
+            "owner": "file",
+            "qualified_name": "main.file.close",
+            "signature": "func (file) close()"
+          },
+          "unresolved": 0
+        },
+        {
+          "blast": {
+            "affected_files": 0,
+            "band": "low",
+            "below_confidence": 0,
+            "by_depth": [],
+            "reach": 0,
+            "truncated": false,
+            "turned_away": 0,
+            "unexpanded": 0
+          },
+          "callees": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "callers": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "definition": {
+            "end_line": 7,
+            "exported": false,
+            "file": "go/close.go",
+            "kind": "struct",
+            "line": 7,
+            "name": "conn",
+            "qualified_name": "main.conn"
+          },
+          "unresolved": 0
+        },
+        {
+          "ambiguous": 1,
+          "blast": {
+            "affected_files": 0,
+            "band": "low",
+            "below_confidence": 0,
+            "by_depth": [],
+            "reach": 0,
+            "truncated": false,
+            "turned_away": 0,
+            "unexpanded": 0
+          },
+          "callees": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "callers": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "definition": {
+            "end_line": 9,
+            "exported": false,
+            "file": "go/close.go",
+            "kind": "method",
+            "line": 9,
+            "name": "close",
+            "owner": "conn",
+            "qualified_name": "main.conn.close",
+            "signature": "func (conn) close()"
+          },
+          "unresolved": 0
+        },
+        {
+          "blast": {
+            "affected_files": 0,
+            "band": "low",
+            "below_confidence": 0,
+            "by_depth": [],
+            "reach": 0,
+            "truncated": false,
+            "turned_away": 0,
+            "unexpanded": 0
+          },
+          "callees": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 1
+          },
+          "callers": {
+            "below_confidence": 0,
+            "listed": [],
+            "total": 0
+          },
+          "definition": {
+            "end_line": 14,
+            "exported": false,
+            "file": "go/close.go",
+            "kind": "func",
+            "line": 11,
+            "name": "shut",
+            "qualified_name": "main.shut",
+            "signature": "func shut(f file, open func() conn)"
+          },
+          "unresolved": 1
+        }
+      ]
+    }
+  },
+  "method": "analyze_segment",
+  "params": {
+    "call_limit": 0,
+    "end_line": 14,
+    "file": "go/close.go",
+    "start_line": 5
+  }
+}
