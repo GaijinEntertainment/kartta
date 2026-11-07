@@ -2560,7 +2560,7 @@ fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
 }
 
 #[test]
-fn find_references_states_a_go_body_s_local_type_and_keeps_rust_s_statement_of_every_type() {
+fn find_references_states_a_go_body_s_local_type_and_a_rust_body_s_local_struct() {
     let answers = answers_over(
         &[
             (
@@ -2588,14 +2588,91 @@ fn find_references_states_a_go_body_s_local_type_and_keeps_rust_s_statement_of_e
             ),
             concat!(
                 r#"<match lang="rust" of="Shape" loc="src/lib.rs:2" kind="struct" count="0">no recorded site - "#,
-                "the rust graph records no use of a type where code names it as one, such as a declaration, a ",
-                "signature, a generic argument or an import, so this does not show that nothing uses the type; ",
-                "grep finds where code names it</match>",
+                "the rust graph records no use as a type or a value of a type local to a function body, so this ",
+                "does not show that nothing uses the type; grep finds where code names it</match>",
             ),
             "</references>",
         ])],
-        "a Go body's local struct states that its uses are not recorded, and a Rust one keeps the statement every Rust \
-         type takes"
+        "a Go body's local struct states that its uses are not recorded, and so does a Rust one, which the extraction \
+         does not tell from a unit or a tuple struct"
+    );
+}
+
+#[test]
+fn find_references_states_both_gaps_of_a_rust_body_s_value_struct_and_the_type_gap_of_a_module_s() {
+    let answers = answers_over(
+        &[(
+            "src/lib.rs",
+            "pub struct Unit;\n\npub fn module() -> Unit {\n    let made = Unit;\n    made\n}\n\n\
+             pub fn local() -> usize {\n    struct Inner;\n    let made = Inner;\n    \
+             std::mem::size_of_val(&made)\n}\n\n\
+             pub fn pair() -> u8 {\n    struct Pair(u8);\n    enum Mode {\n        On,\n    }\n    \
+             let _ = Mode::On;\n    let make = Pair;\n    make(1).0 + Pair(2).0\n}\n",
+        )],
+        &[
+            ("find_references", json!({"name": "Inner"})),
+            ("find_references", json!({"name": "Unit"})),
+            ("find_references", json!({"name": "Pair"})),
+            ("find_references", json!({"name": "Mode"})),
+        ],
+    );
+
+    let type_statement = "the rust graph records no use of a type where code names it as one, such as a declaration, \
+                          a signature, a generic argument or an import";
+    let local_statement =
+        "the rust graph records no use as a type or a value of a type local to a function body";
+    let no_site = |statement: &str| {
+        format!(
+            "no recorded site - {statement}, so this does not show that nothing uses the type; grep finds where code \
+             names it</match>"
+        )
+    };
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<references of="Inner" matches="1">"#,
+                &format!(
+                    r#"<match lang="rust" of="Inner" loc="src/lib.rs:9" kind="struct" count="0">{}"#,
+                    no_site(local_statement)
+                ),
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Unit" matches="1">"#,
+                r#"<match lang="rust" of="Unit" loc="src/lib.rs:1" kind="struct" count="1" files="1" reads="1">"#,
+                &format!(
+                    "<note>{type_statement}, so every such use is missing from this answer</note>"
+                ),
+                r#"<file path="src/lib.rs" sites="1">"#,
+                r#"<ref name="module" line="3" role="consumer" site="read" at="4"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Pair" matches="1">"#,
+                r#"<match lang="rust" of="Pair" loc="src/lib.rs:15" kind="struct" count="1" files="1" calls="1">"#,
+                &format!(
+                    "<note>{local_statement}, so every such use is missing from this answer</note>"
+                ),
+                r#"<file path="src/lib.rs" sites="1">"#,
+                r#"<ref name="pair" line="14" role="consumer" site="call" at="21"/>"#,
+                "</file>",
+                "</match>",
+                "</references>",
+            ]),
+            lines(&[
+                r#"<references of="Mode" matches="1">"#,
+                &format!(
+                    r#"<match lang="rust" of="Mode" loc="src/lib.rs:16" kind="enum" count="0">{}"#,
+                    no_site(type_statement)
+                ),
+                "</references>",
+            ]),
+        ],
+        "a body's unit or tuple struct names its uses as a type and as a value, a module's unit struct lists its read \
+         under the statement every Rust type takes, and a body's enum, which is no value, keeps that statement"
     );
 }
 
