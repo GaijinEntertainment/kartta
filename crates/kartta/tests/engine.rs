@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kartta::{
-    BuildError, BuildOptions, CancelToken, Definitions, Engine, Extraction, Language, Limits, Miss,
-    RawExtraction, Region, Repository, Resolver, Symbol, SymbolKind, confidence,
+    BuildError, BuildOptions, CancelToken, ChangeQuery, Definitions, Engine, Extraction, Language,
+    Limits, Miss, RawExtraction, Region, Repository, Resolver, Symbol, SymbolKind, confidence,
 };
 use kartta_fs::{Content, ContentIndexStorage, ContentVisitor, Index, Namespace};
 use kartta_lang::{CallRef, SymbolId};
@@ -826,7 +826,10 @@ fn the_seeds_of_several_families_compete_for_one_limit() {
         Region::new("many.alpha", 1..=u32::MAX),
     ];
 
-    let change = engine.analyze_change(&regions, Limits::new(1)).change;
+    let query = ChangeQuery::new(Limits::new(1)).with_seed_limit(300);
+
+    let change = engine.analyze_change(&regions, query).change;
+    let whole = engine.analyze_change(&regions, Limits::new(1)).change;
     let seeds: Vec<&str> = change.seeds.iter().map(|seed| seed.symbol.name).collect();
 
     assert_eq!(change.changed_symbols, 400);
@@ -835,6 +838,7 @@ fn the_seeds_of_several_families_compete_for_one_limit() {
         (seeds[0], seeds[199], seeds[200], seeds[299]),
         ("a000", "a199", "b000", "b099")
     );
+    assert_eq!(whole.seeds.len(), 400);
 }
 
 #[test]

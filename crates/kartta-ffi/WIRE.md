@@ -135,6 +135,12 @@ its family, and a family names one graph.
 - `CALL_PATH_MAX_SYMBOLS`: 20,000. The symbols the search of `call_path` reaches.
 - `CANCELLED_AHEAD_LIMIT`: 1,024. The named cancels that stopped nothing a handle remembers, per kind of call and per
   name, for a call that has not entered yet; a further one forgets the oldest.
+- `CANDIDATES`: 5. The `candidates` `callers`, `callees`, `references` and `implementations` list, and `call_path` for
+  each end, of the symbols the name selects that the answer passed over.
+- `CHANGE_CONSUMERS`: 30. The direct callers or users `analyze_change` lists of a changed symbol before it counts them
+  by directory.
+- `CHANGE_HOTSPOTS`: 300. The hotspots `analyze_change` lists.
+- `CHANGE_SEEDS`: 300. The changed symbols `analyze_change` lists.
 - `DEAD_CODE`: 100. The definitions `dead_code` answers.
 - `DEFINITIONS`: 10. The definitions `definitions` and `sources` answer.
 - `DEPENDENTS`: 100. The files `dependents` answers.
@@ -150,6 +156,7 @@ its family, and a family names one graph.
 - `LIST_LIMIT`: 1,000. The entries `list` answers.
 - `REFERENCES`: 500. The sites `references` answers.
 - `SEARCH`: 20. The hits `search` answers.
+- `SEGMENT_CALLS`: 50. The direct callers, callees or users `analyze_segment` lists of each symbol, per side.
 - `SEGMENT_DEPTH`: 3. How many calls deep each walk of `analyze_segment` and `analyze_change` goes.
 - `UNBOUND`: 20. The unbound call sites `resolution` lists per graph.
 - `UNMATCHED_LISTED`: 5. The definitions an [`Unmatched`](#unmatched) lists.

@@ -2,7 +2,7 @@
 //! depth bound and the limit left out.
 
 use kartta_graph::{Graph, Implementations, Limits, OutsideImplementations, Selector};
-use kartta_lang::{Conventions, ImportBinding, Symbol, SymbolKind, ValueUses};
+use kartta_lang::{Conventions, Extraction, ImportBinding, Symbol, SymbolKind, ValueUses};
 
 use crate::{file, graph_of as graph, including};
 
@@ -615,6 +615,28 @@ fn the_types_a_name_passes_over_are_listed_the_most_implemented_first() {
         ("c::Node", 3)
     );
     assert_eq!(listed, [("d::Node", 2), ("b::Node", 1), ("a::Node", 0)]);
+}
+
+#[test]
+fn the_types_a_name_passes_over_are_listed_up_to_the_candidate_limit() {
+    let types: Vec<Extraction> = (0..7)
+        .map(|copy| {
+            file(
+                &format!("n{copy}.h"),
+                vec![ty("Node", &format!("n{copy}::Node"), 1, &[])],
+            )
+        })
+        .collect();
+    let graph = graph(cpp(), &types);
+    let every = Selector::from("Node");
+
+    let whole = graph.implementations(every, 1, 10).expect("a type");
+    let cut = graph
+        .implementations(every.with_candidate_limit(5), 1, 10)
+        .expect("a type");
+
+    assert_eq!((whole.candidates.len(), whole.passed_over), (6, 6));
+    assert_eq!((cut.candidates.len(), cut.passed_over), (5, 6));
 }
 
 #[test]

@@ -90,7 +90,8 @@ pub struct Walk<'g> {
     pub root: Definition<'g>,
     /// The other callables the name selects, which the walk did not start from.
     pub passed_over: usize,
-    /// The most called of those, the most first, then in path order, at most five.
+    /// The most called of those, the most first, then in path order, at most the selector's
+    /// [`candidate_limit`](Selector::candidate_limit).
     pub candidates: Vec<Candidate<'g>>,
     /// The symbols reached, each once, nearest first.
     pub reached: Vec<Reached<'g>>,
@@ -260,7 +261,8 @@ pub struct References<'g> {
     pub symbol: Definition<'g>,
     /// The other symbols the name selects, whose sites these are not.
     pub passed_over: usize,
-    /// The most used of those, the most sites first, then in path order, at most five.
+    /// The most used of those, the most sites first, then in path order, at most the selector's
+    /// [`candidate_limit`](Selector::candidate_limit).
     pub candidates: Vec<Candidate<'g>>,
     /// The sites, by file and line, at most the query's limit.
     pub sites: Vec<Reference<'g>>,
@@ -316,7 +318,7 @@ pub struct CallPath<'g> {
     /// The other callables each name selects, which the search did not start or end at: `from`'s, then `to`'s.
     pub passed_over: (usize, usize),
     /// The most called of each end's passed-over callables, `from`'s then `to`'s, the most first, then in path order,
-    /// at most five each.
+    /// at most each end's selector's [`candidate_limit`](Selector::candidate_limit).
     pub candidates: (Vec<Candidate<'g>>, Vec<Candidate<'g>>),
 }
 
@@ -842,7 +844,10 @@ impl<'g> Calls<'g> {
         let others = self.others(selector, chosen);
         let count = others.len();
         let ranked = others.into_iter().map(|at| (at, rank(self, at))).collect();
-        (count, self.graph.candidates(ranked))
+        (
+            count,
+            self.graph.candidates(ranked, selector.candidate_limit),
+        )
     }
 
     fn renamings(&self, name: Str) -> Vec<Str> {
