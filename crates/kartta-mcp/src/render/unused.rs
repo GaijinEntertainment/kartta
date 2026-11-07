@@ -1,6 +1,6 @@
 use kartta::{Dead, DeadCode, Excluded};
 
-use super::{empty_languages_note, kind, named, span};
+use super::{LIMIT_CUT, empty_languages_note, kind, named, span};
 use crate::llmxml::Element;
 
 /// What a `find_unused` call asked, as its answer echoes it.
@@ -36,7 +36,8 @@ pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> St
         return element.children(
             excluded
                 .into_iter()
-                .chain(found.iter().map(|&(family, dead)| symbol(family, dead))),
+                .chain(found.iter().map(|&(family, dead)| symbol(family, dead)))
+                .chain(truncated.then(|| LIMIT_CUT.to_owned())),
         );
     }
     let note = empty_languages_note(ask.languages).unwrap_or_else(|| match (&excluded, live) {

@@ -752,9 +752,9 @@ fn file_list(tag: &'static str, paths: &[&str], listed: usize) -> String {
 }
 
 /// The `impact_of_change` answer: what the change reaches in all, then the changed symbols, widest reach first, and
-/// the symbols where their reaches meet, each list cut to `limit` and saying so as `shown` of `of`, then each language
-/// that leaves a region's file out of its graph, with its reason, and each language the build's `languages` filter
-/// left out that claims a region's file, as `unbuilt` counts them.
+/// the symbols where their reaches meet, each list cut to `limit` and saying so as `shown` of `of`, and in a last line
+/// when `limit` cut it, then each language that leaves a region's file out of its graph, with its reason, and each
+/// language the build's `languages` filter left out that claims a region's file, as `unbuilt` counts them.
 pub(crate) fn change(
     regions: usize,
     answer: &EngineChange<'_>,
@@ -811,15 +811,19 @@ pub(crate) fn change(
         }
         return element.children(iter::once(NO_SYMBOLS.to_owned()).chain(reasons));
     }
+    let limit_cut = |listed: usize| (listed > limit).then(|| LIMIT_CUT.to_owned());
     let seeds = Element::new("seeds")
         .attr("shown", change.seeds.len().min(limit))
         .attr("of", change.changed_symbols)
-        .children(change.seeds.iter().take(limit).map(seed));
+        .children((change.seeds.iter().take(limit).map(seed)).chain(limit_cut(change.seeds.len())));
     let hotspots = (change.total_hotspots > 0).then(|| {
         Element::new("hotspots")
             .attr("shown", change.hotspots.len().min(limit))
             .attr("of", change.total_hotspots)
-            .children(change.hotspots.iter().take(limit).map(hotspot))
+            .children(
+                (change.hotspots.iter().take(limit).map(hotspot))
+                    .chain(limit_cut(change.hotspots.len())),
+            )
     });
     element.children(iter::once(seeds).chain(hotspots).chain(reasons))
 }
