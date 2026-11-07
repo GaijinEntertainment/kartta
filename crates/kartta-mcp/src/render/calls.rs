@@ -403,7 +403,10 @@ enum Unrecorded {
 impl Unrecorded {
     fn of(conventions: &Conventions, references: &References<'_>) -> Option<Self> {
         let of = references.symbol.kind;
-        if conventions.type_uses == TypeUses::Nowhere && of.is_type() {
+        // constraint: a Rust unit or tuple struct is also a value, which no read of a local one binds, and the
+        // extraction does not tell it from a braced struct, so a body's struct names both gaps in one statement
+        let local_struct = references.local_value && of == SymbolKind::Struct;
+        if conventions.type_uses == TypeUses::Nowhere && of.is_type() && !local_struct {
             return Some(Self::TypeUses);
         }
         if conventions.unrecorded_data.contains(&of) {
