@@ -665,9 +665,15 @@ pub(crate) fn impact(
     let mut parts: Vec<String> = if segment.symbols.is_empty() {
         vec![NO_SYMBOLS.to_owned()]
     } else {
-        widest(&segment.symbols, ask.listed)
+        let listed: Vec<(&SegmentSymbol<'_>, Vec<DirectList<'_, '_>>)> =
+            widest(&segment.symbols, ask.listed)
+                .into_iter()
+                .map(|symbol| (symbol, direct_lists(symbol)))
+                .collect();
+        let shown = records_shown(listed.iter().flat_map(|(_, lists)| lists));
+        listed
             .into_iter()
-            .map(segment_symbol)
+            .map(|(symbol, lists)| segment_symbol(symbol, lists, shown))
             .chain(cut.then(|| LIMIT_CUT.to_owned()))
             .collect()
     };
@@ -689,11 +695,100 @@ fn widest<'s, 'g>(symbols: &'s [SegmentSymbol<'g>], listed: usize) -> Vec<&'s Se
     kept.into_iter().map(|at| &symbols[at]).collect()
 }
 
-/// One symbol an edit overlaps: what a change to it reaches, and its direct callers or users and its callees.
-fn segment_symbol(symbol: &SegmentSymbol<'_>) -> String {
+/// How many bytes the records of an `impact_of_edit` answer's direct lists take at most before every list shrinks: a
+/// client moves a tool result past 50,000 characters out of the context, and the rest is left to the symbols, the
+/// include lists and the lines that name the call past a cut list, which grow with the symbols listed rather than with
+/// the records.
+const DIRECT_RECORD_BYTES: usize = 40_000;
+
+/// One direct list of a symbol an edit overlaps, its callers, users or callees, with each listed record rendered and
+/// the call that lists the rest.
+struct DirectList<'s, 'g> {
+    tag: &'static str,
+    calls: &'s DirectCalls<'g>,
+    records: Vec<String>,
+    way: String,
+}
+
+/// The direct lists `symbol` answers with: its callers, unless it has users, which hold them, its users and its
+/// callees, each that lists a record. A callee's call is in the symbol's own file, a caller's or a user's in its own.
+fn direct_lists<'s, 'g>(symbol: &'s SegmentSymbol<'g>) -> Vec<DirectList<'s, 'g>> {
+    let line = symbol.definition.line;
+    let callers = (symbol.users.total == 0).then(|| {
+        let way = format!(
+            "find_callers of this symbol with path_prefix this file, line {line}, hops 1 and limit {}",
+            symbol.callers.total
+        );
+        ("callers", &symbol.callers, None, way)
+    });
+    callers
+        .into_iter()
+        .chain([
+            (
+                "users",
+                &symbol.users,
+                None,
+                format!(
+                    "find_references of this symbol with path_prefix this file and line {line}"
+                ),
+            ),
+            (
+                "callees",
+                &symbol.callees,
+                Some(symbol.definition.file),
+                format!("find_callees of this symbol with path_prefix this file and line {line}"),
+            ),
+        ])
+        .filter(|(_, calls, _, _)| !calls.listed.is_empty())
+        .map(|(tag, calls, calling_file, way)| DirectList {
+            tag,
+            calls,
+            way,
+            records: calls
+                .listed
+                .iter()
+                .map(|reached| {
+                    let file = calling_file.unwrap_or(reached.symbol.file);
+                    edge("ref", reached)
+                        .attr("at", loc(file, reached.line))
+                        .close()
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// The most records every list keeps, the same number for each, so that the records of `lists` fill at most
+/// [`DIRECT_RECORD_BYTES`]: every record when they fit.
+fn records_shown<'l, 's: 'l, 'g: 's>(lists: impl Iterator<Item = &'l DirectList<'s, 'g>>) -> usize {
+    let mut by_rank: Vec<usize> = Vec::new();
+    for list in lists {
+        if by_rank.len() < list.records.len() {
+            by_rank.resize(list.records.len(), 0);
+        }
+        for (rank, record) in list.records.iter().enumerate() {
+            by_rank[rank] += record.len() + 1;
+        }
+    }
+    let mut spent = 0_usize;
+    for (rank, bytes) in by_rank.iter().enumerate() {
+        spent += bytes;
+        if spent > DIRECT_RECORD_BYTES {
+            return rank;
+        }
+    }
+    usize::MAX
+}
+
+/// One symbol an edit overlaps: what a change to it reaches, and its direct callers or users and its callees, each
+/// list cut to `shown` records.
+fn segment_symbol(
+    symbol: &SegmentSymbol<'_>,
+    lists: Vec<DirectList<'_, '_>>,
+    shown: usize,
+) -> String {
     let definition = &symbol.definition;
     let blast = &symbol.blast;
-    let line = definition.line;
     named("symbol", definition)
         .attr("kind", kind(definition.kind))
         .attr(
@@ -711,29 +806,7 @@ fn segment_symbol(symbol: &SegmentSymbol<'_>) -> String {
         .count("unexpanded", blast.unexpanded)
         .count("unresolved", symbol.unresolved)
         .optional("sig", definition.signature.map(flat))
-        .children(
-            [
-                (symbol.users.total == 0)
-                    .then(|| {
-                        direct("callers", &symbol.callers, None, || {
-                            format!(
-                                "find_callers of this symbol with path_prefix this file, line {line}, hops 1 and \
-                                 limit {}",
-                                symbol.callers.total
-                            )
-                        })
-                    })
-                    .flatten(),
-                direct("users", &symbol.users, None, || {
-                    format!("find_references of this symbol with path_prefix this file and line {line}")
-                }),
-                direct("callees", &symbol.callees, Some(definition.file), || {
-                    format!("find_callees of this symbol with path_prefix this file and line {line}")
-                }),
-            ]
-            .into_iter()
-            .flatten(),
-        )
+        .children(lists.into_iter().map(|list| direct(list, shown)))
 }
 
 /// A list of files in path order: every one counted, the first `listed` of them listed.
@@ -912,37 +985,28 @@ fn hotspot(hotspot: &Hotspot<'_>) -> String {
         .close()
 }
 
-/// One side of a symbol's direct calls, its listed refs disclosing the list's cap as `shown` of `of`, and ending with
-/// `way`, the call that lists the rest, when the cap cut them. Each call is in `calling_file`, or in the listed
-/// symbol's own file when that is the caller.
-fn direct(
-    tag: &'static str,
-    calls: &DirectCalls<'_>,
-    calling_file: Option<&str>,
-    way: impl FnOnce() -> String,
-) -> Option<String> {
-    if calls.listed.is_empty() {
-        return None;
-    }
-    let cut = (calls.total > calls.listed.len()).then(|| fixed_cut("this list", Some(&way())));
-    Some(
-        Element::new(tag)
-            .attr("shown", calls.listed.len())
-            .attr("of", calls.total)
-            .count("below_confidence", calls.below_confidence)
-            .children(
-                calls
-                    .listed
-                    .iter()
-                    .map(|reached| {
-                        let file = calling_file.unwrap_or(reached.symbol.file);
-                        edge("ref", reached)
-                            .attr("at", loc(file, reached.line))
-                            .close()
-                    })
-                    .chain(cut),
-            ),
-    )
+/// One side of a symbol's direct calls, its first `shown` records disclosing the cut as `shown` of `of`, and ending
+/// with the call that lists the rest when the answer's size or the cap cut them.
+fn direct(list: DirectList<'_, '_>, shown: usize) -> String {
+    let DirectList {
+        tag,
+        calls,
+        mut records,
+        way,
+    } = list;
+    let cut = if records.len() > shown {
+        records.truncate(shown);
+        Some(format!(
+            "the answer's size cut this list - {way} lists the rest"
+        ))
+    } else {
+        (calls.total > records.len()).then(|| fixed_cut("this list", Some(&way)))
+    };
+    Element::new(tag)
+        .attr("shown", records.len())
+        .attr("of", calls.total)
+        .count("below_confidence", calls.below_confidence)
+        .children(records.into_iter().chain(cut))
 }
 
 /// Each caller role, and the `<match>` attribute that counts it when `find_callers` keeps one role.
