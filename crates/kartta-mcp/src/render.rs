@@ -692,10 +692,11 @@ pub(crate) fn unready(unready: &Unready) -> String {
             .attr("root", root)
             .attr("status", "building")
             .attr("elapsed_secs", elapsed.as_secs())
-            .inline(
-                "still building - every other tool answers once it is ready, and index_repo with this root, \
-                 languages and index_ignored waits for it",
-            ),
+            .inline(&format!(
+                "still building - call index_stats until it answers the index; every other tool answers once it \
+                 is ready, and index_repo with this root, languages and index_ignored waits for it, up to {}s",
+                crate::state::INDEX_WAIT.as_secs()
+            )),
         Unready::Failed { root, error } => element
             .attr("root", root)
             .attr("status", "failed")
