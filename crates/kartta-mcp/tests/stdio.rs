@@ -27,7 +27,7 @@ fn a_grep_index_that_cannot_be_kept_costs_only_itself_and_stays_named_through_a_
 
     assert!(indexed.contains(reason), "{indexed}");
     assert!(indexed.contains("<language name=\"go\""), "{indexed}");
-    assert!(indexed.contains("<errors count=\"1\">"), "{indexed}");
+    assert!(indexed.contains("<errors total=\"1\">"), "{indexed}");
     assert!(found.contains("func (s *Service) Greet"), "{found}");
     assert!(refreshed.contains(reason), "{refreshed}");
     assert!(!refreshed.contains("<errors"), "{refreshed}");
@@ -60,7 +60,10 @@ fn the_index_answer_says_no_call_lists_the_errors_past_its_5() {
             .expect("the permissions");
     }
 
-    assert!(indexed.contains("<errors count=\"6\">"), "{indexed}");
+    assert!(
+        indexed.contains("<errors total=\"6\" shown=\"5\" truncated=\"true\">"),
+        "{indexed}"
+    );
     assert!(
         indexed.contains(
             "\n(+1 more) a fixed cap cut this list - no parameter or call lists the rest\n</errors>"
@@ -446,7 +449,7 @@ fn an_empty_file_answer_names_the_globs_that_name_a_directory() {
     assert_eq!(
         client.answer("grep", &json!({"patterns": ["x"], "includes": ["pkg"]})),
         format!(
-            "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\">the include/exclude globs selected no \
+            "<grep patterns=\"x\" candidates=\"0\" files=\"0\" total=\"0\">the include/exclude globs selected no \
              files - {one}</grep>"
         )
     );
@@ -456,7 +459,7 @@ fn an_empty_file_answer_names_the_globs_that_name_a_directory() {
             &json!({"patterns": ["zzz"], "includes": ["pkg/", "*.go"]})
         ),
         format!(
-            "<grep patterns=\"zzz\" candidates=\"2\" files=\"0\" matches=\"0\">no line matches - {DIRECTORY_FIX} \
+            "<grep patterns=\"zzz\" candidates=\"2\" files=\"0\" total=\"0\">no line matches - {DIRECTORY_FIX} \
              \"pkg/**\" in place of \"pkg/\"</grep>"
         )
     );
@@ -507,8 +510,8 @@ fn a_listed_answer_and_a_name_below_the_root_name_the_glob_that_names_a_director
             &json!({"patterns": ["^module"], "includes": ["pkg", "go.mod"]})
         ),
         format!(
-            "<grep patterns=\"^module\" candidates=\"1\" files=\"1\" matches=\"1\">\n<file path=\"go.mod\" \
-             matches=\"1\">\n1:module example.com/app\n</file>\n<note>{one}</note>\n</grep>"
+            "<grep patterns=\"^module\" candidates=\"1\" files=\"1\" total=\"1\">\n<file path=\"go.mod\" \
+             total=\"1\">\n1:module example.com/app\n</file>\n<note>{one}</note>\n</grep>"
         )
     );
     assert_eq!(
@@ -569,11 +572,11 @@ fn grep_answers_lines_with_context_and_counts_what_it_did_not_cover() {
 
     assert_eq!(
         client.answer("grep", &json!({"patterns": ["Greet"]})),
-        "<grep patterns=\"Greet\" candidates=\"4\" files=\"2\" matches=\"3\" excluded=\"1\">\n\
-         <file path=\"cmd/app/main.go\" matches=\"1\">\n\
+        "<grep patterns=\"Greet\" candidates=\"4\" files=\"2\" total=\"3\" excluded=\"1\">\n\
+         <file path=\"cmd/app/main.go\" total=\"1\">\n\
          11:\ts.Greet(\"x\")\n\
          </file>\n\
-         <file path=\"pkg/service.go\" matches=\"2\">\n\
+         <file path=\"pkg/service.go\" total=\"2\">\n\
          11:// Greet greets name.\n\
          12:func (s *Service) Greet(name string) string {\n\
          </file>\n\
@@ -590,8 +593,8 @@ fn grep_answers_lines_with_context_and_counts_what_it_did_not_cover() {
                 "max_results": 1
             })
         ),
-        "<grep patterns=\"greet\" candidates=\"1\" files=\"1\" matches=\"1\" truncated=\"true\">\n\
-         <file path=\"pkg/service.go\" matches=\"1\">\n\
+        "<grep patterns=\"greet\" candidates=\"1\" files=\"1\" total=\"1\" truncated=\"true\">\n\
+         <file path=\"pkg/service.go\" total=\"1\">\n\
          2-\n\
          3:// Service greets.\n\
          4-type Service struct{}\n\
@@ -603,12 +606,12 @@ fn grep_answers_lines_with_context_and_counts_what_it_did_not_cover() {
             "grep",
             &json!({"patterns": ["Greet.*World"], "excludes": []})
         ),
-        "<grep patterns=\"Greet.*World\" candidates=\"5\" files=\"0\" matches=\"0\">no line matches - matching is \
+        "<grep patterns=\"Greet.*World\" candidates=\"5\" files=\"0\" total=\"0\">no line matches - matching is \
          per-line: \".*\"/\".+\" cannot cross line breaks; search the most distinctive part alone</grep>"
     );
     assert_eq!(
         client.answer("grep", &json!({"patterns": ["x"], "includes": ["*.rs"]})),
-        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\">the include/exclude globs selected no files \
+        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" total=\"0\">the include/exclude globs selected no files \
          - glob_files shows what they match</grep>"
     );
     assert!(client.call("grep", &json!({"patterns": ["("]})).is_error);
@@ -727,7 +730,7 @@ fn grep_keeps_every_match_whose_lines_alone_pass_the_answer_s_size_and_shows_no_
     );
 
     assert!(
-        answer.contains("matches=\"50\" context_lines=\"1\" context_shown=\"0\""),
+        answer.contains("total=\"50\" context_lines=\"1\" context_shown=\"0\""),
         "{answer}"
     );
     assert_eq!(
@@ -767,7 +770,7 @@ fn list_dir_counts_what_it_did_not_enter() {
 
     assert_eq!(
         client.answer("list_dir", &json!({})),
-        "<dir path=\".\" entries=\"6\" total=\"11\">\n\
+        "<dir path=\".\" total=\"11\" shown=\"6\">\n\
          <entry path=\".env\" kind=\"file\" size=\"4\"/>\n\
          <entry path=\"README.md\" kind=\"file\" size=\"6\"/>\n\
          <entry path=\"cmd\" kind=\"dir\" unlisted=\"2\"/>\n\
@@ -781,7 +784,7 @@ fn list_dir_counts_what_it_did_not_enter() {
             "list_dir",
             &json!({"path": ".", "max_depth": 3, "max_entries": 4, "skip_dotfiles": true})
         ),
-        "<dir path=\".\" entries=\"4\" total=\"11\" excluded=\"1\" truncated=\"true\">\n\
+        "<dir path=\".\" total=\"11\" shown=\"4\" excluded=\"1\" truncated=\"true\">\n\
          <entry path=\"README.md\" kind=\"file\" size=\"6\"/>\n\
          <entry path=\"cmd\" kind=\"dir\"/>\n\
          <entry path=\"cmd/app\" kind=\"dir\"/>\n\
@@ -790,7 +793,7 @@ fn list_dir_counts_what_it_did_not_enter() {
     );
     assert_eq!(
         client.answer("list_dir", &json!({"path": "vendor", "excludes": []})),
-        "<dir path=\"vendor\" entries=\"1\" total=\"2\">\n\
+        "<dir path=\"vendor\" total=\"2\" shown=\"1\">\n\
          <entry path=\"vendor/lib\" kind=\"dir\" unlisted=\"1\"/>\n\
          </dir>"
     );
@@ -799,7 +802,7 @@ fn list_dir_counts_what_it_did_not_enter() {
             "list_dir",
             &json!({"path": "vendor", "max_depth": 2, "excludes": ["vendor/lib"]})
         ),
-        "<dir path=\"vendor\" entries=\"1\" total=\"2\">\n\
+        "<dir path=\"vendor\" total=\"2\" shown=\"1\">\n\
          <entry path=\"vendor/lib\" kind=\"dir\" unlisted=\"1\"/>\n\
          </dir>",
         "a name with the directories above it is matched as written"
@@ -833,7 +836,7 @@ fn a_list_dir_exclude_excludes_a_held_directory_whatever_its_name_holds() {
             "list_dir",
             &json!({"path": "cmd", "max_depth": 2, "excludes": ["odd[1]"]})
         ),
-        "<dir path=\"cmd\" entries=\"3\" total=\"4\">\n\
+        "<dir path=\"cmd\" total=\"4\" shown=\"3\">\n\
          <entry path=\"cmd/app\" kind=\"dir\"/>\n\
          <entry path=\"cmd/app/main.go\" kind=\"file\" size=\"128\"/>\n\
          <entry path=\"cmd/odd[1]\" kind=\"dir\" unlisted=\"1\"/>\n\
@@ -878,7 +881,7 @@ fn a_list_dir_exclude_excludes_a_held_directory_whose_name_holds_a_backslash() {
             "list_dir",
             &json!({"path": "cmd", "max_depth": 2, "excludes": ["a\\b"]})
         ),
-        "<dir path=\"cmd\" entries=\"3\" total=\"4\">\n\
+        "<dir path=\"cmd\" total=\"4\" shown=\"3\">\n\
          <entry path=\"cmd/a\\\\b\" kind=\"dir\" unlisted=\"1\"/>\n\
          <entry path=\"cmd/app\" kind=\"dir\"/>\n\
          <entry path=\"cmd/app/main.go\" kind=\"file\" size=\"128\"/>\n\
@@ -897,12 +900,12 @@ fn grep_and_list_dir_say_why_they_show_nothing() {
             "grep",
             &json!({"patterns": ["Greet"], "includes": ["*.bin"]})
         ),
-        "<grep patterns=\"Greet\" candidates=\"1\" files=\"0\" matches=\"0\" binary=\"1\">no line matches in the files \
+        "<grep patterns=\"Greet\" candidates=\"1\" files=\"0\" total=\"0\" binary=\"1\">no line matches in the files \
          read - binary and oversized files are skipped unread</grep>"
     );
     assert_eq!(
         client.answer("list_dir", &json!({"path": "conf", "skip_dotfiles": true})),
-        "<dir path=\"conf\" entries=\"0\" total=\"1\" excluded=\"1\">no entry shown - skip_dotfiles excluded every \
+        "<dir path=\"conf\" total=\"1\" shown=\"0\" excluded=\"1\">no entry shown - skip_dotfiles excluded every \
          entry</dir>"
     );
 }
@@ -918,7 +921,7 @@ fn grep_says_when_its_globs_selected_symlinks_alone() {
 
     assert_eq!(
         client.answer("grep", &json!({"patterns": ["x"], "includes": ["link.go"]})),
-        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\" symlinks=\"1\">the include/exclude globs \
+        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" total=\"0\" symlinks=\"1\">the include/exclude globs \
          selected symlinks alone, which are never read through - include their targets</grep>"
     );
     assert_eq!(
@@ -926,7 +929,7 @@ fn grep_says_when_its_globs_selected_symlinks_alone() {
             "grep",
             &json!({"patterns": ["x"], "includes": ["link.go", "cmd"]})
         ),
-        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" matches=\"0\" symlinks=\"1\">the include/exclude globs \
+        "<grep patterns=\"x\" candidates=\"0\" files=\"0\" total=\"0\" symlinks=\"1\">the include/exclude globs \
          selected symlinks alone, which are never read through - include their targets - a glob selects files by \
          their path from the root, so one that names a directory selects nothing: pass \"cmd/**\" in place of \
          \"cmd\"</grep>"
@@ -1166,7 +1169,7 @@ fn a_filtered_build_names_its_languages_on_the_index_and_on_a_miss() {
     assert!(none.contains(r#" languages="[]" files="2""#), "{none}");
     assert!(
         none_miss.starts_with(
-            r#"<callers of="helper" matches="0" index_languages="[]">no symbol matches"#
+            r#"<callers of="helper" total="0" index_languages="[]">no symbol matches"#
         ),
         "{none_miss}"
     );
@@ -1283,8 +1286,9 @@ fn grep_quotes_an_unreadable_path_that_opens_with_a_parenthesis_and_not_the_coun
     assert_eq!(
         client.answer("grep", &json!({"patterns": ["x"]})),
         format!(
-            "<grep patterns=\"x\" candidates=\"6\" files=\"0\" matches=\"0\">\n<failures count=\"6\">\n{}\n(+1 more) a \
-             fixed cap cut this list - grep with narrower includes lists the rest\n</failures>\n</grep>",
+            "<grep patterns=\"x\" candidates=\"6\" files=\"0\" total=\"0\">\n\
+             <failures total=\"6\" shown=\"5\" truncated=\"true\">\n{}\n(+1 more) a fixed cap \
+             cut this list - grep with narrower includes lists the rest\n</failures>\n</grep>",
             listed.join("\n")
         )
     );
@@ -1298,8 +1302,8 @@ fn find_callers_walks_callers_with_the_line_of_each_call() {
 
     assert_eq!(
         client.answer("find_callers", &json!({"name": "Greet"})),
-        "<callers of=\"Greet\" matches=\"1\">\n\
-         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" count=\"2\">\n\
+        "<callers of=\"Greet\" total=\"1\">\n\
+         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" total=\"2\">\n\
          <ref name=\"run\" qn=\"main.run\" loc=\"cmd/app/main.go:10-12\" role=\"consumer\" hops=\"1\" \
          at=\"11\"/>\n\
          <ref name=\"main\" qn=\"main.main\" loc=\"cmd/app/main.go:5-8\" role=\"entry\" hops=\"2\" \
@@ -1312,8 +1316,8 @@ fn find_callers_walks_callers_with_the_line_of_each_call() {
             "find_callers",
             &json!({"name": "Greet", "hops": 1, "role": "entry"})
         ),
-        "<callers of=\"Greet\" role=\"entry\" matches=\"1\">\n\
-         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" count=\"1\" \
+        "<callers of=\"Greet\" role=\"entry\" total=\"1\">\n\
+         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" total=\"1\" shown=\"0\" \
          unexpanded=\"1\" consumers=\"1\" tests=\"0\" entries=\"0\" generated=\"0\"/>\n\
          </callers>"
     );
@@ -1327,7 +1331,7 @@ fn find_callers_offers_alternatives_to_an_unknown_name() {
 
     assert_eq!(
         client.answer("find_callers", &json!({"name": "Gret"})),
-        "<callers of=\"Gret\" matches=\"0\" one_edit=\"1\">\n\
+        "<callers of=\"Gret\" total=\"0\" one_edit=\"1\">\n\
          no symbol matches - did you mean:\n\
          <suggestion name=\"Greet\" qn=\"pkg.Service.Greet\" kind=\"method\" lang=\"go\" \
          loc=\"pkg/service.go:12-14\"/>\n\
@@ -1335,7 +1339,7 @@ fn find_callers_offers_alternatives_to_an_unknown_name() {
     );
     assert_eq!(
         client.answer("find_callers", &json!({"name": "Greet", "languages": []})),
-        "<callers of=\"Greet\" languages=\"[]\" matches=\"0\">no language selected - an empty languages list \
+        "<callers of=\"Greet\" languages=\"[]\" total=\"0\">no language selected - an empty languages list \
          searches no graph; omit languages to search every indexed language</callers>"
     );
 }

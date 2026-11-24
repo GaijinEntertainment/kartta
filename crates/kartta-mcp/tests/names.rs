@@ -103,6 +103,23 @@ fn by_name(name: &str, languages: &[&str]) -> [(&'static str, Value); 4] {
     ]
 }
 
+/// Whether `answer` selected no symbol: a name of `read_definitions` or the envelope of a tool that answers a match
+/// per graph counts none.
+fn misses(answer: &str) -> bool {
+    answer.lines().any(|line| {
+        [
+            "<name ",
+            "<callers ",
+            "<callees ",
+            "<references ",
+            "<call_path ",
+        ]
+        .iter()
+        .any(|tag| line.starts_with(tag))
+            && line.contains(r#"total="0""#)
+    })
+}
+
 /// Asserts that every symbol tool answers `written` as it answers `read`, the spelling of the language's own
 /// separator, and says it read the name so; `read` itself must select a symbol.
 fn assert_read_as(client: &mut Client, languages: &[&str], [written, read]: [&str; 2]) {
@@ -111,10 +128,7 @@ fn assert_read_as(client: &mut Client, languages: &[&str], [written, read]: [&st
         .zip(by_name(read, languages))
     {
         let expected = client.answer(tool, &read_call);
-        assert!(
-            !expected.contains(r#"matches="0""#) && !expected.contains(r#"total="0""#),
-            "{expected}"
-        );
+        assert!(!misses(&expected), "{expected}");
         assert_eq!(
             client.answer(tool, &written_call),
             read_as(&expected, "of", written, read),
@@ -247,10 +261,7 @@ fn a_name_that_selects_a_symbol_as_written_is_not_read_another_way() {
             }
             let answer = client.answer(tool, &call);
             assert!(!answer.contains("read_as="), "{tool} {call}: {answer}");
-            assert!(
-                !answer.contains(r#"matches="0""#) && !answer.contains(r#"total="0""#),
-                "{tool} {call}: {answer}"
-            );
+            assert!(!misses(&answer), "{tool} {call}: {answer}");
             assert!(
                 !answer.contains(r#"lang="rust""#),
                 "{tool} {call}: {answer}"
@@ -372,7 +383,7 @@ fn a_name_one_character_from_a_definition_suggests_that_definition_first() {
     ] {
         let answer = client.answer("find_references", &json!({"name": name}));
         assert!(
-            answer.contains(r#"matches="0" one_edit="1">"#)
+            answer.contains(r#"total="0" one_edit="1">"#)
                 && answer.contains(&format!("no symbol matches - did you mean:\n{meant}")),
             "{name}: {answer}"
         );
@@ -407,7 +418,7 @@ fn a_call_path_whose_ends_select_in_different_graphs_names_each_ones_languages()
 
     assert_eq!(
         client.answer("find_call_path", &json!({"from": "Greet", "to": "paint"})),
-        "<call_path from=\"Greet\" to=\"paint\" matches=\"0\">no graph holds both a symbol from selects and one to \
+        "<call_path from=\"Greet\" to=\"paint\" total=\"0\">no graph holds both a symbol from selects and one to \
          selects: from selects in go, to in cpp, rust - a call path runs inside one language's graph; find_symbols \
          can pin the exact names</call_path>"
     );

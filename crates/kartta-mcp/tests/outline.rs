@@ -48,7 +48,7 @@ fn a_typescript_local_and_inline_type_member_name_the_definition_that_holds_them
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="kartta.ts" symbols="8">"#,
+            r#"<outline of="kartta.ts" total="8">"#,
             concat!(
                 r#"<symbol name="open" kind="function" lines="1-5" "#,
                 r#"sig="function open(root: string, {signal}: {signal?: AbortSignal} = {}): number"/>"#,
@@ -77,7 +77,7 @@ fn an_outline_lists_100_definitions_by_default() {
     let answer = outline("many.js", &source);
 
     assert!(
-        answer.starts_with(r#"<outline of="many.js" symbols="101" shown="100">"#),
+        answer.starts_with(r#"<outline of="many.js" total="101" shown="100" truncated="true">"#),
         "{answer}"
     );
     assert_eq!(answer.matches("<symbol ").count(), 100, "{answer}");
@@ -103,7 +103,7 @@ fn an_outline_lists_its_first_definitions_up_to_the_limit_and_counts_every_one()
     assert_eq!(
         cut,
         lines(&[
-            r#"<outline of="kartta.ts" symbols="3" shown="2">"#,
+            r#"<outline of="kartta.ts" total="3" shown="2" truncated="true">"#,
             r#"<symbol name="open" kind="function" lines="1-4" sig="function open(root: string): number"/>"#,
             r#"<symbol name="opened" in="open" kind="constant" lines="2"/>"#,
             "the limit cut this list - a higher limit lists the rest",
@@ -113,7 +113,7 @@ fn an_outline_lists_its_first_definitions_up_to_the_limit_and_counts_every_one()
     assert_eq!(
         whole,
         lines(&[
-            r#"<outline of="kartta.ts" symbols="3">"#,
+            r#"<outline of="kartta.ts" total="3">"#,
             r#"<symbol name="open" kind="function" lines="1-4" sig="function open(root: string): number"/>"#,
             r#"<symbol name="opened" in="open" kind="constant" lines="2"/>"#,
             r#"<symbol name="Kartta" kind="class" lines="5"/>"#,
@@ -132,7 +132,7 @@ fn a_definition_on_the_line_of_a_callable_names_it_only_as_a_member_of_its_signa
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="pick.ts" symbols="3">"#,
+            r#"<outline of="pick.ts" total="3">"#,
             r#"<symbol name="pick" kind="function" lines="1" sig="function pick(item: {id: string})"/>"#,
             r#"<symbol name="id" in="pick" kind="field" lines="1" sig="id: string"/>"#,
             r#"<symbol name="fallback" kind="constant" lines="1"/>"#,
@@ -151,7 +151,7 @@ fn a_javascript_local_function_and_object_literal_method_name_the_definition_tha
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="api.js" symbols="4">"#,
+            r#"<outline of="api.js" total="4">"#,
             r#"<symbol name="load" kind="function" lines="1-4" sig="function load()"/>"#,
             r#"<symbol name="parse" in="load" kind="function" lines="2" sig="parse = () =>"/>"#,
             r#"<symbol name="api" kind="constant" lines="5-8"/>"#,
@@ -172,7 +172,7 @@ fn a_python_nested_function_names_the_function_that_holds_it_and_an_attribute_ke
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="deco.py" symbols="6">"#,
+            r#"<outline of="deco.py" total="6">"#,
             r#"<symbol name="outer" qn="deco.outer" kind="function" lines="1-4" sig="def outer():"/>"#,
             r#"<symbol name="inner" qn="deco.inner" in="deco.outer" kind="function" lines="2-3" sig="def inner():"/>"#,
             r#"<symbol name="Service" qn="deco.Service" kind="class" lines="7-12"/>"#,
@@ -200,7 +200,7 @@ fn a_go_local_names_the_function_that_holds_it() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="count.go" symbols="2">"#,
+            r#"<outline of="count.go" total="2">"#,
             r#"<symbol name="Count" qn="p.Count" kind="function" lines="3-6" sig="func Count() int"/>"#,
             r#"<symbol name="total" qn="p.total" in="p.Count" kind="variable" lines="4"/>"#,
             "</outline>",
@@ -218,7 +218,7 @@ fn a_rust_item_of_a_body_and_of_an_inline_module_name_what_holds_them() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="lib.rs" symbols="4">"#,
+            r#"<outline of="lib.rs" total="4">"#,
             r#"<symbol name="top" kind="function" lines="1-4" sig="pub fn top()"/>"#,
             r#"<symbol name="inner" in="top" kind="function" lines="2" sig="fn inner()"/>"#,
             r#"<symbol name="tests" kind="namespace" lines="6-8"/>"#,
@@ -238,7 +238,7 @@ fn a_lua_local_function_names_the_function_that_holds_it() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="ui.lua" symbols="2">"#,
+            r#"<outline of="ui.lua" total="2">"#,
             r#"<symbol name="top" kind="function" lines="1-4" sig="local function top()"/>"#,
             r#"<symbol name="inner" in="top" kind="function" lines="2" sig="local function inner() end"/>"#,
             "</outline>",
@@ -256,7 +256,7 @@ fn a_quirrel_local_function_names_the_function_that_holds_it() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="ui.nut" symbols="2">"#,
+            r#"<outline of="ui.nut" total="2">"#,
             r#"<symbol name="top" kind="function" lines="1-4" sig="function top()"/>"#,
             r#"<symbol name="inner" in="top" kind="function" lines="2" sig="local function inner()"/>"#,
             "</outline>",
@@ -274,7 +274,7 @@ fn a_php_function_declared_in_a_function_names_the_function_that_holds_it() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="boot.php" symbols="2">"#,
+            r#"<outline of="boot.php" total="2">"#,
             r#"<symbol name="boot" kind="function" lines="3-5" sig="function boot()"/>"#,
             r#"<symbol name="helper" in="boot" kind="function" lines="4" sig="function helper()"/>"#,
             "</outline>",
@@ -292,7 +292,7 @@ fn a_ruby_method_defined_in_a_method_names_the_method_that_holds_it() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="service.rb" symbols="3">"#,
+            r#"<outline of="service.rb" total="3">"#,
             r#"<symbol name="Service" kind="class" lines="1-6"/>"#,
             r#"<symbol name="setup" qn="Service#setup" owner="Service" kind="method" lines="2-5" sig="def setup"/>"#,
             r#"<symbol name="ready" in="Service#setup" kind="function" lines="3-4" sig="def ready end"/>"#,
@@ -311,7 +311,7 @@ fn a_cpp_local_type_names_the_function_that_holds_it_and_a_typedef_struct_names_
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="local.cpp" symbols="5">"#,
+            r#"<outline of="local.cpp" total="5">"#,
             r#"<symbol name="top" kind="function" lines="1-6" sig="int top()"/>"#,
             r#"<symbol name="Local" in="top" kind="struct" lines="2-4"/>"#,
             r#"<symbol name="y" qn="Local::y" owner="Local" kind="field" lines="3" sig="int y"/>"#,
@@ -332,7 +332,7 @@ fn a_bash_function_defined_in_a_function_names_the_function_that_holds_it() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="run.sh" symbols="2">"#,
+            r#"<outline of="run.sh" total="2">"#,
             r#"<symbol name="main" kind="function" lines="2-6"/>"#,
             r#"<symbol name="helper" in="main" kind="function" lines="3-5"/>"#,
             "</outline>",
@@ -347,7 +347,7 @@ fn a_puppet_class_declared_in_a_class_names_the_class_that_holds_it() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="init.pp" symbols="2">"#,
+            r#"<outline of="init.pp" total="2">"#,
             r#"<symbol name="outer" kind="class" lines="1-4"/>"#,
             r#"<symbol name="inner" in="outer" kind="class" lines="2-3"/>"#,
             "</outline>",
@@ -365,7 +365,7 @@ fn definitions_sharing_a_declaration_name_nothing_as_holding_each_other() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<outline of="shared.go" symbols="5">"#,
+            r#"<outline of="shared.go" total="5">"#,
             r#"<symbol name="first" qn="p.first" kind="variable" lines="4-5"/>"#,
             r#"<symbol name="second" qn="p.second" kind="variable" lines="4-5"/>"#,
             r#"<symbol name="Pair" qn="p.Pair" kind="function" lines="8-11" sig="func Pair()"/>"#,

@@ -27,8 +27,8 @@ pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> St
     let element = Element::new("unused")
         .optional("languages", ask.languages)
         .optional("path_prefix", ask.path_prefix)
-        .attr("count", found.len())
-        .optional("total", truncated.then_some(total))
+        .attr("total", total)
+        .optional("shown", truncated.then_some(found.len()))
         .flag("truncated", truncated)
         .attr("live", live);
     let excluded = excluded(judged.iter().map(|(_, dead)| &dead.excluded));
@@ -47,7 +47,7 @@ pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> St
         }
         (None, 0) => "no code graph holds a definition",
         (None, _) => "no unused definition - every definition was judged, and a call or a use reaches each",
-        (Some(_), _) => "no unused definition among those judged - what was not judged is counted in <excluded>",
+        (Some(_), _) => "no unused definition among those judged - what was not judged is counted in <unjudged>",
     });
     match excluded {
         Some(excluded) => element.wrap(&format!("{excluded}\n{note}")),
@@ -55,7 +55,7 @@ pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> St
     }
 }
 
-/// The `<excluded/>` record: what the graphs did not judge, summed by reason, or `None` when they judged everything.
+/// The `<unjudged/>` record: what the graphs did not judge, summed by reason, or `None` when they judged everything.
 fn excluded<'e>(each: impl Iterator<Item = &'e Excluded>) -> Option<String> {
     let mut sum = Excluded::default();
     for excluded in each {
@@ -69,7 +69,7 @@ fn excluded<'e>(each: impl Iterator<Item = &'e Excluded>) -> Option<String> {
         sum.reflected += excluded.reflected;
     }
     (sum != Excluded::default()).then(|| {
-        Element::new("excluded")
+        Element::new("unjudged")
             .count("test", sum.test)
             .count("generated", sum.generated)
             .count("entry", sum.entry)
