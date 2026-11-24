@@ -138,6 +138,44 @@ fn the_server_lists_its_tools() {
     );
 }
 
+/// The most characters a tool description holds: Claude Code cuts an upfront tool description at 4,096.
+const DESCRIPTION_CHARACTERS: usize = 4096;
+/// The most bytes one tool's `tools/list` entry takes, as compact JSON.
+const TOOL_BYTES: usize = 7 * 1024;
+/// The most bytes the whole `tools/list` result takes, as compact JSON: a client without tool search pays it in every
+/// session.
+const LIST_BYTES: usize = 70 * 1024;
+
+#[test]
+fn the_tool_list_stays_within_its_budget() {
+    let mut client = Client::start(&[]);
+
+    let listed = client.request("tools/list", &json!({}));
+    let over: Vec<String> = listed["tools"]
+        .as_array()
+        .expect("a tool list")
+        .iter()
+        .filter_map(|tool| {
+            let characters = tool["description"]
+                .as_str()
+                .expect("a described tool")
+                .chars()
+                .count();
+            let bytes = tool.to_string().len();
+            (characters > DESCRIPTION_CHARACTERS || bytes > TOOL_BYTES).then(|| {
+                format!(
+                    "{}: {characters} description characters, {bytes} bytes",
+                    tool["name"]
+                )
+            })
+        })
+        .collect();
+    let bytes = listed.to_string().len();
+
+    assert!(over.is_empty(), "past a tool's budget: {over:?}");
+    assert!(bytes <= LIST_BYTES, "tools/list takes {bytes} bytes");
+}
+
 #[test]
 fn the_instructions_send_an_agent_to_index_stats_before_it_builds() {
     let client = Client::start(&[]);
@@ -149,6 +187,32 @@ fn the_instructions_send_an_agent_to_index_stats_before_it_builds() {
              no index of it."
         ),
         "{}",
+        client.instructions
+    );
+}
+
+#[test]
+fn the_instructions_state_the_vocabulary_every_answer_shares() {
+    let client = Client::start(&[]);
+
+    let unstated: Vec<&str> = [
+        "total=",
+        "shown=",
+        "truncated=",
+        "hops=",
+        "loc=",
+        "lines=",
+        "role=",
+        "confidence=",
+        "one_edit=",
+    ]
+    .into_iter()
+    .filter(|word| !client.instructions.contains(word))
+    .collect();
+
+    assert!(
+        unstated.is_empty(),
+        "{unstated:?} missing from {}",
         client.instructions
     );
 }
