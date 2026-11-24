@@ -12,6 +12,10 @@ use kartta::{
 use kartta_fs::EntryKind;
 use tokio::sync::watch;
 
+/// How long `index_repo` waits for the build it started before it answers that the build is still running: under the
+/// 60 s a client's request waits by default.
+pub(crate) const INDEX_WAIT: Duration = Duration::from_secs(30);
+
 /// How long a rebuild waits between looks at whether a query still holds the engine it replaces.
 const RELEASE_POLL: Duration = Duration::from_millis(10);
 
@@ -300,8 +304,9 @@ impl fmt::Display for Unready {
             Self::Building { root, elapsed } => write!(
                 formatter,
                 "the index of {root} is still building ({}s so far) - index_stats answers once it is ready, and \
-                 index_repo with the same root, languages and index_ignored waits for it",
-                elapsed.as_secs()
+                 index_repo with the same root, languages and index_ignored waits for it, up to {}s",
+                elapsed.as_secs(),
+                INDEX_WAIT.as_secs()
             ),
             Self::Failed { root, error } => write!(
                 formatter,
@@ -318,6 +323,15 @@ struct Build {
     started: Instant,
     cancel: CancelToken,
     outcome: watch::Receiver<Option<Outcome>>,
+}
+
+impl Build {
+    fn unready(&self) -> Unready {
+        Unready::Building {
+            root: self.request.root.display().to_string(),
+            elapsed: self.started.elapsed(),
+        }
+    }
 }
 
 impl Slot {
@@ -411,14 +425,19 @@ impl Slot {
         match &*self.lock() {
             State::Ready(served) => Ok(Arc::clone(served)),
             State::Empty => Err(Unready::Empty),
-            State::Building(build) => Err(Unready::Building {
-                root: build.request.root.display().to_string(),
-                elapsed: build.started.elapsed(),
-            }),
+            State::Building(build) => Err(build.unready()),
             State::Failed { root, error } => Err(Unready::Failed {
                 root: root.clone(),
                 error: error.clone(),
             }),
+        }
+    }
+
+    /// What the slot answers while it builds `request`, or `None` once it holds anything else.
+    pub(crate) fn building(&self, request: &Request) -> Option<Unready> {
+        match &*self.lock() {
+            State::Building(build) if build.request == *request => Some(build.unready()),
+            State::Empty | State::Building(_) | State::Ready(_) | State::Failed { .. } => None,
         }
     }
 

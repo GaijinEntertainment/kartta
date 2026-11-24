@@ -30,7 +30,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 # A wrong argument's error names the parameter it is about, by its path inside the arguments.
 serde_path_to_error = "0.1.20"
-tokio = { version = "1.54.1", features = ["macros", "rt", "sync"] }
+tokio = { version = "1.54.1", features = ["macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

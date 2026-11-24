@@ -1364,6 +1364,28 @@ fn indexing_another_repository_replaces_the_first() {
 }
 
 #[test]
+fn an_agent_told_a_build_still_runs_is_sent_to_index_stats() {
+    let mut client = Client::start(&[]);
+
+    let listed = client.request("tools/list", &json!({}));
+    let description = listed["tools"]
+        .as_array()
+        .expect("a tool list")
+        .iter()
+        .find(|tool| tool["name"] == "index_repo")
+        .and_then(|tool| tool["description"].as_str())
+        .expect("index_repo is described");
+
+    for told in [description, &client.instructions] {
+        assert!(
+            told.contains("status=\"building\"")
+                && told.contains("call index_stats until it answers the index"),
+            "{told}"
+        );
+    }
+}
+
+#[test]
 fn index_repo_names_every_field_a_repeated_build_matches() {
     let mut client = Client::start(&[]);
 

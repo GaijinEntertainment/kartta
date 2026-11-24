@@ -2,6 +2,7 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::pin;
 use std::sync::Arc;
+use std::time::Duration;
 use std::{fmt, iter};
 
 use kartta::{
@@ -34,7 +35,7 @@ use crate::render::{
     self, CallersAsk, EditAsk, Found, Graphless, ImportersAsk, NameDefinitions, PathAsk, Read,
     SUGGESTIONS, Selection, SiteFilter, Suggestion, Unbuilt, Unmatched, UnusedAsk,
 };
-use crate::state::{GraphRow, Indexed, Request, Served, Slot};
+use crate::state::{GraphRow, INDEX_WAIT, Indexed, Request, Served, Slot};
 
 /// How many matching lines `grep` answers when the call names no cap.
 const GREP_MATCHES: usize = 100;
@@ -134,6 +135,8 @@ const CALLEE_HOPS: u32 = 1;
 pub struct Server {
     slot: Arc<Slot>,
     config: Arc<Config>,
+    /// How long `index_repo` waits for its build before it answers that the build is still running.
+    index_wait: Duration,
     tool_router: ToolRouter<Self>,
 }
 
@@ -143,6 +146,7 @@ impl fmt::Debug for Server {
             .debug_struct("Server")
             .field("slot", &self.slot)
             .field("config", &self.config)
+            .field("index_wait", &self.index_wait)
             .finish_non_exhaustive()
     }
 }
@@ -154,13 +158,15 @@ impl Server {
         Self {
             slot: Arc::new(Slot::new(config.watch)),
             config: Arc::new(config),
+            index_wait: INDEX_WAIT,
             tool_router: Self::tool_router(),
         }
     }
 
     /// Starts building the index of `root` with every language, as `index_repo` with no other argument does, and
     /// returns without waiting for it. Until the build finishes, `index_stats` answers that it is building and every
-    /// other query answers an error saying so; an `index_repo` of the same root waits for it.
+    /// other query answers an error saying so; an `index_repo` of the same root joins it, and answers that it is still
+    /// building once it has waited 30 s for it.
     ///
     /// The future it returns resolves once the build ends, to why it built no index, or `None` when it built one. The
     /// build runs whether or not the future is awaited.
@@ -337,7 +343,9 @@ impl Server {
                        file into a per-language code graph of symbols (functions, types, methods...) with their \
                        calls, uses and includes. Every other tool queries this index, and each but index_stats errors \
                        until it exists. A \
-                       build at 2 threads takes about 0.4 s on 900 files and about a minute on 170,000. One \
+                       build at 2 threads takes about 0.4 s on 900 files and about a minute on 170,000; a build \
+                       still running after 30 s answers the status=\"building\" envelope of index_stats instead and \
+                       runs on - call index_stats until it answers the index. One \
                        repository is indexed per server, and indexing another replaces the previous one (a build of \
                        the same root, languages and \
                        index_ignored already under way is waited for, not repeated, and the index they built is \
@@ -382,12 +390,22 @@ impl Server {
         };
         let mut outcome = self
             .slot
-            .start(request, self.config.build_options(index_ignored));
-        let built = outcome
-            .wait_for(Option::is_some)
+            .start(request.clone(), self.config.build_options(index_ignored));
+        let waited = tokio::time::timeout(self.index_wait, outcome.wait_for(Option::is_some))
             .await
-            .map_err(|_| "the build stopped before it answered".to_owned())?
-            .clone();
+            .map(|built| built.map(|built| built.clone()));
+        let built = if let Ok(built) = waited {
+            built
+        } else {
+            if let Some(building) = self.slot.building(&request) {
+                return Ok(render::unready(&building));
+            }
+            outcome
+                .wait_for(Option::is_some)
+                .await
+                .map(|built| built.clone())
+        }
+        .map_err(|_| "the build stopped before it answered".to_owned())?;
         let served = built.ok_or_else(|| "the build answered nothing".to_owned())??;
         answer_from(served, |indexed| Ok(render::index(indexed, &[]))).await
     }
@@ -1669,9 +1687,11 @@ impl ServerHandler for Server {
              them and what they call, where they are used, what implements an interface, which files import a file, \
              and what an edit would break. Every tool answers from one index, of one repository. index_stats tells \
              whether that index is built or building, and for which root. Call index_repo with the repository's \
-             absolute root when index_stats shows no index of it. Each language has its own code graph, and no tool \
-             follows a link from one language into another, such as a call through FFI. A path or a path_prefix the \
-             index does not hold is a tool error that names what is wrong with it and the nearest paths it holds. \
+             absolute root when index_stats shows no index of it. An index_repo whose build runs past 30 s answers \
+             status=\"building\": call index_stats until it answers the index. Each language has its own code \
+             graph, and no tool follows a link from one language into another, such as a call through FFI. A path or \
+             a path_prefix the index does not hold is a tool error that names what is wrong with it and the nearest \
+             paths it holds. \
              Intent map: locate a file by name -> find_files; list files matching a glob -> glob_files; see what one \
              directory contains -> list_dir; find lines of text by regex / quote the exact code -> grep; where is X \
              defined -> find_symbols; where in this known file is X -> file_outline; read the source of X, Y, Z -> \
@@ -1840,6 +1860,52 @@ mod tests {
             tokio::task::yield_now().await;
         }
         "never cancelled"
+    }
+
+    /// Returns once `slot` holds an index to answer from.
+    async fn indexed(slot: &Slot) {
+        while slot.current().is_err() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn an_index_repo_whose_build_outlasts_the_wait_answers_building_and_the_build_runs_on() {
+        let first = tempfile::tempdir().unwrap();
+        std::fs::write(first.path().join("a.go"), "package a\n\nfunc A() {}\n").unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let mut server = Server::with_config(Config {
+            watch: false,
+            ..Config::default()
+        });
+        server.index_wait = Duration::from_millis(50);
+        assert_eq!(server.index_at_launch(first.path().to_owned()).await, None);
+        let held = server.slot.current().unwrap();
+        let params = IndexRepoParams {
+            root: second.path().display().to_string(),
+            languages: None,
+            index_ignored: None,
+        };
+
+        let answer = tokio::time::timeout(
+            Duration::from_secs(10),
+            server.index_repo(Parameters(params)),
+        )
+        .await
+        .expect("index_repo held the request for the whole build")
+        .unwrap();
+        drop(held);
+
+        assert!(
+            answer.starts_with("<index root=") && answer.contains(" status=\"building\" "),
+            "{answer}"
+        );
+        let ran_on = tokio::time::timeout(Duration::from_secs(10), indexed(&server.slot)).await;
+        assert!(ran_on.is_ok(), "the build stopped short of its index");
+        assert_eq!(
+            server.slot.current().unwrap().read().unwrap().root,
+            second.path().display().to_string()
+        );
     }
 
     #[tokio::test]
