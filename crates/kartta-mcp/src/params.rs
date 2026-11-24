@@ -214,8 +214,8 @@ pub(crate) struct FindCallersParams {
     #[serde(default)]
     pub(crate) role: Option<CallerRole>,
     /// Positive cap on the <ref/> records a match lists, nearest first, after 'role' keeps its callers. Omitted or null
-    /// = 100. Zero and negatives are rejected. count= and the reach band still count every caller the walk reached,
-    /// and shown= on a match says how many refs it lists when the cap cut them.
+    /// = 100. Zero and negatives are rejected. count= still counts every caller the walk reached, and shown= on a
+    /// match says how many refs it lists when the cap cut them.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
