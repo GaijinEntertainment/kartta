@@ -12,7 +12,7 @@ arrayvec 0.7.8                             MIT OR Apache-2.0  [kartta-ffi, kartt
 backtrace of the standard library          see its text  [kartta-ffi, kartta-node]
 bitflags 2.13.2                            MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 blake3 1.8.7                               CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception  [kartta-ffi, kartta-node]
-bstr 1.13.1                                MIT OR Apache-2.0  [kartta-ffi, kartta-node]
+bstr 1.14.0                                MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 cfg-if 1.0.4                               MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 cfg-if 1.0.5                               MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 compiler-builtins of the standard library  see its text  [kartta-ffi, kartta-node]
@@ -63,11 +63,11 @@ memchr 2.8.3                               Unlicense OR MIT  [kartta-ffi, kartta
 memchr 2.8.3                               Unlicense OR MIT  [kartta-ffi, kartta-node]
 memmap2 0.9.12                             MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 miniz_oxide 0.9.1                          MIT OR Zlib OR Apache-2.0  [kartta-ffi, kartta-node]
-napi 3.16.0                                MIT  [kartta-node]
+napi 3.16.2                                MIT  [kartta-node]
 napi-sys 3.4.1                             MIT  [kartta-node]
 nohash-hasher 0.2.0                        Apache-2.0 OR MIT  [kartta-node]
-notify 9.0.0-rc.7                          CC0-1.0  [kartta-ffi, kartta-node]
-notify-types 2.2.0                         MIT OR Apache-2.0  [kartta-ffi, kartta-node]
+notify 9.0.0-rc.9                          CC0-1.0  [kartta-ffi, kartta-node]
+notify-types 2.3.1                         MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 objc2-core-foundation 0.3.2                Zlib OR Apache-2.0 OR MIT  [kartta-ffi, kartta-node]
 objc2-core-services 0.3.2                  Zlib OR Apache-2.0 OR MIT  [kartta-ffi, kartta-node]
 object 0.39.1                              Apache-2.0 OR MIT  [kartta-ffi, kartta-node]
@@ -77,7 +77,7 @@ rayon 1.12.0                               MIT OR Apache-2.0  [kartta-ffi, kartt
 rayon-core 1.13.0                          MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 regex 1.13.1                               MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 regex-automata 0.4.18                      MIT OR Apache-2.0  [kartta-ffi, kartta-node]
-regex-syntax 0.8.11                        MIT OR Apache-2.0  [kartta-ffi, kartta-node]
+regex-syntax 0.8.12                        MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 rustc-demangle 0.1.28                      MIT/Apache-2.0  [kartta-ffi, kartta-node]
 rustc-hash 2.1.3                           Apache-2.0 OR MIT  [kartta-node]
 same-file 1.0.6                            Unlicense/MIT  [kartta-ffi, kartta-node]
@@ -101,7 +101,7 @@ tree-sitter-golang 1.27.1                  MIT  [kartta-ffi, kartta-node]
 tree-sitter-javascript 0.25.0              MIT  [kartta-ffi, kartta-node]
 tree-sitter-language 0.1.9                 MIT  [kartta-ffi, kartta-node]
 tree-sitter-lua 0.5.0                      MIT  [kartta-ffi, kartta-node]
-tree-sitter-php 0.25.1                     MIT  [kartta-ffi, kartta-node]
+tree-sitter-php 0.25.2                     MIT  [kartta-ffi, kartta-node]
 tree-sitter-puppet 1.3.0                   MIT  [kartta-ffi, kartta-node]
 tree-sitter-python 0.25.0                  MIT  [kartta-ffi, kartta-node]
 tree-sitter-quirrel 4.43.3                 MIT  [kartta-ffi, kartta-node]
@@ -191,7 +191,7 @@ addr2line 0.27.1 (LICENSE-APACHE)
 arrayvec 0.7.8 (LICENSE-APACHE)
 backtrace of the standard library (LICENSE-APACHE)
 bitflags 2.13.2 (LICENSE-APACHE)
-bstr 1.13.1 (LICENSE-APACHE)
+bstr 1.14.0 (LICENSE-APACHE)
 cfg-if 1.0.4 (LICENSE-APACHE)
 cfg-if 1.0.5 (LICENSE-APACHE)
 core_detect 1.0.0 (LICENSE-APACHE)
@@ -210,7 +210,7 @@ rayon 1.12.0 (LICENSE-APACHE)
 rayon-core 1.13.0 (LICENSE-APACHE)
 regex 1.13.1 (LICENSE-APACHE)
 regex-automata 0.4.18 (LICENSE-APACHE)
-regex-syntax 0.8.11 (LICENSE-APACHE)
+regex-syntax 0.8.12 (LICENSE-APACHE)
 rustc-demangle 0.1.28 (LICENSE-APACHE)
 scopeguard 1.2.0 (LICENSE-APACHE)
 stdarch of the standard library (LICENSE-APACHE)
@@ -865,7 +865,7 @@ bitflags 2.13.2 (LICENSE-MIT)
 log 0.4.34 (LICENSE-MIT)
 regex 1.13.1 (LICENSE-MIT)
 regex-automata 0.4.18 (LICENSE-MIT)
-regex-syntax 0.8.11 (LICENSE-MIT)
+regex-syntax 0.8.12 (LICENSE-MIT)
 ================================================================================
 
 Copyright (c) 2014 The Rust Project Developers
@@ -1451,7 +1451,7 @@ express Statement of Purpose.
     this CC0 or use of the Work.
 
 ================================================================================
-bstr 1.13.1 (COPYING)
+bstr 1.14.0 (COPYING)
 ================================================================================
 
 This project is licensed under either of
@@ -1464,7 +1464,7 @@ This project is licensed under either of
 at your option.
 
 ================================================================================
-bstr 1.13.1 (LICENSE-MIT)
+bstr 1.14.0 (LICENSE-MIT)
 ================================================================================
 
 The MIT License (MIT)
@@ -4292,7 +4292,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 3. This notice may not be removed or altered from any source distribution.
 
 ================================================================================
-napi 3.16.0 (napi-rs.LICENSE)
+napi 3.16.2 (napi-rs.LICENSE)
 napi-sys 3.4.1 (napi-rs.LICENSE)
 ================================================================================
 
@@ -4364,7 +4364,7 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-notify 9.0.0-rc.7 (LICENSE-CC0)
+notify 9.0.0-rc.9 (LICENSE-CC0)
 ================================================================================
 
 Creative Commons CC0 1.0 Universal
@@ -4410,7 +4410,7 @@ For these and/or other purposes and motivations, and without any expectation of 
      d. Affirmer understands and acknowledges that Creative Commons is not a party to this document and has no duty or obligation with respect to this CC0 or use of the Work. 
 
 ================================================================================
-notify-types 2.2.0 (LICENSE-APACHE)
+notify-types 2.3.1 (LICENSE-APACHE)
 ================================================================================
 
                               Apache License
@@ -4616,7 +4616,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ================================================================================
-notify-types 2.2.0 (LICENSE-MIT)
+notify-types 2.3.1 (LICENSE-MIT)
 ================================================================================
 
 Copyright (c) 2023 Notify Contributors
@@ -4772,7 +4772,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-regex-syntax 0.8.11 (src/unicode_tables/LICENSE-UNICODE)
+regex-syntax 0.8.12 (src/unicode_tables/LICENSE-UNICODE)
 ================================================================================
 
 UNICODE, INC. LICENSE AGREEMENT - DATA FILES AND SOFTWARE
@@ -6039,7 +6039,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-tree-sitter-php 0.25.1 (LICENSE)
+tree-sitter-php 0.25.2 (LICENSE)
 ================================================================================
 
 The MIT License (MIT)

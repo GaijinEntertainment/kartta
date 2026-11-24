@@ -18,7 +18,7 @@ all-features = true
 workspace = true
 
 [dependencies]
-bstr = "1.13.1"
+bstr = "1.14.0"
 gix-glob = "0.29.1"
 gix-ignore = "0.24.1"
 # default-features = false drops `log`, which globset uses only to trace glob compilation.
@@ -32,7 +32,7 @@ kartta-walk.workspace = true
 memmap2 = "0.9.12"
 rayon = "1.12.0"
 # The parser grep-regex compiles patterns with, read here for the trigrams a match must contain.
-regex-syntax = "0.8.11"
+regex-syntax = "0.8.12"
 thiserror = "2.0.21"
 
 [features]
@@ -52,4 +52,4 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Stora
 # Linux is watched through inotify directly, so only the directories the index holds are watched. The first release of
 # notify that asks Windows to report a lost batch, and inotify for no access events, is the 9.0 candidate.
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-notify = { version = "9.0.0-rc.7", optional = true }
+notify = { version = "9.0.0-rc.9", optional = true }
