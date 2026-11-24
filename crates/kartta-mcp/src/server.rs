@@ -1138,7 +1138,7 @@ impl Server {
                        resolved from and to with from_loc and to_loc (file:start-end, each one's span, or \
                        file:line for one line), the chain length in hops and the searched bound in max_hops, and one \
                        <ref> per caller in call order - the last one calls to - each carrying loc= the caller's span, \
-                       call= at the line where it calls the next symbol, an explicit role=, a \
+                       at= the line in the caller's own file where it calls the next symbol, an explicit role=, a \
                        confidence=likely / guess mark on a weakly resolved hop, and through= the interface, trait or \
                        base-class method a hop's call binds where it reaches the next method only through it, as \
                        find_callers marks it. A match without a chain carries \
@@ -1248,7 +1248,7 @@ impl Server {
                        (\"consumer\", or test/entry/generated), site= \
                        (call; type where code names it as a type; read where code reads it, a member taken through \
                        a type, EventType.Created, reading the type; write; or update for += and ++), at= the lines \
-                       where it touches the symbol, \
+                       of that file where it touches the symbol, \
                        and a confidence=likely / guess mark on a weakly resolved site. A caller is one site, at one of \
                        its calls; every other use is one site per line and kind. access=\"type\" keeps the uses as a \
                        type alone, and access=\"read\" keeps them too, beside the reads and updates. \
@@ -1345,7 +1345,8 @@ impl Server {
                        'limit' (default 10), the ones of widest reach listed in source order with shown= and a line \
                        after them saying the limit cut them - caller and callee counts with \
                        sampled <ref/> lists (each carrying an explicit role=, \"consumer\" for a real caller/callee or \
-                       test/entry/generated for a reach artifact, at= for the line of the call, weakly resolved \
+                       test/entry/generated for a reach artifact, at= for the line of the call, or of a user's use - in \
+                       the caller's or the user's own file, and in this file for a callee - weakly resolved \
                        edges marked confidence=likely/guess, and a caller that reaches a method only through an \
                        interface, trait or base-class method marked through= as find_callers marks it; a shown=/of= \
                        pair on the enclosing <callers>/<callees> \
@@ -1407,7 +1408,8 @@ impl Server {
                        callers reach within 3 hops, each once) and footprint_files; a <seeds> list of the changed \
                        symbols, widest reach first and test/entry/generated code last, each <seed> with its loc span, \
                        direct callers count, reach and reach_band, its direct callers as <ref/> records with at= the \
-                       line of the call and through= as find_callers marks it (at most 10, in <callers shown= of=>), \
+                       line of the call in the caller's own file and through= as find_callers marks it (at most 10, \
+                       in <callers shown= of=>), \
                        or past 30 callers their directories \
                        as <dir path callers/> (in <caller_dirs shown= of=>) - a field, a variable or a constant with \
                        users= lists those users in <users> and <user_dirs> instead; and, when two or more changed \
@@ -1520,7 +1522,7 @@ impl Server {
                        caller-ward distance from the target), nearest first and at most 'limit' (default 100), where \
                        shown= on the match and a line after the refs say the limit cut them and count= and the grade \
                        still count every caller, each \
-                       carrying the caller's loc, at= for the line of its call, \
+                       carrying the caller's loc, at= for the line of its call in the caller's own file, \
                        and an explicit role= (\"consumer\" for a real caller, or test/entry/generated for a reach \
                        artifact); 'role' keeps the callers of one role - the root then echoes role= and each <match> \
                        counts its callers per role in consumers, tests, entries, and generated; weakly resolved edges \
@@ -1536,7 +1538,8 @@ impl Server {
                        line, because the graph keeps only the names a top level spells, and the walk \
                        does not go past it; 'role' lists none of them. A call of the symbol from its own body - a \
                        recursion, or a call of a namesake the graph bound to the symbol itself - is one <self_call \
-                       at=../> record ahead of the refs, with the same confidence mark, whatever 'role' keeps; count= \
+                       at=../> record, at= a line of the match's file, ahead of the refs, with the same confidence \
+                       mark, whatever 'role' keeps; count= \
                        and the reach band leave it out, and a caller further out that calls itself is listed once, as \
                        every caller is. \
                        A <match> also counts what the walk left out, \
@@ -1619,9 +1622,10 @@ impl Server {
                        callee count within the hops limit (default 1, direct callees only), and flat <ref hops=N> \
                        records nearest first carrying the callee's loc, an explicit role= (\"consumer\", or \
                        test/entry/generated), confidence=likely / guess on a weakly resolved call, and, on a direct \
-                       callee, at= for the line of the call. A call of the symbol from its own body - a recursion, or \
-                       a call of a namesake the graph bound to the symbol itself - is one <self_call at=../> record \
-                       ahead of the refs, with the same confidence mark; count= leaves it out, and a callee further \
+                       callee, at= for the line of the call in the match's file. A call of the symbol from its own \
+                       body - a recursion, or a call of a namesake the graph bound to the symbol itself - is one \
+                       <self_call at=../> record, at= a line of the match's file, ahead of the refs, with the same \
+                       confidence mark; count= leaves it out, and a callee further \
                        out that calls itself is listed once, as every callee is. A <match> also counts what the walk \
                        left out, each only when it is not zero: unresolved= the calls in the bodies walked that bound \
                        no definition the \

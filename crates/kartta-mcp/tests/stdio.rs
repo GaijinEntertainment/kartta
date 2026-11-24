@@ -1302,9 +1302,9 @@ fn find_callers_walks_callers_with_the_line_of_each_call() {
          <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" count=\"2\" \
          reach_band=\"low\">\n\
          <ref name=\"run\" qn=\"main.run\" loc=\"cmd/app/main.go:10-12\" role=\"consumer\" hops=\"1\" \
-         at=\"cmd/app/main.go:11\"/>\n\
+         at=\"11\"/>\n\
          <ref name=\"main\" qn=\"main.main\" loc=\"cmd/app/main.go:5-8\" role=\"entry\" hops=\"2\" \
-         at=\"cmd/app/main.go:7\"/>\n\
+         at=\"7\"/>\n\
          </match>\n\
          </callers>"
     );
