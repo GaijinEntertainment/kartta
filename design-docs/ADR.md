@@ -298,6 +298,7 @@ lost, and what would reopen it.
 - [4.61 Read an MCP path argument from the index, and answer a miss with its fault and the paths near it](/design-docs/adr/4.61-mcp-path-arguments.md)
 - [4.62 Read the MCP server's settings from its environment, with a cache and a mapped grep index by default](/design-docs/adr/4.62-mcp-server-environment.md)
 - [4.68 Name what a file's language counts as an importer in find_importers and dependents](/design-docs/adr/4.68-importer-counts.md)
+- [4.70 Write a location as its span, and a call's line bare](/design-docs/adr/4.70-mcp-answer-locations.md)
 
 ## crates/kartta-node
 
