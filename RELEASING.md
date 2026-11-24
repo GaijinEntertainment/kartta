@@ -28,9 +28,8 @@ commit is a lockstep `X.Y.(Z+1)` of every artifact**, cut from the start below, 
 
 ## Cut a release
 
-1. On a branch, run `scripts/version.sh X.Y.Z` and write the version's entry in `CHANGELOG.md`, at the repository's
-   root, which the first cut creates (#144). Its pull request runs the release workflow's builds and both publishes as
-   dry runs. Merge it once they pass.
+1. On a branch, run `scripts/version.sh X.Y.Z`. Its pull request runs the release workflow's builds and both publishes
+   as dry runs. Merge it once they pass.
 2. Tag the merge commit on `main` and push the tag: `git tag vX.Y.Z <commit>`, then `git push origin vX.Y.Z`.
 3. Approve the deployments to the `crates-io` and `npm` environments when the run asks for them.
 4. Once both branches finish, run the install checks from the registries on every target:
@@ -45,8 +44,7 @@ can need both. "Re-run" means **Re-run failed jobs** on that run, or `gh run rer
 ### Nothing uploaded: `versions` or `build` failed
 
 Every other job waits on these, so no registry and no release holds `X.Y.Z`. A runner or network fault: re-run. A
-defect in the tree: fix it on `main` and cut `X.Y.(Z+1)`. The tag `vX.Y.Z` stays on a commit no channel ships; the
-`CHANGELOG.md` entry of `X.Y.(Z+1)` says that `X.Y.Z` was not released.
+defect in the tree: fix it on `main` and cut `X.Y.(Z+1)`. The tag `vX.Y.Z` stays on a commit no channel ships.
 
 ### The crates are not out: `checksums` or `crates` failed
 
