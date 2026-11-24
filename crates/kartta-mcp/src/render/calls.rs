@@ -11,8 +11,8 @@ use kartta::{
 
 use super::{
     Asked, Graphless, LIMIT_CUT, Unbuilt, Unmatched, candidate, candidates_cut, confidence,
-    edge_role, empty_languages_note, file_element, fixed_cut, flat, kind, lines, loc, named, noted,
-    qn, role, span, unresolved,
+    edge_role, empty_languages_note, file_element, fixed_cut, flat, kind, lines, named, noted, qn,
+    role, span, unresolved,
 };
 use crate::llmxml::Element;
 
@@ -224,11 +224,10 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
             passed_over,
         );
     }
-    let hops = path.hops.iter().map(|hop| {
-        edge("ref", hop)
-            .attr("call", loc(hop.symbol.file, hop.line))
-            .close()
-    });
+    let hops = path
+        .hops
+        .iter()
+        .map(|hop| edge("ref", hop).attr("at", hop.line).close());
     element.children(hops.chain(passed_over))
 }
 
@@ -719,7 +718,7 @@ fn direct_lists<'s, 'g>(symbol: &'s SegmentSymbol<'g>) -> Vec<DirectList<'s, 'g>
             "find_callers of this symbol with path_prefix this file, line {line}, hops 1 and limit {}",
             symbol.callers.total
         );
-        ("callers", &symbol.callers, None, way)
+        ("callers", &symbol.callers, way)
     });
     callers
         .into_iter()
@@ -727,7 +726,6 @@ fn direct_lists<'s, 'g>(symbol: &'s SegmentSymbol<'g>) -> Vec<DirectList<'s, 'g>
             (
                 "users",
                 &symbol.users,
-                None,
                 format!(
                     "find_references of this symbol with path_prefix this file and line {line}"
                 ),
@@ -735,24 +733,18 @@ fn direct_lists<'s, 'g>(symbol: &'s SegmentSymbol<'g>) -> Vec<DirectList<'s, 'g>
             (
                 "callees",
                 &symbol.callees,
-                Some(symbol.definition.file),
                 format!("find_callees of this symbol with path_prefix this file and line {line}"),
             ),
         ])
-        .filter(|(_, calls, _, _)| !calls.listed.is_empty())
-        .map(|(tag, calls, calling_file, way)| DirectList {
+        .filter(|(_, calls, _)| !calls.listed.is_empty())
+        .map(|(tag, calls, way)| DirectList {
             tag,
             calls,
             way,
             records: calls
                 .listed
                 .iter()
-                .map(|reached| {
-                    let file = calling_file.unwrap_or(reached.symbol.file);
-                    edge("ref", reached)
-                        .attr("at", loc(file, reached.line))
-                        .close()
-                })
+                .map(|reached| edge("ref", reached).attr("at", reached.line).close())
                 .collect(),
         })
         .collect()
@@ -941,11 +933,7 @@ fn seed(seed: &Seed<'_>) -> String {
                 seed.consumers
                     .iter()
                     .take(SEED_CALLERS)
-                    .map(|reached| {
-                        edge("ref", reached)
-                            .attr("at", loc(reached.symbol.file, reached.line))
-                            .close()
-                    })
+                    .map(|reached| edge("ref", reached).attr("at", reached.line).close())
                     .chain(cut(seed.consumers.len())),
             )
     });
@@ -1102,7 +1090,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
         }
     }
     let passed_over = candidates(&walk.candidates, "callers", walk.passed_over, family);
-    let itself = walk.self_call.map(|call| self_call(root, call));
+    let itself = walk.self_call.map(self_call);
     if walk.reached.is_empty() && walk.file_scope.is_empty() {
         let text = no_callers(
             root.kind,
@@ -1124,7 +1112,7 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
         .map(|caller| {
             edge("ref", caller)
                 .attr("hops", caller.depth)
-                .attr("at", loc(caller.symbol.file, caller.line))
+                .attr("at", caller.line)
                 .close()
         });
     let cut = (kept > listed).then(|| LIMIT_CUT.to_owned());
@@ -1179,7 +1167,7 @@ fn callee_match(family: &str, walk: &Walk<'_>) -> String {
         .count("unresolved", walk.unresolved)
         .count("passed_over", walk.passed_over);
     let passed_over = candidates(&walk.candidates, "callers", walk.passed_over, family);
-    let itself = walk.self_call.map(|call| self_call(root, call));
+    let itself = walk.self_call.map(self_call);
     if walk.reached.is_empty() {
         let (none, other) = if itself.is_some() {
             ("no callees but itself", "no other call")
@@ -1208,10 +1196,7 @@ fn callee_match(family: &str, walk: &Walk<'_>) -> String {
     let refs = walk.reached.iter().map(|reached| {
         edge("ref", reached)
             .attr("hops", reached.depth)
-            .optional(
-                "at",
-                (reached.depth == 1).then(|| loc(root.file, reached.line)),
-            )
+            .optional("at", (reached.depth == 1).then_some(reached.line))
             .close()
     });
     element.children(itself.into_iter().chain(refs).chain(passed_over))
@@ -1238,9 +1223,9 @@ fn below_the_floor(empty: &str, dropped: usize, records: (&str, &str), retry: &s
 }
 
 /// The `<self_call>` record of a symbol's call of itself, at the line of the call in the symbol's own file.
-fn self_call(root: &Definition<'_>, call: SelfCall) -> String {
+fn self_call(call: SelfCall) -> String {
     Element::new("self_call")
-        .attr("at", loc(root.file, call.line))
+        .attr("at", call.line)
         .optional("confidence", confidence(call.confidence))
         .close()
 }

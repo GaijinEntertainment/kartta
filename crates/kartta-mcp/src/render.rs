@@ -74,10 +74,6 @@ fn flat(signature: &str) -> String {
     signature.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn loc(file: &str, line: u32) -> String {
-    format!("{file}:{line}")
-}
-
 /// A definition's lines, `start-end`, or `line` for one on a single line.
 struct Lines {
     start: u32,
