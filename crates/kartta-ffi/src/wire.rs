@@ -83,9 +83,19 @@ pub(crate) fn err(error: &Error) -> Vec<u8> {
         .unwrap_or_else(|_| [&br#"{"err":"#[..], INTERNAL_ENCODE_FAILURE, b"}"].concat())
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct NoParams {}
+pub(crate) use no_params::NoParams;
+
+#[expect(
+    clippy::empty_enums,
+    reason = "serde's derive names a struct's fields in an enum, which has no variant for a struct of no fields"
+)]
+mod no_params {
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(crate) struct NoParams {}
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
