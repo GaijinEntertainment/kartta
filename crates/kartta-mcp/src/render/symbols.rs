@@ -8,7 +8,7 @@ use kartta::{
 
 use super::{
     Asked, CallersAsk, Graphless, LIMIT_CUT, Unmatched, candidate, candidates_cut,
-    empty_languages_note, fixed_cut, flat, kind, loc, named, noted, one_edit, push_cut_end, role,
+    empty_languages_note, fixed_cut, flat, kind, lines, named, noted, one_edit, push_cut_end, role,
     span, unresolved,
 };
 use crate::llmxml::Element;
@@ -259,7 +259,7 @@ pub(crate) fn implementations(
         .flat_map(|(family, found)| {
             let root = named("root", &found.root)
                 .attr("lang", *family)
-                .attr("loc", loc(found.root.file, found.root.line))
+                .attr("loc", span(&found.root))
                 .close();
             let others = found.candidates.iter().map(move |listed| {
                 candidate(&listed.symbol)
@@ -288,7 +288,7 @@ pub(crate) fn implementations(
             let symbol = &implementor.symbol;
             named("type", symbol)
                 .attr("lang", *family)
-                .attr("loc", loc(symbol.file, symbol.line))
+                .attr("loc", span(symbol))
                 .optional(
                     "depth",
                     (implementor.depth > 1).then_some(implementor.depth),
@@ -331,7 +331,7 @@ pub(crate) fn implementations_outside(
         found.found.iter().map(move |symbol| {
             named("type", symbol)
                 .attr("lang", *family)
-                .attr("loc", loc(symbol.file, symbol.line))
+                .attr("loc", span(symbol))
                 .close()
         })
     });
@@ -412,7 +412,7 @@ pub(crate) fn outline(
                     .optional("owner", definition.owner)
                     .optional("in", holder(&mut open, definition))
                     .attr("kind", kind(definition.kind))
-                    .attr("lines", format!("{}-{}", definition.line, definition.end_line))
+                    .attr("lines", lines(definition))
                     .optional("sig", definition.signature.map(flat))
                     .close()
             });

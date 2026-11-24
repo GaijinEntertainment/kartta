@@ -53,16 +53,16 @@ fn a_typescript_local_and_inline_type_member_name_the_definition_that_holds_them
                 r#"<symbol name="open" kind="function" lines="1-5" "#,
                 r#"sig="function open(root: string, {signal}: {signal?: AbortSignal} = {}): number"/>"#,
             ),
-            r#"<symbol name="signal" in="open" kind="field" lines="1-1" sig="signal?: AbortSignal"/>"#,
-            r#"<symbol name="opened" in="open" kind="constant" lines="2-2"/>"#,
-            r#"<symbol name="parsed" in="open" kind="constant" lines="3-3"/>"#,
-            r#"<symbol name="ok" in="open" kind="field" lines="3-3" sig="ok: number"/>"#,
+            r#"<symbol name="signal" in="open" kind="field" lines="1" sig="signal?: AbortSignal"/>"#,
+            r#"<symbol name="opened" in="open" kind="constant" lines="2"/>"#,
+            r#"<symbol name="parsed" in="open" kind="constant" lines="3"/>"#,
+            r#"<symbol name="ok" in="open" kind="field" lines="3" sig="ok: number"/>"#,
             r#"<symbol name="Kartta" kind="class" lines="6-10"/>"#,
             concat!(
                 r#"<symbol name="close" qn="Kartta.close" owner="Kartta" kind="method" lines="7-9" "#,
                 r#"sig="close(): void"/>"#,
             ),
-            r#"<symbol name="handle" in="Kartta.close" kind="constant" lines="8-8"/>"#,
+            r#"<symbol name="handle" in="Kartta.close" kind="constant" lines="8"/>"#,
             "</outline>",
         ])
     );
@@ -105,7 +105,7 @@ fn an_outline_lists_its_first_definitions_up_to_the_limit_and_counts_every_one()
         lines(&[
             r#"<outline of="kartta.ts" symbols="3" shown="2">"#,
             r#"<symbol name="open" kind="function" lines="1-4" sig="function open(root: string): number"/>"#,
-            r#"<symbol name="opened" in="open" kind="constant" lines="2-2"/>"#,
+            r#"<symbol name="opened" in="open" kind="constant" lines="2"/>"#,
             "the limit cut this list - a higher limit lists the rest",
             "</outline>",
         ])
@@ -115,8 +115,8 @@ fn an_outline_lists_its_first_definitions_up_to_the_limit_and_counts_every_one()
         lines(&[
             r#"<outline of="kartta.ts" symbols="3">"#,
             r#"<symbol name="open" kind="function" lines="1-4" sig="function open(root: string): number"/>"#,
-            r#"<symbol name="opened" in="open" kind="constant" lines="2-2"/>"#,
-            r#"<symbol name="Kartta" kind="class" lines="5-5"/>"#,
+            r#"<symbol name="opened" in="open" kind="constant" lines="2"/>"#,
+            r#"<symbol name="Kartta" kind="class" lines="5"/>"#,
             "</outline>",
         ])
     );
@@ -133,9 +133,9 @@ fn a_definition_on_the_line_of_a_callable_names_it_only_as_a_member_of_its_signa
         answer,
         lines(&[
             r#"<outline of="pick.ts" symbols="3">"#,
-            r#"<symbol name="pick" kind="function" lines="1-1" sig="function pick(item: {id: string})"/>"#,
-            r#"<symbol name="id" in="pick" kind="field" lines="1-1" sig="id: string"/>"#,
-            r#"<symbol name="fallback" kind="constant" lines="1-1"/>"#,
+            r#"<symbol name="pick" kind="function" lines="1" sig="function pick(item: {id: string})"/>"#,
+            r#"<symbol name="id" in="pick" kind="field" lines="1" sig="id: string"/>"#,
+            r#"<symbol name="fallback" kind="constant" lines="1"/>"#,
             "</outline>",
         ])
     );
@@ -153,7 +153,7 @@ fn a_javascript_local_function_and_object_literal_method_name_the_definition_tha
         lines(&[
             r#"<outline of="api.js" symbols="4">"#,
             r#"<symbol name="load" kind="function" lines="1-4" sig="function load()"/>"#,
-            r#"<symbol name="parse" in="load" kind="function" lines="2-2" sig="parse = () =>"/>"#,
+            r#"<symbol name="parse" in="load" kind="function" lines="2" sig="parse = () =>"/>"#,
             r#"<symbol name="api" kind="constant" lines="5-8"/>"#,
             r#"<symbol name="get" in="api" kind="function" lines="6-7" sig="get()"/>"#,
             "</outline>",
@@ -180,7 +180,7 @@ fn a_python_nested_function_names_the_function_that_holds_it_and_an_attribute_ke
                 r#"<symbol name="greet" qn="deco.Service.greet" owner="Service" kind="method" lines="8-12" "#,
                 r#"sig="def greet(self):"/>"#,
             ),
-            r#"<symbol name="ready" qn="deco.Service.ready" owner="Service" kind="field" lines="9-9"/>"#,
+            r#"<symbol name="ready" qn="deco.Service.ready" owner="Service" kind="field" lines="9"/>"#,
             concat!(
                 r#"<symbol name="helper" qn="deco.helper" in="deco.Service.greet" kind="function" lines="10-11" "#,
                 r#"sig="def helper():"/>"#,
@@ -202,7 +202,7 @@ fn a_go_local_names_the_function_that_holds_it() {
         lines(&[
             r#"<outline of="count.go" symbols="2">"#,
             r#"<symbol name="Count" qn="p.Count" kind="function" lines="3-6" sig="func Count() int"/>"#,
-            r#"<symbol name="total" qn="p.total" in="p.Count" kind="variable" lines="4-4"/>"#,
+            r#"<symbol name="total" qn="p.total" in="p.Count" kind="variable" lines="4"/>"#,
             "</outline>",
         ])
     );
@@ -220,9 +220,9 @@ fn a_rust_item_of_a_body_and_of_an_inline_module_name_what_holds_them() {
         lines(&[
             r#"<outline of="lib.rs" symbols="4">"#,
             r#"<symbol name="top" kind="function" lines="1-4" sig="pub fn top()"/>"#,
-            r#"<symbol name="inner" in="top" kind="function" lines="2-2" sig="fn inner()"/>"#,
+            r#"<symbol name="inner" in="top" kind="function" lines="2" sig="fn inner()"/>"#,
             r#"<symbol name="tests" kind="namespace" lines="6-8"/>"#,
-            r#"<symbol name="case" qn="tests::case" in="tests" kind="function" lines="7-7" sig="fn case()"/>"#,
+            r#"<symbol name="case" qn="tests::case" in="tests" kind="function" lines="7" sig="fn case()"/>"#,
             "</outline>",
         ])
     );
@@ -240,7 +240,7 @@ fn a_lua_local_function_names_the_function_that_holds_it() {
         lines(&[
             r#"<outline of="ui.lua" symbols="2">"#,
             r#"<symbol name="top" kind="function" lines="1-4" sig="local function top()"/>"#,
-            r#"<symbol name="inner" in="top" kind="function" lines="2-2" sig="local function inner() end"/>"#,
+            r#"<symbol name="inner" in="top" kind="function" lines="2" sig="local function inner() end"/>"#,
             "</outline>",
         ])
     );
@@ -258,7 +258,7 @@ fn a_quirrel_local_function_names_the_function_that_holds_it() {
         lines(&[
             r#"<outline of="ui.nut" symbols="2">"#,
             r#"<symbol name="top" kind="function" lines="1-4" sig="function top()"/>"#,
-            r#"<symbol name="inner" in="top" kind="function" lines="2-2" sig="local function inner()"/>"#,
+            r#"<symbol name="inner" in="top" kind="function" lines="2" sig="local function inner()"/>"#,
             "</outline>",
         ])
     );
@@ -276,7 +276,7 @@ fn a_php_function_declared_in_a_function_names_the_function_that_holds_it() {
         lines(&[
             r#"<outline of="boot.php" symbols="2">"#,
             r#"<symbol name="boot" kind="function" lines="3-5" sig="function boot()"/>"#,
-            r#"<symbol name="helper" in="boot" kind="function" lines="4-4" sig="function helper()"/>"#,
+            r#"<symbol name="helper" in="boot" kind="function" lines="4" sig="function helper()"/>"#,
             "</outline>",
         ])
     );
@@ -314,9 +314,9 @@ fn a_cpp_local_type_names_the_function_that_holds_it_and_a_typedef_struct_names_
             r#"<outline of="local.cpp" symbols="5">"#,
             r#"<symbol name="top" kind="function" lines="1-6" sig="int top()"/>"#,
             r#"<symbol name="Local" in="top" kind="struct" lines="2-4"/>"#,
-            r#"<symbol name="y" qn="Local::y" owner="Local" kind="field" lines="3-3" sig="int y"/>"#,
+            r#"<symbol name="y" qn="Local::y" owner="Local" kind="field" lines="3" sig="int y"/>"#,
             r#"<symbol name="Pair" kind="struct" lines="8-10"/>"#,
-            r#"<symbol name="a" qn="Pair::a" owner="Pair" kind="field" lines="9-9" sig="int a"/>"#,
+            r#"<symbol name="a" qn="Pair::a" owner="Pair" kind="field" lines="9" sig="int a"/>"#,
             "</outline>",
         ])
     );
@@ -369,8 +369,8 @@ fn definitions_sharing_a_declaration_name_nothing_as_holding_each_other() {
             r#"<symbol name="first" qn="p.first" kind="variable" lines="4-5"/>"#,
             r#"<symbol name="second" qn="p.second" kind="variable" lines="4-5"/>"#,
             r#"<symbol name="Pair" qn="p.Pair" kind="function" lines="8-11" sig="func Pair()"/>"#,
-            r#"<symbol name="a" qn="p.a" in="p.Pair" kind="variable" lines="9-9"/>"#,
-            r#"<symbol name="b" qn="p.b" in="p.Pair" kind="variable" lines="9-9"/>"#,
+            r#"<symbol name="a" qn="p.a" in="p.Pair" kind="variable" lines="9"/>"#,
+            r#"<symbol name="b" qn="p.b" in="p.Pair" kind="variable" lines="9"/>"#,
             "</outline>",
         ])
     );

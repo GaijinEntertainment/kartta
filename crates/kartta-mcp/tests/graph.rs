@@ -259,7 +259,10 @@ fn read_definitions_answers_an_unknown_name_with_close_alternatives() {
                 r#"<definitions count="2">"#,
                 r#"<name of="Gret" total="0" one_edit="1">"#,
                 "no symbol matches - did you mean:",
-                r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" loc="pkg/service.go:12"/>"#,
+                concat!(
+                    r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" "#,
+                    r#"loc="pkg/service.go:12-14"/>"#,
+                ),
                 "</name>",
                 r#"<name of="New" total="1">"#,
                 concat!(
@@ -301,7 +304,7 @@ fn file_outline_find_importers_and_find_implementations_answer_for_the_module() 
         [
             lines(&[
                 r#"<outline of="pkg/service.go" symbols="3">"#,
-                r#"<symbol name="Service" qn="pkg.Service" kind="struct" lines="4-4"/>"#,
+                r#"<symbol name="Service" qn="pkg.Service" kind="struct" lines="4"/>"#,
                 r#"<symbol name="New" qn="pkg.New" kind="function" lines="7-9" sig="func New() *Service"/>"#,
                 concat!(
                     r#"<symbol name="Greet" qn="pkg.Service.Greet" owner="Service" kind="method" lines="12-14" "#,
@@ -775,12 +778,12 @@ fn find_call_path_and_find_references_follow_the_calls() {
             lines(&[
                 r#"<call_path from="main" to="Greet" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" from="main.main" from_loc="cmd/app/main.go:5" to="pkg.Service.Greet" "#,
-                    r#"to_loc="pkg/service.go:12" hops="2" max_hops="8">"#,
+                    r#"<match lang="go" from="main.main" from_loc="cmd/app/main.go:5-8" to="pkg.Service.Greet" "#,
+                    r#"to_loc="pkg/service.go:12-14" hops="2" max_hops="8">"#,
                 ),
-                r#"<ref name="main" qn="main.main" loc="cmd/app/main.go:5" role="entry" call="cmd/app/main.go:7"/>"#,
+                r#"<ref name="main" qn="main.main" loc="cmd/app/main.go:5-8" role="entry" call="cmd/app/main.go:7"/>"#,
                 concat!(
-                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" "#,
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10-12" role="consumer" "#,
                     r#"call="cmd/app/main.go:11"/>"#,
                 ),
                 "</match>",
@@ -789,8 +792,8 @@ fn find_call_path_and_find_references_follow_the_calls() {
             lines(&[
                 r#"<call_path from="main" to="Greet" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" from="main.main" from_loc="cmd/app/main.go:5" to="pkg.Service.Greet" "#,
-                    r#"to_loc="pkg/service.go:12" hops="0" max_hops="1" "#,
+                    r#"<match lang="go" from="main.main" from_loc="cmd/app/main.go:5-8" to="pkg.Service.Greet" "#,
+                    r#"to_loc="pkg/service.go:12-14" hops="0" max_hops="1" "#,
                     r#"at_depth_bound="1" found="false">no call chain within 1 calls - the graph misses dynamic "#,
                     "and unresolved calls, so this does not show that the code holds none</match>",
                 ),
@@ -803,11 +806,11 @@ fn find_call_path_and_find_references_follow_the_calls() {
                     r#"count="4" files="2" types="4">"#,
                 ),
                 r#"<file path="pkg/service.go" sites="3">"#,
-                r#"<ref name="New" qn="pkg.New" line="7" role="consumer" site="type" at="7,8"/>"#,
-                r#"<ref name="Greet" qn="pkg.Service.Greet" line="12" role="consumer" site="type" at="12"/>"#,
+                r#"<ref name="New" qn="pkg.New" lines="7-9" role="consumer" site="type" at="7,8"/>"#,
+                r#"<ref name="Greet" qn="pkg.Service.Greet" lines="12-14" role="consumer" site="type" at="12"/>"#,
                 "</file>",
                 r#"<file path="cmd/app/main.go" sites="1">"#,
-                r#"<ref name="run" qn="main.run" line="10" role="consumer" site="type" at="10"/>"#,
+                r#"<ref name="run" qn="main.run" lines="10-12" role="consumer" site="type" at="10"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -815,7 +818,7 @@ fn find_call_path_and_find_references_follow_the_calls() {
             lines(&[
                 r#"<references of="Greet" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" kind="method" "#,
+                    r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12-14" kind="method" "#,
                     r#"count="1" files="1" calls="1">"#,
                 ),
                 concat!(
@@ -823,7 +826,7 @@ fn find_call_path_and_find_references_follow_the_calls() {
                     "that type, so some of those calls can be missing</note>",
                 ),
                 r#"<file path="cmd/app/main.go" sites="1">"#,
-                r#"<ref name="run" qn="main.run" line="10" role="consumer" site="call" at="11"/>"#,
+                r#"<ref name="run" qn="main.run" lines="10-12" role="consumer" site="call" at="11"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -862,8 +865,8 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
         r#"count="{count}" files="2" reads="2" writes="2" updates="1">"#,
     );
     let load = [
-        r#"<ref name="Load" qn="pkg.Load" line="7" role="consumer" site="write" at="8"/>"#,
-        r#"<ref name="Load" qn="pkg.Load" line="7" role="consumer" site="update" at="9"/>"#,
+        r#"<ref name="Load" qn="pkg.Load" lines="7-11" role="consumer" site="write" at="8"/>"#,
+        r#"<ref name="Load" qn="pkg.Load" lines="7-11" role="consumer" site="update" at="9"/>"#,
     ];
     assert_eq!(
         every,
@@ -871,8 +874,8 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
             r#"<references of="pkg.Config.Timeout" matches="1">"#,
             &open.replace("{count}", "5"),
             r#"<file path="cmd/main.go" sites="3">"#,
-            r#"<ref name="main" qn="main.main" line="5" role="entry" site="write" at="7"/>"#,
-            r#"<ref name="main" qn="main.main" line="5" role="entry" site="read" at="8,9"/>"#,
+            r#"<ref name="main" qn="main.main" lines="5-10" role="entry" site="write" at="7"/>"#,
+            r#"<ref name="main" qn="main.main" lines="5-10" role="entry" site="read" at="8,9"/>"#,
             "</file>",
             r#"<file path="pkg/config.go" sites="2">"#,
             load[0],
@@ -893,7 +896,7 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
             load[1],
             "</file>",
             r#"<file path="cmd/main.go" sites="1">"#,
-            r#"<ref name="main" qn="main.main" line="5" role="entry" site="write" at="7"/>"#,
+            r#"<ref name="main" qn="main.main" lines="5-10" role="entry" site="write" at="7"/>"#,
             "</file>",
             "</match>",
             "</references>",
@@ -946,7 +949,7 @@ fn find_references_lists_a_read_through_a_package_value_a_sibling_file_declares(
                 ),
                 r#"<file path="use.go" sites="1">"#,
                 concat!(
-                    r#"<ref name="Read" qn="probe.Read" line="9" role="consumer" site="read" at="10" "#,
+                    r#"<ref name="Read" qn="probe.Read" lines="9-11" role="consumer" site="read" at="10" "#,
                     r#"confidence="likely"/>"#,
                 ),
                 "</file>",
@@ -960,10 +963,10 @@ fn find_references_lists_a_read_through_a_package_value_a_sibling_file_declares(
                     r#"count="2" files="2" reads="1" writes="1">"#,
                 ),
                 r#"<file path="cfg.go" sites="1">"#,
-                r#"<ref name="cfg" qn="probe.cfg" line="7" role="consumer" site="write" at="7"/>"#,
+                r#"<ref name="cfg" qn="probe.cfg" lines="7" role="consumer" site="write" at="7"/>"#,
                 "</file>",
                 r#"<file path="use.go" sites="1">"#,
-                r#"<ref name="Read" qn="probe.Read" line="9" role="consumer" site="read" at="10"/>"#,
+                r#"<ref name="Read" qn="probe.Read" lines="9-11" role="consumer" site="read" at="10"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -976,7 +979,7 @@ fn find_references_lists_a_read_through_a_package_value_a_sibling_file_declares(
                 ),
                 r#"<file path="call.go" sites="1">"#,
                 concat!(
-                    r#"<ref name="Call" qn="probe.Call" line="3" role="consumer" site="read" at="4" "#,
+                    r#"<ref name="Call" qn="probe.Call" lines="3-5" role="consumer" site="read" at="4" "#,
                     r#"confidence="likely"/>"#,
                 ),
                 "</file>",
@@ -1033,7 +1036,7 @@ fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it
         [
             r#"<file path="pkg/use030.go" sites="9">"#,
             concat!(
-                r#"<ref name="use030" qn="pkg.use030" line="3" role="consumer" site="read" "#,
+                r#"<ref name="use030" qn="pkg.use030" lines="3-13" role="consumer" site="read" "#,
                 r#"at="4,5,6,7,8,9,10,11,12"/>"#,
             ),
             "</file>",
@@ -1044,7 +1047,7 @@ fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it
         records[5..8],
         [
             r#"<file path="pkg/use000.go" sites="4">"#,
-            r#"<ref name="use000" qn="pkg.use000" line="3" role="consumer" site="read" at="4,5,6,7"/>"#,
+            r#"<ref name="use000" qn="pkg.use000" lines="3-8" role="consumer" site="read" at="4,5,6,7"/>"#,
             "</file>",
         ],
         "files of one count follow in path order: {answer}"
@@ -1057,7 +1060,7 @@ fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it
         records[partial..partial + 4],
         [
             r#"<file path="pkg/use022.go" sites="4" shown="3">"#,
-            r#"<ref name="use022" qn="pkg.use022" line="3" role="consumer" site="read" at="4,5,6"/>"#,
+            r#"<ref name="use022" qn="pkg.use022" lines="3-8" role="consumer" site="read" at="4,5,6"/>"#,
             "</file>",
             r#"<file path="pkg/use023.go" sites="4"/>"#,
         ],
@@ -1140,7 +1143,7 @@ fn find_references_sites_under_lists_the_sites_past_the_named_files_and_counts_w
         records[2..5],
         [
             r#"<file path="pkg/use120.go" sites="2">"#,
-            r#"<ref name="use120" qn="pkg.use120" line="3" role="consumer" site="read" at="4,5"/>"#,
+            r#"<ref name="use120" qn="pkg.use120" lines="3-6" role="consumer" site="read" at="4,5"/>"#,
             "</file>",
         ],
         "each file under sites_under lists its sites: {}",
@@ -1238,8 +1241,8 @@ fn a_go_field_read_binds_through_the_type_its_own_function_declares_and_not_a_na
                     r#"count="2" files="1" reads="1" writes="1">"#,
                 ),
                 r#"<file path="app/app.go" sites="2">"#,
-                r#"<ref name="Second" qn="app.Second" line="11" role="consumer" site="write" at="15"/>"#,
-                r#"<ref name="Second" qn="app.Second" line="11" role="consumer" site="read" at="16"/>"#,
+                r#"<ref name="Second" qn="app.Second" lines="11-17" role="consumer" site="write" at="15"/>"#,
+                r#"<ref name="Second" qn="app.Second" lines="11-17" role="consumer" site="read" at="16"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -1251,8 +1254,8 @@ fn a_go_field_read_binds_through_the_type_its_own_function_declares_and_not_a_na
                     r#"count="2" files="1" reads="1" writes="1">"#,
                 ),
                 r#"<file path="app/app.go" sites="2">"#,
-                r#"<ref name="First" qn="app.First" line="3" role="consumer" site="write" at="7"/>"#,
-                r#"<ref name="First" qn="app.First" line="3" role="consumer" site="read" at="8"/>"#,
+                r#"<ref name="First" qn="app.First" lines="3-9" role="consumer" site="write" at="7"/>"#,
+                r#"<ref name="First" qn="app.First" lines="3-9" role="consumer" site="read" at="8"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -1291,7 +1294,10 @@ fn a_go_type_defined_over_an_interface_has_the_interface_s_methods() {
         [
             lines(&[
                 r#"<callees of="viaDefined" matches="1">"#,
-                r#"<match lang="go" of="viaDefined" qn="log.viaDefined" loc="log/log.go:7" count="1" unexpanded="1">"#,
+                concat!(
+                    r#"<match lang="go" of="viaDefined" qn="log.viaDefined" loc="log/log.go:7-9" count="1" "#,
+                    r#"unexpanded="1">"#,
+                ),
                 concat!(
                     r#"<ref name="Info" qn="internal.Logger.Info" loc="internal/logger.go:4" role="consumer" "#,
                     r#"hops="1" at="log/log.go:8"/>"#,
@@ -1302,7 +1308,7 @@ fn a_go_type_defined_over_an_interface_has_the_interface_s_methods() {
             lines(&[
                 r#"<callees of="viaConversion" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="viaConversion" qn="log.viaConversion" loc="log/log.go:15" count="2" "#,
+                    r#"<match lang="go" of="viaConversion" qn="log.viaConversion" loc="log/log.go:15-17" count="2" "#,
                     r#"unexpanded="2">"#,
                 ),
                 concat!(
@@ -1341,7 +1347,7 @@ fn a_go_type_defined_over_a_struct_takes_none_of_the_struct_s_methods() {
             lines(&[
                 r#"<callees of="use" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="use" qn="p.use" loc="p.go:9" count="0" unresolved="1">no callees - no "#,
+                    r#"<match lang="go" of="use" qn="p.use" loc="p.go:9-11" count="0" unresolved="1">no callees - no "#,
                     "call in its body binds a definition the graph holds; a call into a library or a builtin, ",
                     "through a function value, or by dynamic dispatch binds none</match>",
                 ),
@@ -1349,7 +1355,10 @@ fn a_go_type_defined_over_a_struct_takes_none_of_the_struct_s_methods() {
             ]),
             lines(&[
                 r#"<callees of="convert" matches="1">"#,
-                r#"<match lang="go" of="convert" qn="p.convert" loc="p.go:13" count="1" unexpanded="1" unresolved="1">"#,
+                concat!(
+                    r#"<match lang="go" of="convert" qn="p.convert" loc="p.go:13-15" count="1" unexpanded="1" "#,
+                    r#"unresolved="1">"#,
+                ),
                 r#"<ref name="T" qn="p.T" loc="p.go:7" role="consumer" hops="1" at="p.go:14"/>"#,
                 "</match>",
                 "</callees>",
@@ -1382,7 +1391,7 @@ fn a_go_type_defined_over_a_struct_keeps_its_fields_and_what_they_promote() {
         [
             lines(&[
                 r#"<callees of="viaDefined" matches="1">"#,
-                r#"<match lang="go" of="viaDefined" qn="p.viaDefined" loc="a.go:19" count="1" unexpanded="1">"#,
+                r#"<match lang="go" of="viaDefined" qn="p.viaDefined" loc="a.go:19-22" count="1" unexpanded="1">"#,
                 concat!(
                     r#"<ref name="Promoted" qn="p.Inner.Promoted" loc="a.go:5" role="consumer" hops="1" "#,
                     r#"at="a.go:20"/>"#,
@@ -1394,8 +1403,8 @@ fn a_go_type_defined_over_a_struct_keeps_its_fields_and_what_they_promote() {
                 r#"<references of="S.X" matches="1">"#,
                 r#"<match lang="go" of="X" qn="p.S.X" loc="a.go:9" kind="field" count="2" files="1" reads="2">"#,
                 r#"<file path="a.go" sites="2">"#,
-                r#"<ref name="viaStruct" qn="p.viaStruct" line="14" role="consumer" site="read" at="16"/>"#,
-                r#"<ref name="viaDefined" qn="p.viaDefined" line="19" role="consumer" site="read" at="21"/>"#,
+                r#"<ref name="viaStruct" qn="p.viaStruct" lines="14-17" role="consumer" site="read" at="16"/>"#,
+                r#"<ref name="viaDefined" qn="p.viaDefined" lines="19-22" role="consumer" site="read" at="21"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -1948,9 +1957,9 @@ fn a_go_closure_reads_a_field_through_the_type_its_enclosing_function_declares()
                 r#"count="3" files="1" reads="1" writes="1" updates="1" passed_over="1">"#,
             ),
             r#"<file path="app/app.go" sites="3">"#,
-            r#"<ref name="Second" qn="app.Second" line="10" role="consumer" site="write" at="15"/>"#,
-            r#"<ref name="Second" qn="app.Second" line="10" role="consumer" site="update" at="16"/>"#,
-            r#"<ref name="Second" qn="app.Second" line="10" role="consumer" site="read" at="17"/>"#,
+            r#"<ref name="Second" qn="app.Second" lines="10-19" role="consumer" site="write" at="15"/>"#,
+            r#"<ref name="Second" qn="app.Second" lines="10-19" role="consumer" site="update" at="16"/>"#,
+            r#"<ref name="Second" qn="app.Second" lines="10-19" role="consumer" site="read" at="17"/>"#,
             "</file>",
             r#"<candidate name="Size" qn="app.fields.Size" kind="field" loc="app/app.go:5" sites="2"/>"#,
             "</match>",
@@ -1995,11 +2004,11 @@ fn find_references_lists_a_typescript_field_s_sites_and_says_what_an_untyped_acc
                 "counts those</note>",
             ),
             r#"<file path="src/main.ts" sites="2">"#,
-            r#"<ref name="run" line="3" role="consumer" site="write" at="4"/>"#,
-            r#"<ref name="run" line="3" role="consumer" site="read" at="5"/>"#,
+            r#"<ref name="run" lines="3-6" role="consumer" site="write" at="4"/>"#,
+            r#"<ref name="run" lines="3-6" role="consumer" site="read" at="5"/>"#,
             "</file>",
             r#"<file path="src/config.ts" sites="1">"#,
-            r#"<ref name="grow" qn="Config.grow" line="3" role="consumer" site="update" at="4"/>"#,
+            r#"<ref name="grow" qn="Config.grow" lines="3-5" role="consumer" site="update" at="4"/>"#,
             "</file>",
             "</match>",
             "</references>",
@@ -2015,7 +2024,7 @@ fn find_references_lists_a_typescript_field_s_sites_and_says_what_an_untyped_acc
                 r#"reads="1">"#,
             ),
             r#"<file path="src/main.ts" sites="1">"#,
-            r#"<ref name="cap" line="7" role="consumer" site="read" at="7" confidence="likely"/>"#,
+            r#"<ref name="cap" lines="7" role="consumer" site="read" at="7" confidence="likely"/>"#,
             "</file>",
             "</match>",
             "</references>",
@@ -2060,8 +2069,8 @@ fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_thro
                 "of the name is in its own file; ambiguous counts the rest</note>",
             ),
             r#"<file path="pkg/config.py" sites="2">"#,
-            r#"<ref name="__init__" qn="pkg.config.Config.__init__" line="5" role="entry" site="write" at="6"/>"#,
-            r#"<ref name="grow" qn="pkg.config.Config.grow" line="8" role="consumer" site="update" at="9"/>"#,
+            r#"<ref name="__init__" qn="pkg.config.Config.__init__" lines="5-6" role="entry" site="write" at="6"/>"#,
+            r#"<ref name="grow" qn="pkg.config.Config.grow" lines="8-9" role="consumer" site="update" at="9"/>"#,
             "</file>",
             "</match>",
             "</references>",
@@ -2077,7 +2086,7 @@ fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_thro
                 r#"count="1" files="1" reads="1">"#,
             ),
             r#"<file path="main.py" sites="1">"#,
-            r#"<ref name="run" qn="main.run" line="4" role="consumer" site="read" at="6"/>"#,
+            r#"<ref name="run" qn="main.run" lines="4-6" role="consumer" site="read" at="6"/>"#,
             "</file>",
             "</match>",
             "</references>",
@@ -2110,7 +2119,7 @@ fn find_references_lists_the_read_a_python_class_body_makes_of_its_own_attribute
                     "of the name is in its own file; ambiguous counts the rest</note>",
                 ),
                 r#"<file path="devices.py" sites="1">"#,
-                r#"<ref name="Devices" qn="devices.Devices" line="1" role="consumer" site="read" at="4"/>"#,
+                r#"<ref name="Devices" qn="devices.Devices" lines="1-4" role="consumer" site="read" at="4"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2151,9 +2160,9 @@ fn find_references_lists_a_cpp_field_s_sites_and_says_what_an_untyped_access_lea
                 "name is in the file or the files it includes; ambiguous counts the rest</note>",
             ),
             r#"<file path="widget.cpp" sites="3">"#,
-            r#"<ref name="grow" qn="Widget::grow" line="3" role="consumer" site="update" at="4"/>"#,
-            r#"<ref name="paint" line="7" role="consumer" site="write" at="8"/>"#,
-            r#"<ref name="paint" line="7" role="consumer" site="read" at="9"/>"#,
+            r#"<ref name="grow" qn="Widget::grow" lines="3-5" role="consumer" site="update" at="4"/>"#,
+            r#"<ref name="paint" lines="7-11" role="consumer" site="write" at="8"/>"#,
+            r#"<ref name="paint" lines="7-11" role="consumer" site="read" at="9"/>"#,
             "</file>",
             "</match>",
             "</references>",
@@ -2190,7 +2199,7 @@ fn find_references_says_the_rust_graph_records_no_use_of_a_type_as_one() {
             lines(&[
                 r#"<references of="Watcher" matches="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="Watcher" loc="src/watch.rs:1" kind="struct" count="0">no recorded "#,
+                    r#"<match lang="rust" of="Watcher" loc="src/watch.rs:1-3" kind="struct" count="0">no recorded "#,
                     "site - the rust graph records no use of a type where code names it as one, such as a ",
                     "declaration, a signature, a generic argument or an import, so this does not show that nothing ",
                     "uses the type; grep finds where code names it</match>",
@@ -2209,7 +2218,7 @@ fn find_references_says_the_rust_graph_records_no_use_of_a_type_as_one() {
                     "this answer</note>",
                 ),
                 r#"<file path="src/run.rs" sites="1">"#,
-                r#"<ref name="start" line="3" role="consumer" site="call" at="4"/>"#,
+                r#"<ref name="start" lines="3-5" role="consumer" site="call" at="4"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2243,10 +2252,10 @@ fn sites_of_each(source: &str, names: &[&str]) -> Vec<Vec<String>> {
     .collect()
 }
 
-fn read_site(qualified: &str, line: u32, at: u32) -> String {
+fn read_site(qualified: &str, lines: &str, at: u32) -> String {
     let name = qualified.rsplit("::").next().unwrap_or(qualified);
     format!(
-        r#"<ref name="{name}" qn="{qualified}" line="{line}" role="consumer" site="read" at="{at}"/>"#
+        r#"<ref name="{name}" qn="{qualified}" lines="{lines}" role="consumer" site="read" at="{at}"/>"#
     )
 }
 
@@ -2266,17 +2275,17 @@ fn find_references_credits_a_rust_bare_read_to_the_item_of_its_own_inline_module
 
     assert_eq!(
         sites_of_each(&second_last, &names),
-        [Vec::new(), vec![read_site("second::read", 8, 9)]],
+        [Vec::new(), vec![read_site("second::read", "8-10", 9)]],
         "the read binds its own module's item, written last"
     );
     assert_eq!(
         sites_of_each(&second_first, &names),
-        [Vec::new(), vec![read_site("second::read", 4, 5)]],
+        [Vec::new(), vec![read_site("second::read", "4-6", 5)]],
         "the read binds its own module's item, written first"
     );
     assert_eq!(
         sites_of_each(&in_first, &names),
-        [vec![read_site("first::read", 4, 5)], Vec::new()],
+        [vec![read_site("first::read", "4-6", 5)], Vec::new()],
         "a read in the first module binds the first"
     );
 }
@@ -2325,7 +2334,7 @@ pub mod third {
 
     assert_eq!(
         sites_of_each(root_first, &["inner::X"]),
-        [vec![read_site("inner::read", 5, 6)]],
+        [vec![read_site("inner::read", "5-7", 6)]],
         "a module's item hides the file root's, written before it"
     );
     assert_eq!(
@@ -2335,7 +2344,7 @@ pub mod third {
     );
     assert_eq!(
         sites_of_each(beside, &["outer::X", "outer::inner::X"]),
-        [vec![read_site("outer::read", 6, 7)], Vec::new()],
+        [vec![read_site("outer::read", "6-8", 7)], Vec::new()],
         "a module the read is outside of holds no item it reaches"
     );
     assert_eq!(
@@ -2361,7 +2370,7 @@ mod test {
 ";
     assert_eq!(
         sites_of_each(module_of_the_name, &["handler"]),
-        [vec![read_site("test::run", 6, 7)]],
+        [vec![read_site("test::run", "6-8", 7)]],
         "a module is no value, so the item a glob brings in binds"
     );
 
@@ -2400,8 +2409,8 @@ mod gate {
     assert_eq!(
         [of_block(&answers[0]), of_block(&answers[1])],
         [
-            vec![read_site("gate::read", 4, 5)],
-            vec![read_site("gate::read", 12, 13)]
+            vec![read_site("gate::read", "4-6", 5)],
+            vec![read_site("gate::read", "12-14", 13)]
         ],
         "a read binds the item of the block of its module that holds it"
     );
@@ -2437,7 +2446,7 @@ fn find_references_keeps_its_answer_for_a_type_where_go_and_python_record_type_u
                     "nothing uses the symbol</match>",
                 ),
                 concat!(
-                    r#"<match lang="python" of="Spare" qn="models.Spare" loc="models.py:5" kind="class" "#,
+                    r#"<match lang="python" of="Spare" qn="models.Spare" loc="models.py:5-6" kind="class" "#,
                     r#"count="0">no recorded site - resolved calls can omit dynamic or unresolved ones, and uses "#,
                     "other than calls are recorded only where the graph records them, so this does not show that ",
                     "nothing uses the symbol</match>",
@@ -2447,11 +2456,11 @@ fn find_references_keeps_its_answer_for_a_type_where_go_and_python_record_type_u
             lines(&[
                 r#"<references of="Config" matches="1">"#,
                 concat!(
-                    r#"<match lang="python" of="Config" qn="models.Config" loc="models.py:1" kind="class" "#,
+                    r#"<match lang="python" of="Config" qn="models.Config" loc="models.py:1-2" kind="class" "#,
                     r#"count="1" files="1" types="1">"#,
                 ),
                 r#"<file path="models.py" sites="1">"#,
-                r#"<ref name="load" qn="models.load" line="9" role="consumer" site="type" at="10"/>"#,
+                r#"<ref name="load" qn="models.load" lines="9-11" role="consumer" site="type" at="10"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2489,7 +2498,7 @@ fn find_references_labels_a_member_read_through_a_type_a_read_and_not_a_use_as_a
             lines(&[
                 r#"<references of="EventType" matches="1">"#,
                 concat!(
-                    r#"<match lang="jsts" of="EventType" loc="events.ts:1" kind="enum" count="1" files="1" "#,
+                    r#"<match lang="jsts" of="EventType" loc="events.ts:1-3" kind="enum" count="1" files="1" "#,
                     r#"reads="1">"#,
                 ),
                 concat!(
@@ -2498,7 +2507,7 @@ fn find_references_labels_a_member_read_through_a_type_a_read_and_not_a_use_as_a
                     "this answer</note>",
                 ),
                 r#"<file path="card.ts" sites="1">"#,
-                r#"<ref name="kind" line="3" role="consumer" site="read" at="4" confidence="likely"/>"#,
+                r#"<ref name="kind" lines="3-5" role="consumer" site="read" at="4" confidence="likely"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2506,12 +2515,12 @@ fn find_references_labels_a_member_read_through_a_type_a_read_and_not_a_use_as_a
             lines(&[
                 r#"<references of="Palette" matches="1">"#,
                 concat!(
-                    r#"<match lang="python" of="Palette" qn="palette.Palette" loc="palette.py:1" kind="class" "#,
+                    r#"<match lang="python" of="Palette" qn="palette.Palette" loc="palette.py:1-2" kind="class" "#,
                     r#"count="2" files="1" types="1" reads="1">"#,
                 ),
                 r#"<file path="palette.py" sites="2">"#,
-                r#"<ref name="pick" qn="palette.pick" line="5" role="consumer" site="type" at="5"/>"#,
-                r#"<ref name="pick" qn="palette.pick" line="5" role="consumer" site="read" at="6"/>"#,
+                r#"<ref name="pick" qn="palette.pick" lines="5-6" role="consumer" site="type" at="5"/>"#,
+                r#"<ref name="pick" qn="palette.pick" lines="5-6" role="consumer" site="read" at="6"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2539,13 +2548,13 @@ fn find_references_keeps_the_uses_as_a_type_alone_or_among_the_reads() {
             ),
         ],
     );
-    let site = |line: u32, kind: &str, at: u32| {
+    let site = |lines: &str, kind: &str, at: u32| {
         format!(
-            r#"<ref name="pick" qn="palette.pick" line="{line}" role="consumer" site="{kind}" at="{at}"/>"#
+            r#"<ref name="pick" qn="palette.pick" lines="{lines}" role="consumer" site="{kind}" at="{at}"/>"#
         )
     };
     let counts = r#"files="1" types="1" reads="1">"#;
-    let head = r#"<match lang="python" of="Palette" qn="palette.Palette" loc="palette.py:1" kind="class" "#;
+    let head = r#"<match lang="python" of="Palette" qn="palette.Palette" loc="palette.py:1-2" kind="class" "#;
 
     assert_eq!(
         answers,
@@ -2554,7 +2563,7 @@ fn find_references_keeps_the_uses_as_a_type_alone_or_among_the_reads() {
                 r#"<references of="Palette" matches="1">"#,
                 &format!(r#"{head}count="1" {counts}"#),
                 r#"<file path="palette.py" sites="1">"#,
-                &site(5, "type", 5),
+                &site("5-6", "type", 5),
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2563,8 +2572,8 @@ fn find_references_keeps_the_uses_as_a_type_alone_or_among_the_reads() {
                 r#"<references of="Palette" matches="1">"#,
                 &format!(r#"{head}count="2" {counts}"#),
                 r#"<file path="palette.py" sites="2">"#,
-                &site(5, "type", 5),
-                &site(5, "read", 6),
+                &site("5-6", "type", 5),
+                &site("5-6", "read", 6),
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2632,7 +2641,7 @@ fn find_references_names_the_language_that_records_no_read_or_write_of_the_symbo
                     "this answer</note>",
                 ),
                 r#"<file path="tools/clean.sh" sites="1">"#,
-                r#"<ref name="clean" line="2" role="consumer" site="read" at="4"/>"#,
+                r#"<ref name="clean" lines="2-5" role="consumer" site="read" at="4"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2681,7 +2690,7 @@ fn find_references_says_that_no_read_of_a_function_s_local_is_recorded() {
                     "such use is missing from this answer</note>",
                 ),
                 r#"<file path="src/useSearch.ts" sites="1">"#,
-                r#"<ref name="useSearch" line="1" role="consumer" site="call" at="4"/>"#,
+                r#"<ref name="useSearch" lines="1-6" role="consumer" site="call" at="4"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2726,19 +2735,19 @@ fn find_references_says_that_no_use_of_a_function_s_local_function_as_a_value_is
         [
             lines(&[
                 r#"<references of="double" matches="2">"#,
-                r#"<match lang="rust" of="double" loc="src/lib.rs:2" kind="function" count="1" files="1" calls="1">"#,
+                r#"<match lang="rust" of="double" loc="src/lib.rs:2-4" kind="function" count="1" files="1" calls="1">"#,
                 &note("rust"),
                 r#"<file path="src/lib.rs" sites="1">"#,
-                r#"<ref name="outer" line="1" role="consumer" site="call" at="5"/>"#,
+                r#"<ref name="outer" lines="1-7" role="consumer" site="call" at="5"/>"#,
                 "</file>",
                 "</match>",
                 concat!(
-                    r#"<match lang="python" of="double" qn="m.double" loc="m.py:2" kind="function" count="1" "#,
+                    r#"<match lang="python" of="double" qn="m.double" loc="m.py:2-3" kind="function" count="1" "#,
                     r#"files="1" calls="1">"#,
                 ),
                 &note("python"),
                 r#"<file path="m.py" sites="1">"#,
-                r#"<ref name="outer" qn="m.outer" line="1" role="consumer" site="call" at="5"/>"#,
+                r#"<ref name="outer" qn="m.outer" lines="1-6" role="consumer" site="call" at="5"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2746,12 +2755,12 @@ fn find_references_says_that_no_use_of_a_function_s_local_function_as_a_value_is
             lines(&[
                 r#"<references of="triple" matches="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="triple" loc="src/lib.rs:9" kind="function" count="2" files="1" "#,
+                    r#"<match lang="rust" of="triple" loc="src/lib.rs:9-11" kind="function" count="2" files="1" "#,
                     r#"calls="1" reads="1">"#,
                 ),
                 r#"<file path="src/lib.rs" sites="2">"#,
-                r#"<ref name="control" line="13" role="consumer" site="call" at="14"/>"#,
-                r#"<ref name="control" line="13" role="consumer" site="read" at="15"/>"#,
+                r#"<ref name="control" lines="13-16" role="consumer" site="call" at="14"/>"#,
+                r#"<ref name="control" lines="13-16" role="consumer" site="read" at="15"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2787,7 +2796,7 @@ fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
             lines(&[
                 r#"<references of="Inner" matches="1">"#,
                 concat!(
-                    r#"<match lang="python" of="Inner" qn="m.Inner" loc="m.py:2" kind="class" count="1" files="1" "#,
+                    r#"<match lang="python" of="Inner" qn="m.Inner" loc="m.py:2-7" kind="class" count="1" files="1" "#,
                     r#"calls="1">"#,
                 ),
                 concat!(
@@ -2795,7 +2804,7 @@ fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
                     "so every such use is missing from this answer</note>",
                 ),
                 r#"<file path="m.py" sites="1">"#,
-                r#"<ref name="outer" qn="m.outer" line="1" role="consumer" site="call" at="9"/>"#,
+                r#"<ref name="outer" qn="m.outer" lines="1-13" role="consumer" site="call" at="9"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2803,13 +2812,14 @@ fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
             lines(&[
                 r#"<references of="Outer" matches="1">"#,
                 concat!(
-                    r#"<match lang="python" of="Outer" qn="m.Outer" loc="m.py:16" kind="class" count="3" files="1" "#,
+                    r#"<match lang="python" of="Outer" qn="m.Outer" loc="m.py:16-18" kind="class" count="3" "#,
+                    r#"files="1" "#,
                     r#"calls="1" types="1" reads="1">"#,
                 ),
                 r#"<file path="m.py" sites="3">"#,
-                r#"<ref name="control" qn="m.control" line="21" role="consumer" site="call" at="22"/>"#,
-                r#"<ref name="control" qn="m.control" line="21" role="consumer" site="type" at="23"/>"#,
-                r#"<ref name="control" qn="m.control" line="21" role="consumer" site="read" at="24"/>"#,
+                r#"<ref name="control" qn="m.control" lines="21-26" role="consumer" site="call" at="22"/>"#,
+                r#"<ref name="control" qn="m.control" lines="21-26" role="consumer" site="type" at="23"/>"#,
+                r#"<ref name="control" qn="m.control" lines="21-26" role="consumer" site="read" at="24"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2817,7 +2827,7 @@ fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
             lines(&[
                 r#"<references of="size" matches="1">"#,
                 concat!(
-                    r#"<match lang="python" of="size" qn="m.Inner.size" loc="m.py:6" kind="method" count="1" "#,
+                    r#"<match lang="python" of="size" qn="m.Inner.size" loc="m.py:6-7" kind="method" count="1" "#,
                     r#"files="1" calls="1">"#,
                 ),
                 concat!(
@@ -2825,7 +2835,7 @@ fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
                     "type, so some of those calls can be missing</note>",
                 ),
                 r#"<file path="m.py" sites="1">"#,
-                r#"<ref name="outer" qn="m.outer" line="1" role="consumer" site="call" at="12"/>"#,
+                r#"<ref name="outer" qn="m.outer" lines="1-13" role="consumer" site="call" at="12"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2864,7 +2874,7 @@ fn find_references_states_a_go_body_s_local_type_and_a_rust_body_s_local_struct(
                 "this does not show that nothing uses the type; grep finds where code names it</match>",
             ),
             concat!(
-                r#"<match lang="rust" of="Shape" loc="src/lib.rs:2" kind="struct" count="0">no recorded site - "#,
+                r#"<match lang="rust" of="Shape" loc="src/lib.rs:2-4" kind="struct" count="0">no recorded site - "#,
                 "the rust graph records no use as a type or a value of a type local to a function body, so this ",
                 "does not show that nothing uses the type; grep finds where code names it</match>",
             ),
@@ -2922,7 +2932,7 @@ fn find_references_states_both_gaps_of_a_rust_body_s_value_struct_and_the_type_g
                     "<note>{type_statement}, so every such use is missing from this answer</note>"
                 ),
                 r#"<file path="src/lib.rs" sites="1">"#,
-                r#"<ref name="module" line="3" role="consumer" site="read" at="4"/>"#,
+                r#"<ref name="module" lines="3-6" role="consumer" site="read" at="4"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2934,7 +2944,7 @@ fn find_references_states_both_gaps_of_a_rust_body_s_value_struct_and_the_type_g
                     "<note>{local_statement}, so every such use is missing from this answer</note>"
                 ),
                 r#"<file path="src/lib.rs" sites="1">"#,
-                r#"<ref name="pair" line="14" role="consumer" site="call" at="21"/>"#,
+                r#"<ref name="pair" lines="14-22" role="consumer" site="call" at="21"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -2942,7 +2952,7 @@ fn find_references_states_both_gaps_of_a_rust_body_s_value_struct_and_the_type_g
             lines(&[
                 r#"<references of="Mode" matches="1">"#,
                 &format!(
-                    r#"<match lang="rust" of="Mode" loc="src/lib.rs:16" kind="enum" count="0">{}"#,
+                    r#"<match lang="rust" of="Mode" loc="src/lib.rs:16-18" kind="enum" count="0">{}"#,
                     no_site(type_statement)
                 ),
                 "</references>",
@@ -2989,7 +2999,10 @@ fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
                     r#"sig="func (s *Service) Greet(name string) string">"#,
                 ),
                 r#"<callers shown="1" of="1">"#,
-                r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" at="cmd/app/main.go:11"/>"#,
+                concat!(
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10-12" role="consumer" "#,
+                    r#"at="cmd/app/main.go:11"/>"#,
+                ),
                 "</callers>",
                 "</symbol>",
                 r#"<includes count="0"/>"#,
@@ -3362,7 +3375,7 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
             lines(&[
                 r#"<callers of="setup" matches="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4" count="0" reach_band="low" "#,
+                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" count="0" reach_band="low" "#,
                     r#"file_scope="1">"#,
                 ),
                 r#"<file_scope path="bin/run.sh"/>"#,
@@ -3372,7 +3385,7 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
             lines(&[
                 r#"<callers of="shared" matches="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1" count="0" reach_band="low" "#,
+                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" count="0" reach_band="low" "#,
                     r#"file_scope="1">"#,
                 ),
                 r#"<file_scope path="bin/run.sh" confidence="likely"/>"#,
@@ -3382,7 +3395,7 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
             lines(&[
                 r#"<callers of="shared" matches="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1" count="0" reach_band="low" "#,
+                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" count="0" reach_band="low" "#,
                     r#"below_confidence="1">no callers at this confidence floor - 1 caller binds below it, and "#,
                     r#"min_confidence "any" lists it</match>"#,
                 ),
@@ -3391,7 +3404,7 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
             lines(&[
                 r#"<callers of="setup" role="entry" matches="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4" count="0" reach_band="low" "#,
+                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" count="0" reach_band="low" "#,
                     r#"file_scope="1" consumers="0" tests="0" entries="0" generated="0"/>"#,
                 ),
                 "</callers>",
@@ -3622,10 +3635,10 @@ fn find_callers_find_callees_and_find_references_agree_on_a_function_that_calls_
         lines(&[
             r#"<callers of="walk" matches="1">"#,
             &format!(
-                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3" count="1" reach_band="low"{unexpanded}>"#
+                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" count="1" reach_band="low"{unexpanded}>"#
             ),
             r#"<self_call at="walk.go:7"/>"#,
-            r#"<ref name="Run" qn="lib.Run" loc="walk.go:10" role="consumer" hops="1" at="walk.go:11"/>"#,
+            r#"<ref name="Run" qn="lib.Run" loc="walk.go:10-12" role="consumer" hops="1" at="walk.go:11"/>"#,
             "</match>",
             "</callers>",
         ])
@@ -3636,7 +3649,7 @@ fn find_callers_find_callees_and_find_references_agree_on_a_function_that_calls_
             callers(r#" unexpanded="1""#),
             lines(&[
                 r#"<callees of="walk" matches="1">"#,
-                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3" count="0">"#,
+                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" count="0">"#,
                 concat!(
                     "no callees but itself - no other call in its body binds a definition the graph holds; a call ",
                     "into a library or a builtin, through a function value, or by dynamic dispatch binds none",
@@ -3648,12 +3661,12 @@ fn find_callers_find_callees_and_find_references_agree_on_a_function_that_calls_
             lines(&[
                 r#"<references of="walk" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3" kind="function" count="2" "#,
+                    r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" kind="function" count="2" "#,
                     r#"files="1" calls="2">"#,
                 ),
                 r#"<file path="walk.go" sites="2">"#,
-                r#"<ref name="walk" qn="lib.walk" line="3" role="consumer" site="call" at="7"/>"#,
-                r#"<ref name="Run" qn="lib.Run" line="10" role="consumer" site="call" at="11"/>"#,
+                r#"<ref name="walk" qn="lib.walk" lines="3-8" role="consumer" site="call" at="7"/>"#,
+                r#"<ref name="Run" qn="lib.Run" lines="10-12" role="consumer" site="call" at="11"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -3675,7 +3688,7 @@ fn a_function_that_calls_itself_alone_has_no_caller_and_no_callee_but_itself() {
         [
             lines(&[
                 r#"<callers of="spin" matches="1">"#,
-                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14" count="0" reach_band="low">"#,
+                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14-16" count="0" reach_band="low">"#,
                 "no callers but itself - entry point, dead code, or dynamic dispatch",
                 r#"<self_call at="walk.go:15"/>"#,
                 "</match>",
@@ -3683,7 +3696,7 @@ fn a_function_that_calls_itself_alone_has_no_caller_and_no_callee_but_itself() {
             ]),
             lines(&[
                 r#"<callees of="spin" matches="1">"#,
-                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14" count="0">"#,
+                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14-16" count="0">"#,
                 concat!(
                     "no callees but itself - no other call in its body binds a definition the graph holds; a call ",
                     "into a library or a builtin, through a function value, or by dynamic dispatch binds none",
@@ -4242,7 +4255,8 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
         ("find_callers", json!({"name": "Handle::cancel", "hops": 1})),
     ]);
 
-    let no_call_binds = |of: &str, qn: &str, loc: &str| {
+    let no_call_binds = |qn: &str, loc: &str| {
+        let of = qn.rsplit("::").next().unwrap_or(qn);
         lines(&[
             &format!(r#"<callers of="{qn}" matches="1">"#),
             &format!(
@@ -4256,17 +4270,17 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
     assert_eq!(
         answers,
         [
-            no_call_binds("cancel", "CancelToken::cancel", "src/cancel.rs:4"),
-            no_call_binds("refresh_paths", "Index::refresh_paths", "src/index.rs:4"),
-            no_call_binds("refresh_paths", "Engine::refresh_paths", "src/engine.rs:4"),
+            no_call_binds("CancelToken::cancel", "src/cancel.rs:4"),
+            no_call_binds("Index::refresh_paths", "src/index.rs:4-6"),
+            no_call_binds("Engine::refresh_paths", "src/engine.rs:4-6"),
             lines(&[
                 r#"<callers of="CancelToken::is_cancelled" matches="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="is_cancelled" qn="CancelToken::is_cancelled" loc="src/cancel.rs:6" "#,
+                    r#"<match lang="rust" of="is_cancelled" qn="CancelToken::is_cancelled" loc="src/cancel.rs:6-8" "#,
                     r#"count="1" reach_band="low" unexpanded="1">"#,
                 ),
                 concat!(
-                    r#"<ref name="stop" loc="src/run.rs:3" role="consumer" confidence="likely" hops="1" "#,
+                    r#"<ref name="stop" loc="src/run.rs:3-6" role="consumer" confidence="likely" hops="1" "#,
                     r#"at="src/run.rs:5"/>"#,
                 ),
                 "</match>",
@@ -4276,10 +4290,10 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
                 r#"<callers of="Engine::refresh_paths_limit" matches="1">"#,
                 concat!(
                     r#"<match lang="rust" of="refresh_paths_limit" qn="Engine::refresh_paths_limit" "#,
-                    r#"loc="src/engine.rs:8" count="1" reach_band="low">"#,
+                    r#"loc="src/engine.rs:8-10" count="1" reach_band="low">"#,
                 ),
                 concat!(
-                    r#"<ref name="refresh" loc="src/state.rs:3" role="consumer" confidence="likely" hops="1" "#,
+                    r#"<ref name="refresh" loc="src/state.rs:3-8" role="consumer" confidence="likely" hops="1" "#,
                     r#"at="src/state.rs:4"/>"#,
                 ),
                 "</match>",
@@ -4292,7 +4306,7 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
                     r#"reach_band="low" unexpanded="1" ambiguous="1">"#,
                 ),
                 concat!(
-                    r#"<ref name="close" qn="Handle::close" loc="src/handle.rs:6" role="consumer" hops="1" "#,
+                    r#"<ref name="close" qn="Handle::close" loc="src/handle.rs:6-8" role="consumer" hops="1" "#,
                     r#"at="src/handle.rs:7"/>"#,
                 ),
                 "</match>",
@@ -4314,7 +4328,7 @@ fn find_callers_kept_to_one_role_still_counts_every_call_of_the_name_it_could_no
         [lines(&[
             r#"<callers of="Index::refresh_paths" role="consumer" matches="1">"#,
             &format!(
-                "<match lang=\"rust\" of=\"refresh_paths\" qn=\"Index::refresh_paths\" loc=\"src/index.rs:4\" \
+                "<match lang=\"rust\" of=\"refresh_paths\" qn=\"Index::refresh_paths\" loc=\"src/index.rs:4-6\" \
                  count=\"0\" reach_band=\"low\" ambiguous=\"2\" consumers=\"0\" tests=\"0\" entries=\"0\" \
                  generated=\"0\">{NO_CALL_BINDS}</match>"
             ),
@@ -4365,7 +4379,7 @@ fn the_impact_tools_count_the_calls_find_callers_could_not_bind() {
             lines(&[
                 r#"<impact of="src/cancel.rs" start_line="4" end_line="4" symbols="1">"#,
                 concat!(
-                    r#"<symbol name="cancel" qn="CancelToken::cancel" kind="method" lines="4-4" callers="0" "#,
+                    r#"<symbol name="cancel" qn="CancelToken::cancel" kind="method" lines="4" callers="0" "#,
                     r#"ambiguous="1" callees="0" reach="0" reach_files="1" reach_band="low" "#,
                     r#"sig="pub fn cancel(&self)"/>"#,
                 ),
@@ -4428,7 +4442,7 @@ fn the_impact_tools_reach_the_symbols_that_read_or_write_a_field() {
                 r#"reach="0" reach_files="0" reach_band="low"/>"#,
             ),
             concat!(
-                r#"<symbol name="Code" qn="wire.Error.Code" kind="field" lines="4-4" callers="0" users="3" "#,
+                r#"<symbol name="Code" qn="wire.Error.Code" kind="field" lines="4" callers="0" users="3" "#,
                 r#"callees="0" reach="4" reach_files="1" reach_band="low">"#,
             ),
         ][..],
@@ -4470,9 +4484,9 @@ fn the_impact_tools_reach_the_symbols_that_read_or_write_a_field() {
 /// The users of `wire.Error.Code` the impact tools list: the function that writes it and the two methods that read it.
 const CODE_USERS: [&str; 5] = [
     r#"<users shown="3" of="3">"#,
-    r#"<ref name="call" qn="wire.call" loc="wire/call.go:3" role="consumer" at="wire/call.go:4"/>"#,
-    r#"<ref name="Error" qn="wire.Error.Error" loc="wire/errors.go:7" role="consumer" at="wire/errors.go:8"/>"#,
-    r#"<ref name="Unwrap" qn="wire.Error.Unwrap" loc="wire/errors.go:11" role="consumer" at="wire/errors.go:12"/>"#,
+    r#"<ref name="call" qn="wire.call" loc="wire/call.go:3-5" role="consumer" at="wire/call.go:4"/>"#,
+    r#"<ref name="Error" qn="wire.Error.Error" loc="wire/errors.go:7-9" role="consumer" at="wire/errors.go:8"/>"#,
+    r#"<ref name="Unwrap" qn="wire.Error.Unwrap" loc="wire/errors.go:11-13" role="consumer" at="wire/errors.go:12"/>"#,
     "</users>",
 ];
 
@@ -4498,12 +4512,12 @@ fn impact_of_edit_lists_a_called_variable_s_callers_once_among_its_users() {
         [lines(&[
             r#"<impact of="hook/hook.go" start_line="3" end_line="3" symbols="1">"#,
             concat!(
-                r#"<symbol name="onDone" qn="hook.onDone" kind="variable" lines="3-3" callers="1" users="2" "#,
+                r#"<symbol name="onDone" qn="hook.onDone" kind="variable" lines="3" callers="1" users="2" "#,
                 r#"callees="0" reach="2" reach_files="0" reach_band="low">"#,
             ),
             r#"<users shown="2" of="2">"#,
-            r#"<ref name="Set" qn="hook.Set" loc="hook/hook.go:5" role="consumer" at="hook/hook.go:6"/>"#,
-            r#"<ref name="Fire" qn="hook.Fire" loc="hook/hook.go:9" role="consumer" at="hook/hook.go:10"/>"#,
+            r#"<ref name="Set" qn="hook.Set" loc="hook/hook.go:5-7" role="consumer" at="hook/hook.go:6"/>"#,
+            r#"<ref name="Fire" qn="hook.Fire" loc="hook/hook.go:9-11" role="consumer" at="hook/hook.go:10"/>"#,
             "</users>",
             "</symbol>",
             r#"<includes count="0"/>"#,
@@ -4593,15 +4607,15 @@ fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
             lines(&[
                 r#"<callees of="main" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5" count="2" "#,
+                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5-8" count="2" "#,
                     r#"unexpanded="2">"#,
                 ),
                 concat!(
-                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" hops="1" "#,
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10-12" role="consumer" hops="1" "#,
                     r#"at="cmd/app/main.go:7"/>"#,
                 ),
                 concat!(
-                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" hops="1" "#,
+                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7-9" role="consumer" hops="1" "#,
                     r#"at="cmd/app/main.go:6"/>"#,
                 ),
                 "</match>",
@@ -4610,25 +4624,25 @@ fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
             lines(&[
                 r#"<callees of="main" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5" count="3" "#,
+                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5-8" count="3" "#,
                     r#"unexpanded="1">"#,
                 ),
                 concat!(
-                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" hops="1" "#,
+                    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10-12" role="consumer" hops="1" "#,
                     r#"at="cmd/app/main.go:7"/>"#,
                 ),
                 concat!(
-                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7" role="consumer" hops="1" "#,
+                    r#"<ref name="New" qn="pkg.New" loc="pkg/service.go:7-9" role="consumer" hops="1" "#,
                     r#"at="cmd/app/main.go:6"/>"#,
                 ),
-                r#"<ref name="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" role="consumer" hops="2"/>"#,
+                r#"<ref name="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12-14" role="consumer" hops="2"/>"#,
                 "</match>",
                 "</callees>",
             ]),
             lines(&[
                 r#"<callees of="Greet" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12" count="0">"#,
+                    r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12-14" count="0">"#,
                     "no callees - no call in its body binds a definition the graph holds; a call into a library or a ",
                     "builtin, through a function value, or by dynamic dispatch binds none</match>",
                 ),
@@ -4637,7 +4651,10 @@ fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
             lines(&[
                 r#"<callees of="Gret" matches="0" one_edit="1">"#,
                 "no symbol matches - did you mean:",
-                r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" loc="pkg/service.go:12"/>"#,
+                concat!(
+                    r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" "#,
+                    r#"loc="pkg/service.go:12-14"/>"#,
+                ),
                 "</callees>",
             ]),
         ]
@@ -4673,7 +4690,7 @@ fn find_callees_counts_the_calls_that_bound_nothing_and_the_callees_below_the_fl
             lines(&[
                 r#"<callees of="Run" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5" count="1" unexpanded="1" "#,
+                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5-8" count="1" unexpanded="1" "#,
                     r#"unresolved="1">"#,
                 ),
                 concat!(
@@ -4686,7 +4703,7 @@ fn find_callees_counts_the_calls_that_bound_nothing_and_the_callees_below_the_fl
             lines(&[
                 r#"<callees of="Run" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5" count="0" below_confidence="1" "#,
+                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5-8" count="0" below_confidence="1" "#,
                     r#"unresolved="1">no callees at this confidence floor - 1 callee binds below it, and "#,
                     r#"min_confidence "any" lists it</match>"#,
                 ),
@@ -4761,7 +4778,7 @@ fn find_references_counts_the_sites_below_the_floor_and_names_it_only_where_it_d
             lines(&[
                 r#"<references of="Stop" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Stop" qn="lib.Stop" loc="stop.go:3" kind="function" count="0">no "#,
+                    r#"<match lang="go" of="Stop" qn="lib.Stop" loc="stop.go:3-5" kind="function" count="0">no "#,
                     "recorded site - resolved calls can omit dynamic or unresolved ones, and uses other than calls ",
                     "are recorded only where the graph records them, so this does not show that nothing uses the ",
                     "symbol</match>",
@@ -4841,7 +4858,7 @@ fn find_call_path_counts_the_callers_below_the_floor_that_it_did_not_follow() {
             lines(&[
                 r#"<call_path from="Run" to="helper" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" from="lib.Run" from_loc="run.go:3" to="lib.helper" to_loc="helper.go:3" "#,
+                    r#"<match lang="go" from="lib.Run" from_loc="run.go:3-5" to="lib.helper" to_loc="helper.go:3" "#,
                     r#"hops="0" max_hops="8" below_confidence="2" "#,
                     r#"found="false">no call chain within 8 calls at this confidence floor - 2 callers bind below "#,
                     r#"it, and min_confidence "any" follows them</match>"#,
@@ -4851,7 +4868,7 @@ fn find_call_path_counts_the_callers_below_the_floor_that_it_did_not_follow() {
             lines(&[
                 r#"<call_path from="Run" to="Stop" matches="1">"#,
                 concat!(
-                    r#"<match lang="go" from="lib.Run" from_loc="run.go:3" to="lib.Stop" to_loc="stop.go:3" "#,
+                    r#"<match lang="go" from="lib.Run" from_loc="run.go:3-5" to="lib.Stop" to_loc="stop.go:3-5" "#,
                     r#"hops="0" max_hops="8" below_confidence="1" "#,
                     r#"found="false">no call chain within 8 calls at this confidence floor - 1 caller binds below "#,
                     r#"it, and min_confidence "any" follows it</match>"#,
@@ -4877,7 +4894,7 @@ fn find_call_path_names_the_floor_only_where_it_dropped_callers() {
         [lines(&[
             r#"<call_path from="helper" to="Run" matches="1">"#,
             concat!(
-                r#"<match lang="go" from="lib.helper" from_loc="helper.go:3" to="lib.Run" to_loc="run.go:3" "#,
+                r#"<match lang="go" from="lib.helper" from_loc="helper.go:3" to="lib.Run" to_loc="run.go:3-5" "#,
                 r#"hops="0" max_hops="8" found="false">no call "#,
                 "chain within 8 calls - the graph misses dynamic and unresolved calls, so this does not show that ",
                 "the code holds none</match>",
@@ -4893,7 +4910,7 @@ const GREET_SEED: [&str; 5] = [
         r#"reach="2" reach_band="low">"#,
     ),
     r#"<callers shown="1" of="1">"#,
-    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10" role="consumer" at="cmd/app/main.go:11"/>"#,
+    r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10-12" role="consumer" at="cmd/app/main.go:11"/>"#,
     "</callers>",
     "</seed>",
 ];
@@ -4901,7 +4918,7 @@ const GREET_SEED: [&str; 5] = [
 const MAIN_HOTSPOT: [&str; 3] = [
     r#"<hotspots shown="1" of="1">"#,
     concat!(
-        r#"<hotspot name="main" qn="main.main" kind="function" loc="cmd/app/main.go:5" role="entry" "#,
+        r#"<hotspot name="main" qn="main.main" kind="function" loc="cmd/app/main.go:5-8" role="entry" "#,
         r#"reached_by="2" hops="1"/>"#,
     ),
     "</hotspots>",
@@ -4920,7 +4937,7 @@ fn impact_of_change_lists_the_changed_symbols_and_where_their_reaches_meet() {
             r#"reach="1" reach_band="low">"#,
         ),
         r#"<callers shown="1" of="1">"#,
-        r#"<ref name="main" qn="main.main" loc="cmd/app/main.go:5" role="entry" at="cmd/app/main.go:6"/>"#,
+        r#"<ref name="main" qn="main.main" loc="cmd/app/main.go:5-8" role="entry" at="cmd/app/main.go:6"/>"#,
         "</callers>",
         "</seed>",
     ];
@@ -6299,8 +6316,8 @@ fn find_references_reads_an_embedded_field_over_a_promoted_field_of_its_name() {
 
     let named_type = client.answer("find_references", &json!({"name": "base.Config"}));
     for expected in [
-        r#"name="use" qn="a.use" line="18" role="consumer" site="read""#,
-        r#"name="set" qn="a.set" line="20" role="consumer" site="write""#,
+        r#"name="use" qn="a.use" lines="18" role="consumer" site="read""#,
+        r#"name="set" qn="a.set" lines="20" role="consumer" site="write""#,
     ] {
         assert!(
             named_type.contains(expected),
@@ -6779,7 +6796,7 @@ fn references_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() 
                     r#"count="2" files="1" reads="2" passed_over="1">"#,
                 ),
                 r#"<file path="b/util/util.go" sites="2">"#,
-                r#"<ref name="Other" qn="util.Other" line="9" role="consumer" site="read" at="10,11"/>"#,
+                r#"<ref name="Other" qn="util.Other" lines="9-12" role="consumer" site="read" at="10,11"/>"#,
                 "</file>",
                 r#"<candidate name="Limit" qn="util.Limit" kind="variable" loc="a/util/util.go:3" sites="1"/>"#,
                 "</match>",
@@ -6792,7 +6809,7 @@ fn references_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() 
                     r#"count="1" files="1" reads="1">"#,
                 ),
                 r#"<file path="a/util/util.go" sites="1">"#,
-                r#"<ref name="Run" qn="util.Run" line="7" role="consumer" site="read" at="7"/>"#,
+                r#"<ref name="Run" qn="util.Run" lines="7" role="consumer" site="read" at="7"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
@@ -7210,7 +7227,7 @@ fn find_references_names_the_files_whose_top_level_reads_a_constant_and_sees_it(
                     r#"reads="1" file_scope="1">"#,
                 ),
                 r#"<file path="ts/b.ts" sites="1">"#,
-                r#"<ref name="f" line="4" role="consumer" site="read" at="5" confidence="likely"/>"#,
+                r#"<ref name="f" lines="4-6" role="consumer" site="read" at="5" confidence="likely"/>"#,
                 "</file>",
                 r#"<file_scope path="ts/b.ts" confidence="likely"/>"#,
                 "</match>",
@@ -7238,5 +7255,38 @@ fn find_references_names_the_files_whose_top_level_reads_a_constant_and_sees_it(
         ],
         "b.ts imports LIMIT and reads it at its top level, which no access filters and the floor counts with f's \
          read; c.ts sees no LIMIT"
+    );
+}
+
+#[test]
+fn find_implementations_locates_each_type_by_its_span() {
+    let answers = answers_over(
+        &[(
+            "shapes.ts",
+            "interface Shape {\n  area(): number;\n}\n\nclass Square implements Shape {\n  area() {\n    return 1;\n  \
+             }\n}\n\nclass Widget extends HTMLElement {\n  connect() {}\n}\n",
+        )],
+        &[
+            ("find_implementations", json!({"name": "Shape"})),
+            ("find_implementations", json!({"name": "HTMLElement"})),
+        ],
+    );
+
+    let types: Vec<Vec<&str>> = answers
+        .iter()
+        .map(|answer| {
+            answer
+                .lines()
+                .filter(|line| line.starts_with("<type "))
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        types,
+        [
+            vec![r#"<type name="Square" lang="jsts" loc="shapes.ts:5-9"/>"#],
+            vec![r#"<type name="Widget" lang="jsts" loc="shapes.ts:11-13"/>"#],
+        ],
+        "an implementor in the graph and one of a parent outside it each carry its span: {answers:?}"
     );
 }

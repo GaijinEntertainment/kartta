@@ -1299,11 +1299,11 @@ fn find_callers_walks_callers_with_the_line_of_each_call() {
     assert_eq!(
         client.answer("find_callers", &json!({"name": "Greet"})),
         "<callers of=\"Greet\" matches=\"1\">\n\
-         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12\" count=\"2\" \
+         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" count=\"2\" \
          reach_band=\"low\">\n\
-         <ref name=\"run\" qn=\"main.run\" loc=\"cmd/app/main.go:10\" role=\"consumer\" hops=\"1\" \
+         <ref name=\"run\" qn=\"main.run\" loc=\"cmd/app/main.go:10-12\" role=\"consumer\" hops=\"1\" \
          at=\"cmd/app/main.go:11\"/>\n\
-         <ref name=\"main\" qn=\"main.main\" loc=\"cmd/app/main.go:5\" role=\"entry\" hops=\"2\" \
+         <ref name=\"main\" qn=\"main.main\" loc=\"cmd/app/main.go:5-8\" role=\"entry\" hops=\"2\" \
          at=\"cmd/app/main.go:7\"/>\n\
          </match>\n\
          </callers>"
@@ -1314,7 +1314,7 @@ fn find_callers_walks_callers_with_the_line_of_each_call() {
             &json!({"name": "Greet", "hops": 1, "role": "entry"})
         ),
         "<callers of=\"Greet\" role=\"entry\" matches=\"1\">\n\
-         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12\" count=\"1\" \
+         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" count=\"1\" \
          reach_band=\"low\" unexpanded=\"1\" consumers=\"1\" tests=\"0\" entries=\"0\" generated=\"0\"/>\n\
          </callers>"
     );
@@ -1330,7 +1330,8 @@ fn find_callers_offers_alternatives_to_an_unknown_name() {
         client.answer("find_callers", &json!({"name": "Gret"})),
         "<callers of=\"Gret\" matches=\"0\" one_edit=\"1\">\n\
          no symbol matches - did you mean:\n\
-         <suggestion name=\"Greet\" qn=\"pkg.Service.Greet\" kind=\"method\" lang=\"go\" loc=\"pkg/service.go:12\"/>\n\
+         <suggestion name=\"Greet\" qn=\"pkg.Service.Greet\" kind=\"method\" lang=\"go\" \
+         loc=\"pkg/service.go:12-14\"/>\n\
          </callers>"
     );
     assert_eq!(

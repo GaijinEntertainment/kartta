@@ -11,8 +11,8 @@ use kartta::{
 
 use super::{
     Asked, Graphless, LIMIT_CUT, Unbuilt, Unmatched, candidate, candidates_cut, confidence,
-    edge_role, empty_languages_note, file_element, fixed_cut, flat, kind, loc, named, noted, qn,
-    role, span, unresolved,
+    edge_role, empty_languages_note, file_element, fixed_cut, flat, kind, lines, loc, named, noted,
+    qn, role, span, unresolved,
 };
 use crate::llmxml::Element;
 
@@ -90,7 +90,7 @@ fn candidates(
 fn edge(tag: &'static str, reached: &Reached<'_>) -> Element {
     let symbol = &reached.symbol;
     named(tag, symbol)
-        .attr("loc", loc(symbol.file, symbol.line))
+        .attr("loc", span(symbol))
         .attr("role", edge_role(symbol.flags))
         .optional("confidence", confidence(reached.confidence))
         .optional(
@@ -154,9 +154,9 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
     let element = Element::new("match")
         .attr("lang", family)
         .attr("from", path.from.qualified_name)
-        .attr("from_loc", loc(path.from.file, path.from.line))
+        .attr("from_loc", span(&path.from))
         .attr("to", path.to.qualified_name)
-        .attr("to_loc", loc(path.to.file, path.to.line))
+        .attr("to_loc", span(&path.to))
         .attr("hops", path.hops.len())
         .attr("max_hops", ask.hops)
         .flag("truncated", path.truncated)
@@ -574,12 +574,12 @@ fn by_file(sites: &[Reference<'_>]) -> Vec<Range<usize>> {
 
 fn site_record(record: &SiteRecord<'_>) -> String {
     let enclosing = &record.enclosing;
-    let lines: Vec<String> = record.lines.iter().map(u32::to_string).collect();
+    let at: Vec<String> = record.lines.iter().map(u32::to_string).collect();
     named("ref", enclosing)
-        .attr("line", enclosing.line)
+        .attr("lines", lines(enclosing))
         .attr("role", edge_role(enclosing.flags))
         .attr("site", record.site)
-        .attr("at", lines.join(","))
+        .attr("at", at.join(","))
         .optional("confidence", record.band)
         .close()
 }
@@ -791,10 +791,7 @@ fn segment_symbol(
     let blast = &symbol.blast;
     named("symbol", definition)
         .attr("kind", kind(definition.kind))
-        .attr(
-            "lines",
-            format!("{}-{}", definition.line, definition.end_line),
-        )
+        .attr("lines", lines(definition))
         .attr("callers", symbol.callers.total)
         .count("users", symbol.users.total)
         .count("ambiguous", symbol.ambiguous)
@@ -977,7 +974,7 @@ fn hotspot(hotspot: &Hotspot<'_>) -> String {
     let symbol = &hotspot.symbol;
     named("hotspot", symbol)
         .attr("kind", kind(symbol.kind))
-        .attr("loc", loc(symbol.file, symbol.line))
+        .attr("loc", span(symbol))
         .attr("role", edge_role(symbol.flags))
         .attr("reached_by", hotspot.hit_count)
         .attr("hops", hotspot.min_depth)
@@ -1226,7 +1223,7 @@ fn match_of(family: &str, symbol: &Definition<'_>) -> Element {
         .attr("lang", family)
         .attr("of", symbol.name)
         .optional("qn", qn(symbol))
-        .attr("loc", loc(symbol.file, symbol.line))
+        .attr("loc", span(symbol))
 }
 
 /// The note of an answer the confidence floor emptied: `empty` at the floor, then the `dropped` records that bind below
