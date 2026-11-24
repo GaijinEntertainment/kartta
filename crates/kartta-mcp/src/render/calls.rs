@@ -5,8 +5,8 @@ use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Conventions, Definition, DirectCalls, EngineChange, FileScope, Hotspot,
-    ReachBand, Reached, Reference, References, Seed, Segment, SegmentSymbol, Selector, SelfCall,
-    SymbolKind, TypeUses, Walk,
+    Reached, Reference, References, Seed, Segment, SegmentSymbol, Selector, SelfCall, SymbolKind,
+    TypeUses, Walk,
 };
 
 use super::{
@@ -1062,10 +1062,6 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
     let element = match_of(family, root)
         .attr("count", reached)
         .optional("shown", (kept > listed).then_some(listed))
-        .attr(
-            "reach_band",
-            ReachBand::of(reached, root.kind, root.exported).label(),
-        )
         .flag("truncated", walk.truncated)
         .count("turned_away", walk.turned_away)
         .count("unexpanded", walk.unexpanded)

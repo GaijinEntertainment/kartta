@@ -3369,7 +3369,7 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
             lines(&[
                 r#"<callers of="setup" matches="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" count="0" reach_band="low" "#,
+                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" count="0" "#,
                     r#"file_scope="1">"#,
                 ),
                 r#"<file_scope path="bin/run.sh"/>"#,
@@ -3379,7 +3379,7 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
             lines(&[
                 r#"<callers of="shared" matches="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" count="0" reach_band="low" "#,
+                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" count="0" "#,
                     r#"file_scope="1">"#,
                 ),
                 r#"<file_scope path="bin/run.sh" confidence="likely"/>"#,
@@ -3389,7 +3389,7 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
             lines(&[
                 r#"<callers of="shared" matches="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" count="0" reach_band="low" "#,
+                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" count="0" "#,
                     r#"below_confidence="1">no callers at this confidence floor - 1 caller binds below it, and "#,
                     r#"min_confidence "any" lists it</match>"#,
                 ),
@@ -3398,7 +3398,7 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
             lines(&[
                 r#"<callers of="setup" role="entry" matches="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" count="0" reach_band="low" "#,
+                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" count="0" "#,
                     r#"file_scope="1" consumers="0" tests="0" entries="0" generated="0"/>"#,
                 ),
                 "</callers>",
@@ -3514,10 +3514,7 @@ fn find_callers_lists_the_nearest_callers_up_to_its_limit_and_counts_every_one()
     );
 
     let (cut, whole) = (&answers[0], &answers[1]);
-    assert!(
-        cut.contains(r#"count="102" shown="100" reach_band="#),
-        "{cut}"
-    );
+    assert!(cut.contains(r#"count="102" shown="100""#), "{cut}");
     assert_eq!(cut.matches("<ref ").count(), 100, "{cut}");
     assert!(
         !cut.contains(r#"hops="2""#),
@@ -3527,7 +3524,11 @@ fn find_callers_lists_the_nearest_callers_up_to_its_limit_and_counts_every_one()
         cut.ends_with(&format!("\n{LIMIT_CUT}\n</match>\n</callers>")),
         "{cut}"
     );
-    assert!(whole.contains(r#"count="102" reach_band="#), "{whole}");
+    assert!(whole.contains(r#"count="102""#), "{whole}");
+    assert!(
+        !cut.contains("reach_band") && !whole.contains("reach_band"),
+        "{cut}\n{whole}"
+    );
     assert_eq!(whole.matches("<ref ").count(), 102, "{whole}");
     assert!(whole.contains(r#"hops="2""#), "{whole}");
     assert!(!whole.contains(LIMIT_CUT), "{whole}");
@@ -3556,8 +3557,7 @@ fn find_callers_spends_its_limit_on_the_callers_its_role_keeps() {
 
     let answer = &answers[0];
     assert!(
-        answer.contains(r#"count="4" shown="1" reach_band="#)
-            && answer.contains(r#"consumers="2" tests="2""#),
+        answer.contains(r#"count="4" shown="1""#) && answer.contains(r#"consumers="2" tests="2""#),
         "{answer}"
     );
     let refs: Vec<&str> = answer
@@ -3591,7 +3591,7 @@ fn find_callers_says_how_many_callers_bind_below_the_floor_in_place_of_a_verdict
         [lines(&[
             r#"<callers of="helper" matches="1">"#,
             concat!(
-                r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:3" count="0" reach_band="low" "#,
+                r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:3" count="0" "#,
                 r#"below_confidence="2">no callers at this confidence floor - 2 callers bind below it, and "#,
                 r#"min_confidence "any" lists them</match>"#,
             ),
@@ -3629,7 +3629,7 @@ fn find_callers_find_callees_and_find_references_agree_on_a_function_that_calls_
         lines(&[
             r#"<callers of="walk" matches="1">"#,
             &format!(
-                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" count="1" reach_band="low"{unexpanded}>"#
+                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" count="1"{unexpanded}>"#
             ),
             r#"<self_call at="7"/>"#,
             r#"<ref name="Run" qn="lib.Run" loc="walk.go:10-12" role="consumer" hops="1" at="11"/>"#,
@@ -3682,7 +3682,7 @@ fn a_function_that_calls_itself_alone_has_no_caller_and_no_callee_but_itself() {
         [
             lines(&[
                 r#"<callers of="spin" matches="1">"#,
-                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14-16" count="0" reach_band="low">"#,
+                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14-16" count="0">"#,
                 "no callers but itself - entry point, dead code, or dynamic dispatch",
                 r#"<self_call at="15"/>"#,
                 "</match>",
@@ -3787,10 +3787,7 @@ fn find_callers_lists_a_call_through_an_interface_the_owner_implements() {
         [
             lines(&[
                 r#"<callers of="App\\Kernel::boot" matches="1">"#,
-                concat!(
-                    r#"<match lang="php" of="boot" qn="App\\Kernel::boot" loc="src/A.php:7" count="1" "#,
-                    r#"reach_band="low">"#,
-                ),
+                r#"<match lang="php" of="boot" qn="App\\Kernel::boot" loc="src/A.php:7" count="1">"#,
                 concat!(
                     r#"<ref name="start" qn="App\\Holder::start" loc="src/A.php:17" role="consumer" "#,
                     r#"through="App\\Runs::boot" hops="1" at="17"/>"#,
@@ -3800,10 +3797,7 @@ fn find_callers_lists_a_call_through_an_interface_the_owner_implements() {
             ]),
             lines(&[
                 r#"<callers of="runs.Kernel.Boot" matches="1">"#,
-                concat!(
-                    r#"<match lang="go" of="Boot" qn="runs.Kernel.Boot" loc="go/runs.go:7" count="1" "#,
-                    r#"reach_band="low">"#,
-                ),
+                r#"<match lang="go" of="Boot" qn="runs.Kernel.Boot" loc="go/runs.go:7" count="1">"#,
                 concat!(
                     r#"<ref name="start" qn="runs.start" loc="go/runs.go:14" role="consumer" "#,
                     r#"through="runs.Runs.Boot" hops="1" at="14"/>"#,
@@ -3813,10 +3807,7 @@ fn find_callers_lists_a_call_through_an_interface_the_owner_implements() {
             ]),
             lines(&[
                 r#"<callers of="Kernel.boot" languages="jsts" matches="1">"#,
-                concat!(
-                    r#"<match lang="jsts" of="boot" qn="Kernel.boot" loc="ts/runs.ts:2" count="1" "#,
-                    r#"reach_band="low">"#,
-                ),
+                r#"<match lang="jsts" of="boot" qn="Kernel.boot" loc="ts/runs.ts:2" count="1">"#,
                 concat!(
                     r#"<ref name="start" loc="ts/runs.ts:3" role="consumer" through="Runs.boot" hops="1" "#,
                     r#"at="3"/>"#,
@@ -4254,7 +4245,7 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
         lines(&[
             &format!(r#"<callers of="{qn}" matches="1">"#),
             &format!(
-                "<match lang=\"rust\" of=\"{of}\" qn=\"{qn}\" loc=\"{loc}\" count=\"0\" reach_band=\"low\" \
+                "<match lang=\"rust\" of=\"{of}\" qn=\"{qn}\" loc=\"{loc}\" count=\"0\" \
                  ambiguous=\"{}\">{NO_CALL_BINDS}</match>",
                 if of == "cancel" { 1 } else { 2 }
             ),
@@ -4271,7 +4262,7 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
                 r#"<callers of="CancelToken::is_cancelled" matches="1">"#,
                 concat!(
                     r#"<match lang="rust" of="is_cancelled" qn="CancelToken::is_cancelled" loc="src/cancel.rs:6-8" "#,
-                    r#"count="1" reach_band="low" unexpanded="1">"#,
+                    r#"count="1" unexpanded="1">"#,
                 ),
                 concat!(
                     r#"<ref name="stop" loc="src/run.rs:3-6" role="consumer" confidence="likely" hops="1" "#,
@@ -4284,7 +4275,7 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
                 r#"<callers of="Engine::refresh_paths_limit" matches="1">"#,
                 concat!(
                     r#"<match lang="rust" of="refresh_paths_limit" qn="Engine::refresh_paths_limit" "#,
-                    r#"loc="src/engine.rs:8-10" count="1" reach_band="low">"#,
+                    r#"loc="src/engine.rs:8-10" count="1">"#,
                 ),
                 concat!(
                     r#"<ref name="refresh" loc="src/state.rs:3-8" role="consumer" confidence="likely" hops="1" "#,
@@ -4297,7 +4288,7 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
                 r#"<callers of="Handle::cancel" matches="1">"#,
                 concat!(
                     r#"<match lang="rust" of="cancel" qn="Handle::cancel" loc="src/handle.rs:4" count="1" "#,
-                    r#"reach_band="low" unexpanded="1" ambiguous="1">"#,
+                    r#"unexpanded="1" ambiguous="1">"#,
                 ),
                 concat!(
                     r#"<ref name="close" qn="Handle::close" loc="src/handle.rs:6-8" role="consumer" hops="1" "#,
@@ -4323,7 +4314,7 @@ fn find_callers_kept_to_one_role_still_counts_every_call_of_the_name_it_could_no
             r#"<callers of="Index::refresh_paths" role="consumer" matches="1">"#,
             &format!(
                 "<match lang=\"rust\" of=\"refresh_paths\" qn=\"Index::refresh_paths\" loc=\"src/index.rs:4-6\" \
-                 count=\"0\" reach_band=\"low\" ambiguous=\"2\" consumers=\"0\" tests=\"0\" entries=\"0\" \
+                 count=\"0\" ambiguous=\"2\" consumers=\"0\" tests=\"0\" entries=\"0\" \
                  generated=\"0\">{NO_CALL_BINDS}</match>"
             ),
             "</callers>",
@@ -4803,14 +4794,14 @@ fn find_callers_names_the_floor_only_where_it_dropped_callers() {
                 r#"<callers of="CancelToken::cancel" matches="1">"#,
                 &format!(
                     "<match lang=\"rust\" of=\"cancel\" qn=\"CancelToken::cancel\" loc=\"src/cancel.rs:4\" \
-                     count=\"0\" reach_band=\"low\" ambiguous=\"1\">{NO_CALL_BINDS}</match>"
+                     count=\"0\" ambiguous=\"1\">{NO_CALL_BINDS}</match>"
                 ),
                 "</callers>",
             ]),
             lines(&[
                 r#"<callers of="CancelToken" matches="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="CancelToken" loc="src/cancel.rs:1" count="0" reach_band="low">no "#,
+                    r#"<match lang="rust" of="CancelToken" loc="src/cancel.rs:1" count="0">no "#,
                     "callers - the graph holds no call that names this struct; find_references lists its recorded ",
                     "uses</match>",
                 ),
@@ -6537,7 +6528,7 @@ fn a_name_several_symbols_share_lists_the_others_and_a_path_prefix_picks_one() {
                 r#"<callers of="util.Parse" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Parse" qn="util.Parse" loc="a/util/util.go:3" count="2" "#,
-                    r#"reach_band="low" unexpanded="2" passed_over="1">"#,
+                    r#"unexpanded="2" passed_over="1">"#,
                 ),
                 r#"<ref name="One" qn="util.One" loc="a/util/util.go:5" role="consumer" hops="1" at="5"/>"#,
                 r#"<ref name="Two" qn="util.Two" loc="a/util/util.go:7" role="consumer" hops="1" at="7"/>"#,
@@ -6549,7 +6540,7 @@ fn a_name_several_symbols_share_lists_the_others_and_a_path_prefix_picks_one() {
                 r#"<callers of="util.Parse" matches="1">"#,
                 concat!(
                     r#"<match lang="go" of="Parse" qn="util.Parse" loc="b/util/util.go:3" count="1" "#,
-                    r#"reach_band="low" unexpanded="1">"#,
+                    r#"unexpanded="1">"#,
                 ),
                 concat!(
                     r#"<ref name="Three" qn="util.Three" loc="b/util/util.go:5" role="consumer" hops="1" "#,
@@ -6649,7 +6640,7 @@ fn a_line_picks_one_of_several_symbols_of_a_name_in_one_file() {
             lines(&[
                 r#"<callers of="S::m" languages="cpp" matches="1">"#,
                 concat!(
-                    r#"<match lang="cpp" of="m" qn="S::m" loc="o.cpp:14" count="0" reach_band="low">"#,
+                    r#"<match lang="cpp" of="m" qn="S::m" loc="o.cpp:14" count="0">"#,
                     "no callers - entry point, dead code, or dynamic dispatch</match>",
                 ),
                 "</callers>",

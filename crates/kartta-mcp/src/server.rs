@@ -1359,7 +1359,9 @@ impl Server {
                        users= and, in place of <callers>, a <users> list of the symbols that read, write or call it \
                        where its language records those uses (find_references lists every site), and the reach (how \
                        many symbols across how many files transitively depend on it within 3 hops, a field's or a \
-                       value's users and their callers included, with a reach-band grade; truncated=true when the \
+                       value's users and their callers included, graded in reach_band: low \
+                       under 10, medium 10 to 49, high 50 to 199 or from 20 for an exported symbol, and critical from \
+                       200 or from 50 for an interface; truncated=true when the \
                        500-symbol cap stopped the walk) - plus <includes> and <included-by> file lists, each counting \
                        every file and listing the first 'limit' in path order, with shown= when the limit cut it. A \
                        range covering only file-scope code (imports, comments) reports zero symbols and still lists \
@@ -1408,7 +1410,9 @@ impl Server {
                        envelope: changed_symbols and changed_files, the footprint (every symbol the changed symbols' \
                        callers reach within 3 hops, each once) and footprint_files; a <seeds> list of the changed \
                        symbols, widest reach first and test/entry/generated code last, each <seed> with its loc span, \
-                       direct callers count, reach and reach_band, its direct callers as <ref/> records with at= the \
+                       direct callers count, reach and reach_band, the reach's grade (low under 10, medium 10 to 49, \
+                       high 50 to 199 or from 20 for an exported symbol, and critical from 200 or from 50 for an \
+                       interface), its direct callers as <ref/> records with at= the \
                        line of the call in the caller's own file and through= as find_callers marks it (at most 10, \
                        in <callers shown= of=>), \
                        or past 30 callers their directories \
@@ -1519,10 +1523,10 @@ impl Server {
                        a name resolving in several languages yields one match per language. Returns a <callers> \
                        envelope of <match lang=..> records: each the resolved symbol with its loc (file:start-end, \
                        its span, or file:line for one line), the caller count \
-                       within the hops limit, a reach-band grade, and flat <ref hops=N> records (hops=1 = direct, \
+                       within the hops limit, and flat <ref hops=N> records (hops=1 = direct, \
                        caller-ward distance from the target), nearest first and at most 'limit' (default 100), where \
-                       shown= on the match and a line after the refs say the limit cut them and count= and the grade \
-                       still count every caller, each \
+                       shown= on the match and a line after the refs say the limit cut them and count= still counts \
+                       every caller, each \
                        carrying the caller's loc, at= for the line of its call in the caller's own file, \
                        and an explicit role= (\"consumer\" for a real caller, or test/entry/generated for a reach \
                        artifact); 'role' keeps the callers of one role - the root then echoes role= and each <match> \
@@ -1541,7 +1545,7 @@ impl Server {
                        recursion, or a call of a namesake the graph bound to the symbol itself - is one <self_call \
                        at=../> record, at= a line of the match's file, ahead of the refs, with the same confidence \
                        mark, whatever 'role' keeps; count= \
-                       and the reach band leave it out, and a caller further out that calls itself is listed once, as \
+                       leaves it out, and a caller further out that calls itself is listed once, as \
                        every caller is. \
                        A <match> also counts what the walk left out, \
                        each only when it is not zero: passed_over= the other symbols the name selects (the most \
