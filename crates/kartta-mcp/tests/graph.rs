@@ -790,7 +790,7 @@ fn find_call_path_and_find_references_follow_the_calls() {
                 r#"<call_path from="main" to="Greet" matches="1">"#,
                 concat!(
                     r#"<match lang="go" from="main.main" from_loc="cmd/app/main.go:5-8" to="pkg.Service.Greet" "#,
-                    r#"to_loc="pkg/service.go:12-14" hops="0" max_hops="1" "#,
+                    r#"to_loc="pkg/service.go:12-14" max_hops="1" "#,
                     r#"at_depth_bound="1" found="false">no call chain within 1 calls - the graph misses dynamic "#,
                     "and unresolved calls, so this does not show that the code holds none</match>",
                 ),
@@ -4853,7 +4853,7 @@ fn find_call_path_counts_the_callers_below_the_floor_that_it_did_not_follow() {
                 r#"<call_path from="Run" to="helper" matches="1">"#,
                 concat!(
                     r#"<match lang="go" from="lib.Run" from_loc="run.go:3-5" to="lib.helper" to_loc="helper.go:3" "#,
-                    r#"hops="0" max_hops="8" below_confidence="2" "#,
+                    r#"max_hops="8" below_confidence="2" "#,
                     r#"found="false">no call chain within 8 calls at this confidence floor - 2 callers bind below "#,
                     r#"it, and min_confidence "any" follows them</match>"#,
                 ),
@@ -4863,9 +4863,40 @@ fn find_call_path_counts_the_callers_below_the_floor_that_it_did_not_follow() {
                 r#"<call_path from="Run" to="Stop" matches="1">"#,
                 concat!(
                     r#"<match lang="go" from="lib.Run" from_loc="run.go:3-5" to="lib.Stop" to_loc="stop.go:3-5" "#,
-                    r#"hops="0" max_hops="8" below_confidence="1" "#,
+                    r#"max_hops="8" below_confidence="1" "#,
                     r#"found="false">no call chain within 8 calls at this confidence floor - 1 caller binds below "#,
                     r#"it, and min_confidence "any" follows it</match>"#,
+                ),
+                "</call_path>",
+            ]),
+        ]
+    );
+}
+
+#[test]
+fn find_call_path_writes_hops_for_a_chain_alone_and_zero_for_one_symbol() {
+    let answers = answers(&[
+        ("find_call_path", json!({"from": "Greet", "to": "Greet"})),
+        ("find_call_path", json!({"from": "Greet", "to": "main"})),
+    ]);
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<call_path from="Greet" to="Greet" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" from="pkg.Service.Greet" from_loc="pkg/service.go:12-14" "#,
+                    r#"to="pkg.Service.Greet" to_loc="pkg/service.go:12-14" hops="0" max_hops="8"/>"#,
+                ),
+                "</call_path>",
+            ]),
+            lines(&[
+                r#"<call_path from="Greet" to="main" matches="1">"#,
+                concat!(
+                    r#"<match lang="go" from="pkg.Service.Greet" from_loc="pkg/service.go:12-14" to="main.main" "#,
+                    r#"to_loc="cmd/app/main.go:5-8" max_hops="8" found="false">no call chain within 8 calls - the "#,
+                    "graph misses dynamic and unresolved calls, so this does not show that the code holds none</match>",
                 ),
                 "</call_path>",
             ]),
@@ -4889,7 +4920,7 @@ fn find_call_path_names_the_floor_only_where_it_dropped_callers() {
             r#"<call_path from="helper" to="Run" matches="1">"#,
             concat!(
                 r#"<match lang="go" from="lib.helper" from_loc="helper.go:3" to="lib.Run" to_loc="run.go:3-5" "#,
-                r#"hops="0" max_hops="8" found="false">no call "#,
+                r#"max_hops="8" found="false">no call "#,
                 "chain within 8 calls - the graph misses dynamic and unresolved calls, so this does not show that ",
                 "the code holds none</match>",
             ),
@@ -7068,7 +7099,7 @@ fn a_call_path_from_a_shared_name_starts_where_from_path_prefix_picks() {
                 r#"<call_path from="util.Run" to="util.Check" matches="1">"#,
                 concat!(
                     r#"<match lang="go" from="util.Run" from_loc="a/util/util.go:7" to="util.Check" "#,
-                    r#"to_loc="b/util/util.go:5" hops="0" max_hops="8" passed_over_from="1" found="false">"#,
+                    r#"to_loc="b/util/util.go:5" max_hops="8" passed_over_from="1" found="false">"#,
                 ),
                 concat!(
                     "no call chain within 8 calls - the graph misses dynamic and unresolved calls, so this does not ",
