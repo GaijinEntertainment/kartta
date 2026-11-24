@@ -66,7 +66,7 @@ miniz_oxide 0.9.1                          MIT OR Zlib OR Apache-2.0  [kartta-ff
 napi 3.16.2                                MIT  [kartta-node]
 napi-sys 3.4.1                             MIT  [kartta-node]
 nohash-hasher 0.2.0                        Apache-2.0 OR MIT  [kartta-node]
-notify 9.0.0-rc.9                          CC0-1.0  [kartta-ffi, kartta-node]
+notify 9.0.0                               CC0-1.0  [kartta-ffi, kartta-node]
 notify-types 2.3.1                         MIT OR Apache-2.0  [kartta-ffi, kartta-node]
 objc2-core-foundation 0.3.2                Zlib OR Apache-2.0 OR MIT  [kartta-ffi, kartta-node]
 objc2-core-services 0.3.2                  Zlib OR Apache-2.0 OR MIT  [kartta-ffi, kartta-node]
@@ -4364,7 +4364,7 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-notify 9.0.0-rc.9 (LICENSE-CC0)
+notify 9.0.0 (LICENSE-CC0)
 ================================================================================
 
 Creative Commons CC0 1.0 Universal

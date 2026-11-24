@@ -100,7 +100,7 @@ lost, and what would reopen it.
 - [1.20 Watch on Linux each directory the index keeps, from the walk that keeps it](/design-docs/adr/1.20-linux-directory-watches.md)
 - [1.21 Bound a Linux drain by the most events its queue can hold](/design-docs/adr/1.21-linux-drain-bound.md)
 - [1.22 Make the inotify watch map anew when it is short of room](/design-docs/adr/1.22-inotify-watch-map.md)
-- [1.23 Ship kartta-fs on the newest notify release candidate](/design-docs/adr/1.23-notify-version.md)
+- [1.23 Ship kartta-fs on notify 9 under a caret requirement](/design-docs/adr/1.23-notify-version.md)
 - [1.24 Watch the macOS data volume through its firmlinks in one stream](/design-docs/adr/1.24-macos-firmlink-watch.md)
 - [1.25 Queue macOS and Windows notifications in a vector that grows](/design-docs/adr/1.25-notification-queue.md)
 - [1.26 Hold a path a notification in a batch, each at its length](/design-docs/adr/1.26-batch-path-memory.md)
