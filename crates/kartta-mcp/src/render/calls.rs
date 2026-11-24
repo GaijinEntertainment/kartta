@@ -157,7 +157,7 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
         .attr("from_loc", span(&path.from))
         .attr("to", path.to.qualified_name)
         .attr("to_loc", span(&path.to))
-        .attr("hops", path.hops.len())
+        .optional("hops", path.found.then_some(path.hops.len()))
         .attr("max_hops", ask.hops)
         .flag("truncated", path.truncated)
         .count("turned_away", path.turned_away)
