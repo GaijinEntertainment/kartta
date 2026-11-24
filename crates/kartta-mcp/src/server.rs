@@ -1136,7 +1136,8 @@ impl Server {
                        language unless narrowed with 'languages'; a pair resolving in several languages yields one \
                        match per language. Returns a <call_path> envelope of <match lang=..> records: each the \
                        resolved from and to with from_loc and to_loc (file:start-end, each one's span, or \
-                       file:line for one line), the chain length in hops and the searched bound in max_hops, and one \
+                       file:line for one line), the chain length in hops, which a match without a chain leaves \
+                       out, the searched bound in max_hops, and one \
                        <ref> per caller in call order - the last one calls to - each carrying loc= the caller's span, \
                        at= the line in the caller's own file where it calls the next symbol, an explicit role=, a \
                        confidence=likely / guess mark on a weakly resolved hop, and through= the interface, trait or \
