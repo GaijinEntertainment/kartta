@@ -52,12 +52,9 @@ impl<S, P: DeserializeOwned> FromContextPart<ToolCallContext<'_, S>> for Paramet
 #[derive(Debug, Clone, Copy, Default, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ConfidenceFloor {
-    /// Keep every edge, the ones bound by the name alone included.
     #[default]
     Any,
-    /// Keep the edges bound through the module layout (package, include, unique name, directory) and better.
     Likely,
-    /// Keep only the edges bound through structure: a qualified callee, a receiver, an import, the caller's own file.
     Certain,
 }
 
@@ -75,13 +72,9 @@ impl ConfidenceFloor {
 #[derive(Debug, Clone, Copy, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum CallerRole {
-    /// Ordinary code: no test, entry point or generated code.
     Consumer,
-    /// Test code.
     Test,
-    /// A program entry point.
     Entry,
-    /// Generated code.
     Generated,
 }
 
@@ -164,14 +157,13 @@ pub(crate) struct FindFilesParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCallersParams {
-    /// The symbol whose callers to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol
-    /// of that name; a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
-    /// TypeScript, "Service::greet" in Rust or C++) picks the callable it names; a bare name ("New") picks the unique
-    /// match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as=
-    /// names that reading. Where several share the name - a bare name, or overloads of one qualified name - the
-    /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
-    /// as <candidate/> records; check the match's loc, and pass a candidate's file as path_prefix and its line as line
-    /// to pick it. A blank name is a tool error.
+    /// The symbol whose callers to trace: a qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol of
+    /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
+    /// TypeScript, "Service::greet" in Rust or C++) the callable it names, and a bare name ("New") the unique match. A
+    /// name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names that
+    /// reading. Where several share the name - a bare name, or overloads of one qualified name - the most-called is
+    /// picked: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line as line to pick
+    /// another. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. It is how to reach one of
@@ -184,27 +176,20 @@ pub(crate) struct FindCallersParams {
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) line: Option<NonZeroU32>,
-    /// Optional language filter (multiselect). Omit to trace in every indexed language - a name resolving in several
-    /// graphs yields one match per language; narrow to the language the symbol is defined in when you know it, e.g.
-    /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
-    /// listing the accepted set. A valid name absent from this repo contributes no match. An empty list selects no
-    /// language, so the answer is empty. Null is equivalent to omission.
-    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
-    /// graph, and the answer's languages= names the families searched.
+    /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
+    /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
+    /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
+    /// absent from this repo adds nothing, and any other name is a tool error listing the accepted set.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
-    /// Caller-hop limit from 1 through 4294967295: 1 = direct callers only. Omitted or null uses the default 3.
-    /// Callers beyond this limit are not reached or counted; unexpanded= on a match counts the callers at the limit
-    /// whose own callers were not followed.
+    /// Caller-hop limit: 1 = direct callers only. Omitted or null uses the default 3. Callers beyond this limit are not
+    /// reached or counted; unexpanded= on a match counts the callers at the limit whose own callers were not followed.
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) hops: Option<NonZeroU32>,
-    /// Drop call edges the resolver is less sure about than this floor. "any" (the default) keeps every edge
-    /// including name-only guesses. "likely" keeps edges backed by
-    /// module structure (same package, include, unique name, same directory) and better; "certain" keeps only
-    /// structurally resolved edges (qualified, receiver, import, or same-file matches). Weak edges in answers are
-    /// marked with the same vocabulary (confidence="likely"/"guess" on <ref/> records), and below_confidence= on a
-    /// match counts the callers the floor dropped.
+    /// Drop the calls bound less surely than this floor: "any" (the default) keeps every one, "likely" drops those
+    /// bound by the name alone, and "certain" also those bound through the module layout (package, include, unique
+    /// name, directory). below_confidence= on a match counts the callers the floor dropped.
     #[serde(default)]
     pub(crate) min_confidence: Option<ConfidenceFloor>,
     /// Keep only the callers of this role: "consumer", "test", "entry", or "generated" - the role= value a <ref/>
@@ -214,8 +199,7 @@ pub(crate) struct FindCallersParams {
     #[serde(default)]
     pub(crate) role: Option<CallerRole>,
     /// Positive cap on the <ref/> records a match lists, nearest first, after 'role' keeps its callers. Omitted or null
-    /// = 100. Zero and negatives are rejected. total= still counts every caller the walk reached, and shown= with
-    /// truncated=true on a match says how many refs it lists when the cap cut them.
+    /// = 100. total= still counts every caller the walk reached.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -223,14 +207,13 @@ pub(crate) struct FindCallersParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCalleesParams {
-    /// The symbol whose callees to trace. A qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol
-    /// of that name; a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
-    /// TypeScript, "Service::greet" in Rust or C++) picks the callable it names; a bare name ("New") picks the unique
-    /// match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as=
-    /// names that reading. Where several share the name - a bare name, or overloads of one qualified name - the
-    /// most-called candidate is picked, the answer counts the others in passed_over and lists the most called of them
-    /// as <candidate/> records; check the match's loc, and pass a candidate's file as path_prefix and its line as line
-    /// to pick it. A blank name is a tool error.
+    /// The symbol whose callees to trace: a qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol of
+    /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
+    /// TypeScript, "Service::greet" in Rust or C++) the callable it names, and a bare name ("New") the unique match. A
+    /// name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names that
+    /// reading. Where several share the name - a bare name, or overloads of one qualified name - the most-called is
+    /// picked: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line as line to pick
+    /// another. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
@@ -242,27 +225,21 @@ pub(crate) struct FindCalleesParams {
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) line: Option<NonZeroU32>,
-    /// Optional language filter (multiselect). Omit to trace in every indexed language - a name resolving in several
-    /// graphs yields one match per language; narrow to the language the symbol is defined in when you know it, e.g.
-    /// ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
-    /// listing the accepted set. A valid name absent from this repo contributes no match. An empty list selects no
-    /// language, so the answer is empty. Null is equivalent to omission.
-    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
-    /// graph, and the answer's languages= names the families searched.
+    /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
+    /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
+    /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
+    /// absent from this repo adds nothing, and any other name is a tool error listing the accepted set.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
-    /// Callee-hop limit from 1 through 4294967295: 1 = direct callees only. Omitted or null uses the default 1. Each
-    /// hop multiplies the answer, so raise it only to follow a short chain. unexpanded= on a match counts the callees
-    /// at the limit whose own callees were not followed.
+    /// Callee-hop limit: 1 = direct callees only. Omitted or null uses the default 1. Each hop multiplies the answer,
+    /// so raise it only to follow a short chain. unexpanded= on a match counts the callees at the limit whose own
+    /// callees were not followed.
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) hops: Option<NonZeroU32>,
-    /// Drop call edges the resolver is less sure about than this floor. "any" (the default) keeps every edge
-    /// including name-only guesses. "likely" keeps edges backed by
-    /// module structure (same package, include, unique name, same directory) and better; "certain" keeps only
-    /// structurally resolved edges (qualified, receiver, import, or same-file matches). Weak edges in answers are
-    /// marked with the same vocabulary (confidence="likely"/"guess" on <ref/> records), and below_confidence= on a
-    /// match counts the callees the floor dropped.
+    /// Drop the calls bound less surely than this floor: "any" (the default) keeps every one, "likely" drops those
+    /// bound by the name alone, and "certain" also those bound through the module layout (package, include, unique
+    /// name, directory). below_confidence= on a match counts the callees the floor dropped.
     #[serde(default)]
     pub(crate) min_confidence: Option<ConfidenceFloor>,
 }
@@ -299,8 +276,8 @@ pub(crate) struct ImpactOfChangeParams {
     /// not read, the error naming its line.
     #[serde(default)]
     pub(crate) diff: Option<String>,
-    /// Positive cap on the changed symbols listed and, separately, on the hotspots listed. Omitted or null = 20. Zero
-    /// and negatives are rejected. The counts on the answer cover every one of them.
+    /// Positive cap on the changed symbols listed and, separately, on the hotspots listed. Omitted or null = 20. The
+    /// counts on the answer cover every one of them.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -308,12 +285,10 @@ pub(crate) struct ImpactOfChangeParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindUnusedParams {
-    /// Optional language filter (multiselect). Omit to judge every indexed language; narrow when you clean up one,
-    /// e.g. ["go"]. Lowercase language names - the set index_repo / index_stats report; anything else is a tool error
-    /// listing the accepted set. A valid name absent from this repo contributes nothing. An empty list selects no
-    /// language, so the answer is empty. Null is equivalent to omission.
-    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
-    /// graph, and the answer's languages= names the families searched.
+    /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
+    /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
+    /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
+    /// absent from this repo adds nothing, and any other name is a tool error listing the accepted set.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
     /// Repo-relative path prefix with forward slashes: only definitions in files whose path starts with it are judged
@@ -321,8 +296,8 @@ pub(crate) struct FindUnusedParams {
     /// judges the whole repository, which takes seconds on a large one.
     #[serde(default)]
     pub(crate) path_prefix: Option<String>,
-    /// Positive cap on the definitions listed. Omitted or null = 50. Zero and negatives are rejected. total= counts
-    /// every unused definition found whatever the cap.
+    /// Positive cap on the definitions listed. Omitted or null = 50. total= counts every unused definition found
+    /// whatever the cap.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -372,10 +347,10 @@ pub(crate) struct GrepParams {
     /// alone pass 40,000 bytes answer with no context.
     #[serde(default)]
     pub(crate) context_lines: Option<usize>,
-    /// Positive cap on match lines across all files, spent in file-path order. Omitted or null = 100. Zero and
-    /// negatives are rejected. Once the cap fills, the search reads on until one more match shows the cap cut the
-    /// answer, which then carries truncated="true"; unsearched= counts the files the answer does not cover from then
-    /// on, or once a cancel stopped the search.
+    /// Positive cap on match lines across all files, spent in file-path order. Omitted or null = 100. Once the cap
+    /// fills, the search reads on until one more match shows the cap cut the answer, which then carries
+    /// truncated="true"; unsearched= counts the files the answer does not cover from then on, or once a cancel stopped
+    /// the search.
     #[serde(default)]
     pub(crate) max_results: Option<NonZeroUsize>,
 }
@@ -388,12 +363,11 @@ pub(crate) struct ListDirParams {
     #[serde(default)]
     pub(crate) path: Option<String>,
     /// Positive number of directory levels to list. Omitted or null = 1: immediate children only. 2 adds their
-    /// children. Zero and negatives are rejected. A directory the listing did not enter carries unlisted= with the
-    /// count of entries beneath it.
+    /// children. A directory the listing did not enter carries unlisted= with the count of entries beneath it.
     #[serde(default)]
     pub(crate) max_depth: Option<NonZeroUsize>,
-    /// Positive cap on entries across all levels, spent in listing order. Omitted or null = 1000. Zero and negatives
-    /// are rejected. The answer carries truncated="true" when the cap cut it.
+    /// Positive cap on entries across all levels, spent in listing order. Omitted or null = 1000. The answer carries
+    /// truncated="true" when the cap cut it.
     #[serde(default)]
     pub(crate) max_entries: Option<NonZeroUsize>,
     /// Directory NAMES matched literally at any depth ("vendor", or "pkg/deep" for a deep under a pkg), never globs: a
@@ -417,16 +391,13 @@ pub(crate) struct FindSymbolsParams {
     /// config"; camelCase and snake_case split into words. A bare identifier works best; partial names match. A blank
     /// query is a tool error.
     pub(crate) query: String,
-    /// Optional language filter (multiselect). Omit to search every indexed language; name one or more to narrow when
-    /// you know where the symbol lives, e.g. ["go"] or ["jsts"]. Lowercase language names - the set
-    /// index_repo / index_stats report; anything else is a tool error listing the accepted set. A valid name absent
-    /// from this repo just contributes no hits. An empty list selects no language, so the answer is empty. Null is
-    /// equivalent to omission. A language of a family filters as the whole family, as typescript, tsx and javascript
-    /// each search the jsts graph, and the answer's languages= names the families searched.
+    /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
+    /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
+    /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
+    /// absent from this repo adds nothing, and any other name is a tool error listing the accepted set.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
-    /// Positive maximum hits across all searched languages. Omitted or null uses the default 20. Zero and negatives
-    /// are rejected.
+    /// Positive maximum hits across all searched languages. Omitted or null uses the default 20.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -438,10 +409,9 @@ pub(crate) struct FindCallPathParams {
     /// picks the symbol of that name; a name qualified by its owner with its language's separator ("Service.Greet" in
     /// Go, Python or TypeScript, "Service::greet" in Rust or C++) picks the callable it names; a bare name picks the
     /// unique match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and
-    /// from_read_as= names that reading. Where several share the name - a bare name, or overloads of one qualified
-    /// name - the most-called candidate is picked, and the answer counts the others in passed_over_from and lists the
-    /// most called of them as <candidate end="from"/> records; pass a candidate's file as from_path_prefix and its line
-    /// as from_line to pick it. A blank name is a tool error.
+    /// from_read_as= names that reading. Where several share the name, as a bare name or overloads of one qualified
+    /// name, the most-called is picked: pass a <candidate end="from"/>'s file as from_path_prefix and its line as
+    /// from_line to pick another. A blank name is a tool error.
     pub(crate) from: String,
     /// Repo-relative path prefix with forward slashes: from is picked only among the symbols in files whose path
     /// starts with it. Omitted picks from every file.
@@ -452,9 +422,8 @@ pub(crate) struct FindCallPathParams {
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) from_line: Option<NonZeroU32>,
-    /// The symbol the chain ends at: the last callee, named, read and picked the same way as from, its reading named
-    /// in to_read_as= and the others that share its name counted in passed_over_to and listed as <candidate end="to"/>
-    /// records, which to_path_prefix and to_line pick. A blank name is a tool error.
+    /// The symbol the chain ends at: the last callee, named, read and picked the same way as from, its reading named in
+    /// to_read_as=, and a <candidate end="to"/> picked by to_path_prefix and to_line. A blank name is a tool error.
     pub(crate) to: String,
     /// Repo-relative path prefix with forward slashes: to is picked only among the symbols in files whose path starts
     /// with it. Omitted picks from every file.
@@ -465,23 +434,19 @@ pub(crate) struct FindCallPathParams {
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) to_line: Option<NonZeroU32>,
-    /// Optional language filter (multiselect). Omit to search every indexed language - a pair resolving in several
-    /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
-    /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
-    /// match. An empty list selects no language, so the answer is empty. Null is equivalent to omission.
-    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
-    /// graph, and the answer's languages= names the families searched.
+    /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
+    /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
+    /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
+    /// absent from this repo adds nothing, and any other name is a tool error listing the accepted set.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
-    /// Longest chain searched, in calls, from 1 through 4294967295: 1 finds only a direct call. Omitted or null uses
-    /// the default 8.
+    /// Longest chain searched, in calls: 1 finds only a direct call. Omitted or null uses the default 8.
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) hops: Option<NonZeroU32>,
-    /// Drop call edges the resolver is less sure about than this floor, on every hop. "any" (the default) keeps every
-    /// edge including name-only guesses. "likely" keeps edges backed
-    /// by module structure and better; "certain" keeps only structurally resolved edges. Weak hops in answers are
-    /// marked confidence="likely" / "guess".
+    /// Drop the calls bound less surely than this floor: "any" (the default) keeps every one, "likely" drops those
+    /// bound by the name alone, and "certain" also those bound through the module layout (package, include, unique
+    /// name, directory). It holds on every hop.
     #[serde(default)]
     pub(crate) min_confidence: Option<ConfidenceFloor>,
 }
@@ -489,14 +454,13 @@ pub(crate) struct FindCallPathParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindReferencesParams {
-    /// The symbol whose uses to list. A qualified name from a find_symbols hit (e.g. "pkg.Config") picks the symbol of
-    /// that name; a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
-    /// TypeScript, "Service::greet" in Rust or C++) picks the symbol it names; a bare name picks the unique match. A
-    /// name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names
-    /// that reading. Where several share the name - a bare name, or overloads of one qualified name - the candidate
-    /// with the most recorded sites is picked, the answer counts the others in passed_over and lists the most used of
-    /// them as <candidate/> records; pass a candidate's file as path_prefix and its line as line to pick it. A blank
-    /// name is a tool error.
+    /// The symbol whose uses to list: a qualified name from a find_symbols hit (e.g. "pkg.Config") picks the symbol of
+    /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
+    /// TypeScript, "Service::greet" in Rust or C++) the symbol it names, and a bare name the unique match. A name that
+    /// selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names that reading.
+    /// Where several share the name - a bare name, or overloads of one qualified name - the one with the most recorded
+    /// sites is picked: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line as line to
+    /// pick another. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. Omitted picks from every
@@ -511,22 +475,18 @@ pub(crate) struct FindReferencesParams {
     pub(crate) line: Option<NonZeroU32>,
     /// Repo-relative path prefix with forward slashes: only the sites and the file_scope files in files whose path
     /// starts with it are listed, e.g. the directory of the files past the ones a match names. It narrows what is
-    /// listed, not the symbol picked, which path_prefix narrows. The counts on the match still count every site, and
-    /// excluded=, files_excluded= and file_scope_excluded= count the sites, the files and the file_scope files it left
-    /// out. Omitted lists from every file.
+    /// listed, not the symbol picked, which path_prefix narrows. Omitted lists from every file.
     #[serde(default)]
     pub(crate) sites_under: Option<String>,
-    /// Optional language filter (multiselect). Omit to search every indexed language - a name resolving in several
-    /// graphs yields one match per language. Lowercase language names - the set index_repo / index_stats report;
-    /// anything else is a tool error listing the accepted set. A valid name absent from this repo contributes no
-    /// match. An empty list selects no language, so the answer is empty. Null is equivalent to omission.
-    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
-    /// graph, and the answer's languages= names the families searched.
+    /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
+    /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
+    /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
+    /// absent from this repo adds nothing, and any other name is a tool error listing the accepted set.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
-    /// Drop sites the resolver is less sure about than this floor: "any" (the default) keeps every site, "likely"
-    /// keeps sites backed by module structure and better, "certain" keeps only structurally resolved sites.
-    /// below_confidence= on a match counts the sites and the file_scope files the floor dropped.
+    /// Drop the sites bound less surely than this floor: "any" (the default) keeps every one, "likely" drops those
+    /// bound by the name alone, and "certain" also those bound through the module layout (package, include, unique
+    /// name, directory). below_confidence= on a match counts the sites and the file_scope files the floor dropped.
     #[serde(default)]
     pub(crate) min_confidence: Option<ConfidenceFloor>,
     /// Keep only the uses that read the symbol ("read"), that set it ("write") or that name it as a type ("type"),
@@ -540,11 +500,8 @@ pub(crate) struct FindReferencesParams {
 #[derive(Debug, Clone, Copy, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum AccessFilter {
-    /// The uses that read the symbol: reads, updates and uses as a type.
     Read,
-    /// The uses that set the symbol: writes and updates.
     Write,
-    /// The uses that name the symbol as a type.
     Type,
 }
 
@@ -573,15 +530,13 @@ pub(crate) struct ReadDefinitionsParams {
     /// directory rank first. Omitted, every definition ranks as other or vendored.
     #[serde(default)]
     pub(crate) from: Option<String>,
-    /// Optional language filter (multiselect). Omit to read from every indexed language. Lowercase language names -
-    /// the set index_repo / index_stats report; anything else is a tool error listing the accepted set. A valid name
-    /// absent from this repo contributes no definitions. An empty list selects no language, so every name answers no
-    /// definition. Null is equivalent to omission.
-    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
-    /// graph, and the answer's languages= names the families searched.
+    /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
+    /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
+    /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
+    /// absent from this repo adds nothing, and any other name is a tool error listing the accepted set.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
-    /// Positive maximum definitions per name. Omitted or null uses 3. Zero and negatives are rejected.
+    /// Positive maximum definitions per name. Omitted or null uses 3.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -592,11 +547,9 @@ pub(crate) struct FindImplementationsParams {
     /// The interface / base class / trait / mixed-in module / type alias name, e.g. "Provider". Bare or qualified with
     /// its language's separator ("io.Reader" in Go, "ui::Widget" in Rust or C++); a name that selects nothing as
     /// written is read with each "." as "::", or each "::" as ".", and read_as= names that reading. Take the exact name
-    /// from a find_symbols hit when unsure. Where several types share the name, the most implemented is picked: the
-    /// answer names it in <root/>, counts the others in passed_over and lists the most implemented of them as
-    /// <candidate/> records, which path_prefix with a candidate's file and line with its line pick. A type alias
-    /// answers the types whose parent names the alias, not those whose parent names its target. A blank name is a
-    /// tool error.
+    /// from a find_symbols hit when unsure. Where several types share the name, the most implemented is picked: pass a
+    /// <candidate/>'s file as path_prefix and its line as line to pick another. A type alias answers the types whose
+    /// parent names the alias, not those whose parent names its target. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the types in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
@@ -608,12 +561,10 @@ pub(crate) struct FindImplementationsParams {
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) line: Option<NonZeroU32>,
-    /// Optional language filter (multiselect). Omit to query every indexed language; narrow when you know the
-    /// contract's language, e.g. ["go"]. Lowercase language names - the set index_repo / index_stats report; anything
-    /// else is a tool error listing the accepted set. A valid name absent from this repo contributes no results. An
-    /// empty list selects no language, so the answer is empty. Null is equivalent to omission.
-    /// A language of a family filters as the whole family, as typescript, tsx and javascript each search the jsts
-    /// graph, and the answer's languages= names the families searched.
+    /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
+    /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
+    /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
+    /// absent from this repo adds nothing, and any other name is a tool error listing the accepted set.
     #[serde(default)]
     pub(crate) languages: Option<Vec<String>>,
 }
@@ -624,9 +575,8 @@ pub(crate) struct FileOutlineParams {
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.
     pub(crate) file: String,
-    /// Positive cap on the <symbol/> records listed, the first in source order. Omitted or null = 100. Zero and
-    /// negatives are rejected. total= counts every definition of the file, and shown= with truncated=true says how many
-    /// are listed when the cap cut them.
+    /// Positive cap on the <symbol/> records listed, the first in source order. Omitted or null = 100. total= counts
+    /// every definition of the file.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -637,15 +587,14 @@ pub(crate) struct FindImportersParams {
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.
     pub(crate) file: String,
-    /// Import-hop limit from 1 through 4294967295: 1 = the files that import the file directly. Omitted or null uses
-    /// the default 3. Importers beyond this limit are not reached or counted; unexpanded= counts the importers at the
-    /// limit whose own importers were not followed.
+    /// Import-hop limit: 1 = the files that import the file directly. Omitted or null uses the default 3. Importers
+    /// beyond this limit are not reached or counted; unexpanded= counts the importers at the limit whose own importers
+    /// were not followed.
     #[serde(default)]
     #[schemars(range(max = u32::MAX))]
     pub(crate) hops: Option<NonZeroU32>,
-    /// Positive cap on the <file/> records listed, nearest first. Omitted or null = 200. Zero and negatives are
-    /// rejected. total= counts every importer the walk reached, and shown= with truncated=true says how many are
-    /// listed when the cap cut them.
+    /// Positive cap on the <file/> records listed, nearest first. Omitted or null = 200. total= counts every importer
+    /// the walk reached.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -663,9 +612,8 @@ pub(crate) struct ImpactOfEditParams {
     #[serde(default)]
     pub(crate) end_line: Option<NonZeroU32>,
     /// Positive cap on the <symbol> records listed, those of widest reach kept in source order, and separately on the
-    /// files each of <includes> and <included-by> lists, in path order. Omitted or null = 10. Zero and negatives are
-    /// rejected. total= on the answer and on each list counts every one, and shown= with truncated=true says how
-    /// many are listed when the cap cut them.
+    /// files each of <includes> and <included-by> lists, in path order. Omitted or null = 10. total= on the answer and
+    /// on each list counts every one.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }

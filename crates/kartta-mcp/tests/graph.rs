@@ -3770,7 +3770,7 @@ fn a_function_that_calls_itself_alone_has_no_caller_and_no_callee_but_itself() {
 }
 
 #[test]
-fn find_callers_describes_the_no_callers_note_of_a_function_a_field_and_an_enum_variant() {
+fn find_callers_says_where_the_no_callers_note_of_a_function_a_field_and_an_enum_variant_points() {
     let tree = tree(&[
         ("Cargo.toml", "[package]\nname = \"app\"\n"),
         (
@@ -3790,15 +3790,20 @@ fn find_callers_describes_the_no_callers_note_of_a_function_a_field_and_an_enum_
         .expect("find_callers is described")
         .to_owned();
 
-    for name in ["idle", "Config::timeout", "Mode::Fast"] {
+    for (name, pointer, kind) in [
+        ("idle", "dynamic dispatch", "a callable"),
+        ("Config::timeout", "find_references", "a field"),
+        ("Mode::Fast", "grep", "an enum variant"),
+    ] {
         let answer = client.answer("find_callers", &json!({"name": name}));
         let note = answer
             .split_once(">no callers - ")
             .and_then(|(_, note)| note.split_once("</match>"))
             .map(|(note, _)| note);
         assert!(
-            note.is_some_and(|note| description.contains(note)),
-            "the description states the no-callers note of {name}: {answer}\n{description}"
+            note.is_some_and(|note| note.contains(pointer))
+                && description.contains(&format!("{pointer} for {kind}")),
+            "the description names {pointer} for {kind}, as the note of {name} does: {answer}\n{description}"
         );
     }
 }
