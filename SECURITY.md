@@ -15,9 +15,3 @@ A report the maintainers can act on names:
 - the platform and target it runs on;
 - the input or the steps that reproduce it;
 - what an attacker gains.
-
-## How a fix ships
-
-A fix ships as a new release of every artifact at once, as [`RELEASING.md`](/RELEASING.md) describes for a defect in a
-published release, under [ADR 4.55](/design-docs/adr/4.55-release-workflow.md): the next patch version, with the
-affected version retracted in the Go module, yanked on crates.io and deprecated on npm.
