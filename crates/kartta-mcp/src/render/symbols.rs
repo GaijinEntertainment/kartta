@@ -46,8 +46,8 @@ pub(crate) fn hits(
     let element = Element::new("symbols")
         .attr("of", query)
         .optional("languages", languages)
-        .attr("count", found.hits.len())
-        .optional("total", truncated.then_some(found.matched))
+        .attr("total", found.matched)
+        .optional("shown", truncated.then_some(found.hits.len()))
         .flag("truncated", truncated)
         .optional(
             "unmatched",
@@ -144,7 +144,7 @@ pub(crate) fn definitions(
 ) -> String {
     let element = Element::new("definitions")
         .optional("languages", languages)
-        .attr("count", answers.len());
+        .attr("total", answers.len());
     element.children(answers.iter().map(|answer| {
         let name = Element::new("name")
             .attr("of", answer.name)
@@ -160,6 +160,7 @@ pub(crate) fn definitions(
         }
         let cut = answer.total > answer.definitions.len();
         name.optional("shown", cut.then_some(answer.definitions.len()))
+            .flag("truncated", cut)
             .children(
                 (answer.definitions.iter().map(definition))
                     .chain(cut.then(|| LIMIT_CUT.to_owned())),
@@ -247,8 +248,9 @@ pub(crate) fn implementations(
         .attr("of", ask.selector.name)
         .optional("read_as", ask.read_as)
         .optional("languages", languages)
-        .attr("count", count)
-        .optional("total", (total > count).then_some(total))
+        .attr("total", total)
+        .optional("shown", (total > count).then_some(count))
+        .flag("truncated", total > count)
         .count("passed_over", passed_over);
     if found.is_empty() {
         return unresolved(element, languages, ask.asked(), unmatched);
@@ -313,8 +315,9 @@ pub(crate) fn implementations_outside(
     let element = Element::new("implementations")
         .attr("of", ask.selector.name)
         .optional("languages", ask.languages)
-        .attr("count", count)
-        .optional("total", (total > count).then_some(total))
+        .attr("total", total)
+        .optional("shown", (total > count).then_some(count))
+        .flag("truncated", total > count)
         .flag("outside_graph", true)
         .count("namesakes", namesakes);
     let mut note = "no indexed type answers to this name - these types name it as a parent, and find_implementations \
@@ -347,7 +350,7 @@ pub(crate) struct ImportersAsk<'a> {
 }
 
 /// The `find_importers` answer: a `<file/>` per file that includes the file, nearest first, the first `listed` of
-/// them, `depth` marking one that includes it through another. `graphless` says why a file no graph answers for has
+/// them, `hops` marking one that includes it through another. `graphless` says why a file no graph answers for has
 /// none, and `counted` names the family of the graph that holds it with the
 /// [includers](kartta_lang::Conventions::includers) its language counts.
 pub(crate) fn importers(
@@ -358,13 +361,13 @@ pub(crate) fn importers(
 ) -> String {
     let element = Element::new("importers").attr("of", file);
     let Some(dependents) = dependents else {
-        return element.attr("count", 0).inline(&graphless.note());
+        return element.attr("total", 0).inline(&graphless.note());
     };
     let cut = dependents.found.len() > listed;
     let element = element
-        .attr("count", dependents.found.len())
+        .attr("total", dependents.found.len())
         .optional("shown", cut.then_some(listed))
-        .flag("truncated", dependents.truncated)
+        .flag("truncated", cut)
         .count("unexpanded", dependents.unexpanded);
     let counts =
         counted.map(|(family, includers)| format!("the {family} graph counts {includers}"));
@@ -378,7 +381,7 @@ pub(crate) fn importers(
     let records = dependents.found.iter().take(listed).map(|dependent| {
         Element::new("file")
             .attr("path", dependent.file)
-            .optional("depth", (dependent.depth > 1).then_some(dependent.depth))
+            .optional("hops", (dependent.depth > 1).then_some(dependent.depth))
             .close()
     });
     element.children(
@@ -399,8 +402,8 @@ pub(crate) fn outline(
 ) -> String {
     let element = Element::new("outline").attr("of", file);
     match outline {
-        None => element.attr("symbols", 0).inline(&graphless.note()),
-        Some([]) => element.attr("symbols", 0).inline(
+        None => element.attr("total", 0).inline(&graphless.note()),
+        Some([]) => element.attr("total", 0).inline(
             "no definitions recorded - the graph holds this file but lists none: its language declined it, its parse \
              failed, or it declares none; index_stats reports whether the language has files without symbols",
         ),
@@ -417,8 +420,9 @@ pub(crate) fn outline(
                     .close()
             });
             element
-                .attr("symbols", definitions.len())
+                .attr("total", definitions.len())
                 .optional("shown", cut.then_some(listed))
+                .flag("truncated", cut)
                 .children(records.chain(cut.then(|| LIMIT_CUT.to_owned())))
         }
     }

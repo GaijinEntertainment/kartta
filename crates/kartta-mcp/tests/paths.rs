@@ -391,7 +391,7 @@ fn a_prefix_that_starts_a_held_name_selects_as_it_did() {
 
     for answer in [&started, &named, &empty] {
         assert!(
-            answer.starts_with(r#"<callers of="Greet" matches="1">"#),
+            answer.starts_with(r#"<callers of="Greet" total="1">"#),
             "{answer}"
         );
     }
@@ -445,7 +445,7 @@ fn a_file_answer_about_a_symlink_names_the_path_to_pass_instead() {
     assert_eq!(
         client.answer("file_outline", &json!({"file": "slink"})),
         concat!(
-            r#"<outline of="slink" symbols="0">this path is a symlink to "sock", the indexed "sock", which is "#,
+            r#"<outline of="slink" total="0">this path is a symlink to "sock", the indexed "sock", which is "#,
             "neither a file nor a directory, and no code graph holds a symlink</outline>",
         ),
         "a link to a socket names no file to pass"
@@ -487,10 +487,10 @@ fn a_file_answer_about_a_symlink_names_the_path_to_pass_instead() {
                 client.answer("impact_of_edit", &json!({"file": file, "start_line": 1})),
             ],
             [
-                format!(r#"<outline of="{file}" symbols="0">{note}</outline>"#),
-                format!(r#"<importers of="{file}" count="0">{note}</importers>"#),
+                format!(r#"<outline of="{file}" total="0">{note}</outline>"#),
+                format!(r#"<importers of="{file}" total="0">{note}</importers>"#),
                 format!(
-                    r#"<impact of="{file}" start_line="1" end_line="end" symbols="0">{note}</impact>"#
+                    r#"<impact of="{file}" start_line="1" end_line="end" total="0">{note}</impact>"#
                 ),
             ]
         );
@@ -527,10 +527,10 @@ fn a_file_answer_about_a_socket_names_no_graph() {
                 client.answer("impact_of_edit", &json!({"file": file, "start_line": 1})),
             ],
             [
-                format!(r#"<outline of="{file}" symbols="0">{note}</outline>"#),
-                format!(r#"<importers of="{file}" count="0">{note}</importers>"#),
+                format!(r#"<outline of="{file}" total="0">{note}</outline>"#),
+                format!(r#"<importers of="{file}" total="0">{note}</importers>"#),
                 format!(
-                    r#"<impact of="{file}" start_line="1" end_line="end" symbols="0">{note}</impact>"#
+                    r#"<impact of="{file}" start_line="1" end_line="end" total="0">{note}</impact>"#
                 ),
             ],
             "a socket claimed by its name, declined by its name, and unclaimed"
@@ -590,10 +590,10 @@ fn a_held_file_no_graph_answers_for_says_why() {
                 client.answer("impact_of_edit", &json!({"file": file, "start_line": 1})),
             ],
             [
-                format!(r#"<outline of="{file}" symbols="0">{note}</outline>"#),
-                format!(r#"<importers of="{file}" count="0">{note}</importers>"#),
+                format!(r#"<outline of="{file}" total="0">{note}</outline>"#),
+                format!(r#"<importers of="{file}" total="0">{note}</importers>"#),
                 format!(
-                    r#"<impact of="{file}" start_line="1" end_line="end" symbols="0">{note}</impact>"#
+                    r#"<impact of="{file}" start_line="1" end_line="end" total="0">{note}</impact>"#
                 ),
             ]
         );
@@ -633,10 +633,10 @@ fn a_held_file_of_a_language_the_build_left_out_names_the_filter() {
                 client.answer("impact_of_edit", &json!({"file": file, "start_line": 1})),
             ],
             [
-                format!(r#"<outline of="{file}" symbols="0">{note}</outline>"#),
-                format!(r#"<importers of="{file}" count="0">{note}</importers>"#),
+                format!(r#"<outline of="{file}" total="0">{note}</outline>"#),
+                format!(r#"<importers of="{file}" total="0">{note}</importers>"#),
                 format!(
-                    r#"<impact of="{file}" start_line="1" end_line="end" symbols="0">{note}</impact>"#
+                    r#"<impact of="{file}" start_line="1" end_line="end" total="0">{note}</impact>"#
                 ),
             ]
         );

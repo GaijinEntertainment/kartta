@@ -49,7 +49,7 @@ fn find_symbols_ranks_the_named_symbol_first_and_counts_what_the_limit_cut() {
         answers,
         [
             lines(&[
-                r#"<symbols of="Greet" count="1">"#,
+                r#"<symbols of="Greet" total="1">"#,
                 concat!(
                     r#"<hit name="Greet" qn="pkg.Service.Greet" owner="Service" kind="method" lang="go" "#,
                     r#"loc="pkg/service.go:12-14" sig="func (s *Service) Greet(name string) string"/>"#,
@@ -57,13 +57,13 @@ fn find_symbols_ranks_the_named_symbol_first_and_counts_what_the_limit_cut() {
                 "</symbols>",
             ]),
             lines(&[
-                r#"<symbols of="service" count="1" total="3" truncated="true">"#,
+                r#"<symbols of="service" total="3" shown="1" truncated="true">"#,
                 r#"<hit name="Service" qn="pkg.Service" kind="struct" lang="go" loc="pkg/service.go:4"/>"#,
                 LIMIT_CUT,
                 "</symbols>",
             ]),
             lines(&[concat!(
-                r#"<symbols of="nothing here" count="0" unmatched="nothing, here">no match - if the language is "#,
+                r#"<symbols of="nothing here" total="0" unmatched="nothing, here">no match - if the language is "#,
                 "absent from the index, index_stats lists what is indexed</symbols>",
             )]),
         ]
@@ -107,7 +107,7 @@ fn read_definitions_marks_each_line_it_cut_and_counts_them() {
     assert_eq!(
         answer,
         lines(&[
-            r#"<definitions count="1">"#,
+            r#"<definitions total="1">"#,
             r#"<name of="Long" total="1">"#,
             concat!(
                 r#"<definition name="Long" qn="long.Long" kind="function" lang="go" loc="long/long.go:3-7" "#,
@@ -167,7 +167,7 @@ fn read_definitions_answers_each_body_with_its_doc_comment() {
         answers,
         [
             lines(&[
-                r#"<definitions count="2">"#,
+                r#"<definitions total="2">"#,
                 r#"<name of="Greet" total="1">"#,
                 concat!(
                     r#"<definition name="Greet" qn="pkg.Service.Greet" owner="Service" kind="method" lang="go" "#,
@@ -183,7 +183,7 @@ fn read_definitions_answers_each_body_with_its_doc_comment() {
                 "</definitions>",
             ]),
             lines(&[
-                r#"<definitions count="1">"#,
+                r#"<definitions total="1">"#,
                 r#"<name of="New" total="1">"#,
                 concat!(
                     r#"<definition name="New" qn="pkg.New" kind="function" lang="go" loc="pkg/service.go:7-9" "#,
@@ -221,7 +221,7 @@ fn read_definitions_ends_each_name_its_limit_cut_with_the_line_that_names_limit(
 
     let (cut, whole) = (&answers[0], &answers[1]);
     assert!(
-        cut.contains(r#"<name of="Open" total="2" shown="1">"#),
+        cut.contains(r#"<name of="Open" total="2" shown="1" truncated="true">"#),
         "{cut}"
     );
     assert_eq!(cut.matches("<definition ").count(), 2, "{cut}");
@@ -256,7 +256,7 @@ fn read_definitions_answers_an_unknown_name_with_close_alternatives() {
         answers,
         [
             lines(&[
-                r#"<definitions count="2">"#,
+                r#"<definitions total="2">"#,
                 r#"<name of="Gret" total="0" one_edit="1">"#,
                 "no symbol matches - did you mean:",
                 concat!(
@@ -278,7 +278,7 @@ fn read_definitions_answers_an_unknown_name_with_close_alternatives() {
                 "</definitions>",
             ]),
             lines(&[
-                r#"<definitions languages="python" count="1">"#,
+                r#"<definitions languages="python" total="1">"#,
                 concat!(
                     r#"<name of="Gret" total="0">no symbol matches - find_symbols can pin the exact "#,
                     "name</name>",
@@ -303,7 +303,7 @@ fn file_outline_find_importers_and_find_implementations_answer_for_the_module() 
         answers,
         [
             lines(&[
-                r#"<outline of="pkg/service.go" symbols="3">"#,
+                r#"<outline of="pkg/service.go" total="3">"#,
                 r#"<symbol name="Service" qn="pkg.Service" kind="struct" lines="4"/>"#,
                 r#"<symbol name="New" qn="pkg.New" kind="function" lines="7-9" sig="func New() *Service"/>"#,
                 concat!(
@@ -312,16 +312,16 @@ fn file_outline_find_importers_and_find_implementations_answer_for_the_module() 
                 ),
                 "</outline>",
             ]),
-            format!(r#"<outline of="README.md" symbols="0">{NOT_HELD}</outline>"#),
+            format!(r#"<outline of="README.md" total="0">{NOT_HELD}</outline>"#),
             lines(&[
-                r#"<importers of="pkg/service.go" count="1">"#,
+                r#"<importers of="pkg/service.go" total="1">"#,
                 GO_COUNTS,
                 r#"<file path="cmd/app/main.go"/>"#,
                 "</importers>",
             ]),
-            format!(r#"<importers of="README.md" count="0">{NOT_HELD}</importers>"#),
+            format!(r#"<importers of="README.md" total="0">{NOT_HELD}</importers>"#),
             concat!(
-                r#"<implementations of="Service" count="0">the symbol is indexed but nothing implements or "#,
+                r#"<implementations of="Service" total="0">the symbol is indexed but nothing implements or "#,
                 "extends it</implementations>",
             )
             .to_owned(),
@@ -340,7 +340,7 @@ fn find_symbols_tops_up_with_fuzzy_hits_only_when_every_graph_underfills_the_lim
     assert_eq!(
         client.answer("find_symbols", &json!({"query": "service", "limit": 1})),
         lines(&[
-            r#"<symbols of="service" count="1" total="3" truncated="true">"#,
+            r#"<symbols of="service" total="3" shown="1" truncated="true">"#,
             r#"<hit name="Service" qn="pkg.Service" kind="struct" lang="go" loc="pkg/service.go:4"/>"#,
             LIMIT_CUT,
             "</symbols>",
@@ -371,7 +371,7 @@ fn find_implementations_lists_at_most_500_across_every_graph() {
 
     assert_eq!(
         answer.lines().next(),
-        Some(r#"<implementations of="Base" count="500" total="600">"#)
+        Some(r#"<implementations of="Base" total="600" shown="500" truncated="true">"#)
     );
     assert_eq!(
         answer
@@ -448,7 +448,7 @@ fn each_symbol_tool_names_find_symbols_for_the_candidates_past_its_5() {
         "{elsewhere}"
     );
     assert!(
-        answers[6].starts_with(r#"<symbols of="Parse" count="7">"#),
+        answers[6].starts_with(r#"<symbols of="Parse" total="7">"#),
         "{}",
         answers[6]
     );
@@ -576,7 +576,7 @@ fn find_implementations_of_a_parent_outside_the_graph_says_no_call_lists_the_typ
 
     assert!(
         answer.starts_with(
-            r#"<implementations of="External" count="500" total="501" outside_graph="true">"#
+            r#"<implementations of="External" total="501" shown="500" truncated="true" outside_graph="true">"#
         ),
         "{answer}"
     );
@@ -621,11 +621,11 @@ fn find_importers_counts_the_importers_it_did_not_follow_past_three_hops() {
     assert_eq!(
         client.answer("find_importers", &json!({"file": "a/a.go"})),
         lines(&[
-            r#"<importers of="a/a.go" count="3" unexpanded="1">"#,
+            r#"<importers of="a/a.go" total="3" unexpanded="1">"#,
             GO_COUNTS,
             r#"<file path="b/b.go"/>"#,
-            r#"<file path="c/c.go" depth="2"/>"#,
-            r#"<file path="d/d.go" depth="3"/>"#,
+            r#"<file path="c/c.go" hops="2"/>"#,
+            r#"<file path="d/d.go" hops="3"/>"#,
             "</importers>",
         ])
     );
@@ -644,18 +644,18 @@ fn find_importers_follows_the_importers_as_many_hops_as_asked() {
         ],
         [
             lines(&[
-                r#"<importers of="a/a.go" count="1" unexpanded="1">"#,
+                r#"<importers of="a/a.go" total="1" unexpanded="1">"#,
                 GO_COUNTS,
                 r#"<file path="b/b.go"/>"#,
                 "</importers>",
             ]),
             lines(&[
-                r#"<importers of="a/a.go" count="4">"#,
+                r#"<importers of="a/a.go" total="4">"#,
                 GO_COUNTS,
                 r#"<file path="b/b.go"/>"#,
-                r#"<file path="c/c.go" depth="2"/>"#,
-                r#"<file path="d/d.go" depth="3"/>"#,
-                r#"<file path="e/e.go" depth="4"/>"#,
+                r#"<file path="c/c.go" hops="2"/>"#,
+                r#"<file path="d/d.go" hops="3"/>"#,
+                r#"<file path="e/e.go" hops="4"/>"#,
                 "</importers>",
             ]),
         ]
@@ -688,7 +688,7 @@ fn find_importers_lists_its_nearest_importers_up_to_the_limit_and_counts_every_o
         ],
         [
             lines(&[
-                r#"<importers of="a.h" count="3" shown="2">"#,
+                r#"<importers of="a.h" total="3" shown="2" truncated="true">"#,
                 CPP_COUNTS,
                 r#"<file path="i000.c"/>"#,
                 r#"<file path="i001.c"/>"#,
@@ -696,7 +696,7 @@ fn find_importers_lists_its_nearest_importers_up_to_the_limit_and_counts_every_o
                 "</importers>",
             ]),
             lines(&[
-                r#"<importers of="a.h" count="3">"#,
+                r#"<importers of="a.h" total="3">"#,
                 CPP_COUNTS,
                 r#"<file path="i000.c"/>"#,
                 r#"<file path="i001.c"/>"#,
@@ -715,7 +715,7 @@ fn find_importers_lists_200_importers_by_default() {
     let answer = client.answer("find_importers", &json!({"file": "a.h"}));
 
     assert!(
-        answer.starts_with(r#"<importers of="a.h" count="201" shown="200">"#),
+        answer.starts_with(r#"<importers of="a.h" total="201" shown="200" truncated="true">"#),
         "{answer}"
     );
     assert_eq!(answer.matches("<file ").count(), 200, "{answer}");
@@ -747,12 +747,12 @@ fn find_importers_says_what_the_language_counts_as_an_importer() {
         ],
         [
             lines(&[
-                r#"<importers of="src/render.rs" count="1">"#,
+                r#"<importers of="src/render.rs" total="1">"#,
                 &format!("<note>{COUNTS}</note>"),
                 r#"<file path="src/lib.rs"/>"#,
                 "</importers>",
             ]),
-            format!(r#"<importers of="src/lib.rs" count="0">{COUNTS}</importers>"#),
+            format!(r#"<importers of="src/lib.rs" total="0">{COUNTS}</importers>"#),
         ]
     );
 }
@@ -776,7 +776,7 @@ fn find_call_path_and_find_references_follow_the_calls() {
         answers,
         [
             lines(&[
-                r#"<call_path from="main" to="Greet" matches="1">"#,
+                r#"<call_path from="main" to="Greet" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="main.main" from_loc="cmd/app/main.go:5-8" to="pkg.Service.Greet" "#,
                     r#"to_loc="pkg/service.go:12-14" hops="2" max_hops="8">"#,
@@ -787,42 +787,42 @@ fn find_call_path_and_find_references_follow_the_calls() {
                 "</call_path>",
             ]),
             lines(&[
-                r#"<call_path from="main" to="Greet" matches="1">"#,
+                r#"<call_path from="main" to="Greet" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="main.main" from_loc="cmd/app/main.go:5-8" to="pkg.Service.Greet" "#,
                     r#"to_loc="pkg/service.go:12-14" max_hops="1" "#,
-                    r#"at_depth_bound="1" found="false">no call chain within 1 calls - the graph misses dynamic "#,
+                    r#"at_hops_bound="1" found="false">no call chain within 1 calls - the graph misses dynamic "#,
                     "and unresolved calls, so this does not show that the code holds none</match>",
                 ),
                 "</call_path>",
             ]),
             lines(&[
-                r#"<references of="Service" matches="1">"#,
+                r#"<references of="Service" total="1">"#,
                 concat!(
                     r#"<match lang="go" of="Service" qn="pkg.Service" loc="pkg/service.go:4" kind="struct" "#,
-                    r#"count="4" files="2" types="4">"#,
+                    r#"total="4" files="2" types="4">"#,
                 ),
-                r#"<file path="pkg/service.go" sites="3">"#,
+                r#"<file path="pkg/service.go" total="3">"#,
                 r#"<ref name="New" qn="pkg.New" lines="7-9" role="consumer" site="type" at="7,8"/>"#,
                 r#"<ref name="Greet" qn="pkg.Service.Greet" lines="12-14" role="consumer" site="type" at="12"/>"#,
                 "</file>",
-                r#"<file path="cmd/app/main.go" sites="1">"#,
+                r#"<file path="cmd/app/main.go" total="1">"#,
                 r#"<ref name="run" qn="main.run" lines="10-12" role="consumer" site="type" at="10"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Greet" matches="1">"#,
+                r#"<references of="Greet" total="1">"#,
                 concat!(
                     r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12-14" kind="method" "#,
-                    r#"count="1" files="1" calls="1">"#,
+                    r#"total="1" files="1" calls="1">"#,
                 ),
                 concat!(
                     "<note>a call through a value of the owner's type resolves only where the graph can name ",
                     "that type, so some of those calls can be missing</note>",
                 ),
-                r#"<file path="cmd/app/main.go" sites="1">"#,
+                r#"<file path="cmd/app/main.go" total="1">"#,
                 r#"<ref name="run" qn="main.run" lines="10-12" role="consumer" site="call" at="11"/>"#,
                 "</file>",
                 "</match>",
@@ -859,7 +859,7 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
 
     let open = concat!(
         r#"<match lang="go" of="Timeout" qn="pkg.Config.Timeout" loc="pkg/config.go:4" kind="field" "#,
-        r#"count="{count}" files="2" reads="2" writes="2" updates="1">"#,
+        r#"total="{count}" files="2" reads="2" writes="2" updates="1">"#,
     );
     let load = [
         r#"<ref name="Load" qn="pkg.Load" lines="7-11" role="consumer" site="write" at="8"/>"#,
@@ -868,13 +868,13 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
     assert_eq!(
         every,
         lines(&[
-            r#"<references of="pkg.Config.Timeout" matches="1">"#,
+            r#"<references of="pkg.Config.Timeout" total="1">"#,
             &open.replace("{count}", "5"),
-            r#"<file path="cmd/main.go" sites="3">"#,
+            r#"<file path="cmd/main.go" total="3">"#,
             r#"<ref name="main" qn="main.main" lines="5-10" role="entry" site="write" at="7"/>"#,
             r#"<ref name="main" qn="main.main" lines="5-10" role="entry" site="read" at="8,9"/>"#,
             "</file>",
-            r#"<file path="pkg/config.go" sites="2">"#,
+            r#"<file path="pkg/config.go" total="2">"#,
             load[0],
             load[1],
             "</file>",
@@ -886,13 +886,13 @@ fn find_references_lists_the_reads_and_writes_of_a_field_and_keeps_the_writers_o
     assert_eq!(
         writers,
         lines(&[
-            r#"<references of="pkg.Config.Timeout" matches="1">"#,
+            r#"<references of="pkg.Config.Timeout" total="1">"#,
             &open.replace("{count}", "3"),
-            r#"<file path="pkg/config.go" sites="2">"#,
+            r#"<file path="pkg/config.go" total="2">"#,
             load[0],
             load[1],
             "</file>",
-            r#"<file path="cmd/main.go" sites="1">"#,
+            r#"<file path="cmd/main.go" total="1">"#,
             r#"<ref name="main" qn="main.main" lines="5-10" role="entry" site="write" at="7"/>"#,
             "</file>",
             "</match>",
@@ -939,12 +939,12 @@ fn find_references_lists_a_read_through_a_package_value_a_sibling_file_declares(
         answers,
         [
             lines(&[
-                r#"<references of="probe.cfg" matches="1">"#,
+                r#"<references of="probe.cfg" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="cfg" qn="probe.cfg" loc="cfg.go:7" kind="variable" count="1" "#,
+                    r#"<match lang="go" of="cfg" qn="probe.cfg" loc="cfg.go:7" kind="variable" total="1" "#,
                     r#"files="1" reads="1">"#,
                 ),
-                r#"<file path="use.go" sites="1">"#,
+                r#"<file path="use.go" total="1">"#,
                 concat!(
                     r#"<ref name="Read" qn="probe.Read" lines="9-11" role="consumer" site="read" at="10" "#,
                     r#"confidence="likely"/>"#,
@@ -954,27 +954,27 @@ fn find_references_lists_a_read_through_a_package_value_a_sibling_file_declares(
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="probe.Config.Timeout" matches="1">"#,
+                r#"<references of="probe.Config.Timeout" total="1">"#,
                 concat!(
                     r#"<match lang="go" of="Timeout" qn="probe.Config.Timeout" loc="cfg.go:4" kind="field" "#,
-                    r#"count="2" files="2" reads="1" writes="1">"#,
+                    r#"total="2" files="2" reads="1" writes="1">"#,
                 ),
-                r#"<file path="cfg.go" sites="1">"#,
+                r#"<file path="cfg.go" total="1">"#,
                 r#"<ref name="cfg" qn="probe.cfg" lines="7" role="consumer" site="write" at="7"/>"#,
                 "</file>",
-                r#"<file path="use.go" sites="1">"#,
+                r#"<file path="use.go" total="1">"#,
                 r#"<ref name="Read" qn="probe.Read" lines="9-11" role="consumer" site="read" at="10"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="probe.client" matches="1">"#,
+                r#"<references of="probe.client" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="client" qn="probe.client" loc="use.go:7" kind="variable" count="1" "#,
+                    r#"<match lang="go" of="client" qn="probe.client" loc="use.go:7" kind="variable" total="1" "#,
                     r#"files="1" reads="1">"#,
                 ),
-                r#"<file path="call.go" sites="1">"#,
+                r#"<file path="call.go" total="1">"#,
                 concat!(
                     r#"<ref name="Call" qn="probe.Call" lines="3-5" role="consumer" site="read" at="4" "#,
                     r#"confidence="likely"/>"#,
@@ -1024,14 +1024,14 @@ fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it
         records[1],
         concat!(
             r#"<match lang="go" of="Timeout" qn="pkg.Config.Timeout" loc="pkg/config.go:4" kind="field" "#,
-            r#"count="525" shown="100" files="130" files_shown="74" reads="525">"#,
+            r#"total="525" shown="100" truncated="true" files="130" files_shown="74" reads="525">"#,
         ),
         "past the 500 sites the answer once listed, the counts still cover every site: {answer}"
     );
     assert_eq!(
         records[2..5],
         [
-            r#"<file path="pkg/use030.go" sites="9">"#,
+            r#"<file path="pkg/use030.go" total="9">"#,
             concat!(
                 r#"<ref name="use030" qn="pkg.use030" lines="3-13" role="consumer" site="read" "#,
                 r#"at="4,5,6,7,8,9,10,11,12"/>"#,
@@ -1043,7 +1043,7 @@ fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it
     assert_eq!(
         records[5..8],
         [
-            r#"<file path="pkg/use000.go" sites="4">"#,
+            r#"<file path="pkg/use000.go" total="4">"#,
             r#"<ref name="use000" qn="pkg.use000" lines="3-8" role="consumer" site="read" at="4,5,6,7"/>"#,
             "</file>",
         ],
@@ -1051,15 +1051,15 @@ fn find_references_lists_a_hot_field_by_file_most_sites_first_and_counts_what_it
     );
     let partial = records
         .iter()
-        .position(|record| record.contains(r#"shown="3">"#))
+        .position(|record| record.contains(r#"shown="3" truncated="true">"#))
         .expect("the file where the listed sites run out says how many it lists");
     assert_eq!(
         records[partial..partial + 4],
         [
-            r#"<file path="pkg/use022.go" sites="4" shown="3">"#,
+            r#"<file path="pkg/use022.go" total="4" shown="3" truncated="true">"#,
             r#"<ref name="use022" qn="pkg.use022" lines="3-8" role="consumer" site="read" at="4,5,6"/>"#,
             "</file>",
-            r#"<file path="pkg/use023.go" sites="4"/>"#,
+            r#"<file path="pkg/use023.go" total="4"/>"#,
         ],
         "past the listed sites, a file carries its count alone: {answer}"
     );
@@ -1115,10 +1115,10 @@ fn find_references_sites_under_lists_the_sites_past_the_named_files_and_counts_w
     assert_eq!(
         records[..2],
         [
-            r#"<references of="pkg.Config.Timeout" sites_under="pkg/use12" matches="1">"#,
+            r#"<references of="pkg.Config.Timeout" sites_under="pkg/use12" total="1">"#,
             concat!(
                 r#"<match lang="go" of="Timeout" qn="pkg.Config.Timeout" loc="pkg/config.go:4" kind="field" "#,
-                r#"count="260" shown="20" files="130" files_shown="10" excluded="240" files_excluded="120" "#,
+                r#"total="260" shown="20" files="130" files_shown="10" excluded="240" files_excluded="120" "#,
                 r#"reads="260">"#,
             ),
         ],
@@ -1139,7 +1139,7 @@ fn find_references_sites_under_lists_the_sites_past_the_named_files_and_counts_w
     assert_eq!(
         records[2..5],
         [
-            r#"<file path="pkg/use120.go" sites="2">"#,
+            r#"<file path="pkg/use120.go" total="2">"#,
             r#"<ref name="use120" qn="pkg.use120" lines="3-6" role="consumer" site="read" at="4,5"/>"#,
             "</file>",
         ],
@@ -1187,7 +1187,7 @@ fn find_references_sites_under_filters_the_file_scope_users_and_says_when_it_kee
     };
     assert!(
         answers[0].contains(r#"file_scope="51" file_scope_shown="0" file_scope_excluded="51""#)
-            && answers[0].contains(r#"<file path="tools/use.sh" sites="1">"#)
+            && answers[0].contains(r#"<file path="tools/use.sh" total="1">"#)
             && file_scope(&answers[0]).is_empty(),
         "the site under sites_under is listed, and no file-scope user outside it: {}",
         answers[0]
@@ -1232,12 +1232,12 @@ fn a_go_field_read_binds_through_the_type_its_own_function_declares_and_not_a_na
         answers,
         [
             lines(&[
-                r#"<references of="Limit" matches="1">"#,
+                r#"<references of="Limit" total="1">"#,
                 concat!(
                     r#"<match lang="go" of="Limit" qn="app.fields.Limit" loc="app/app.go:13" kind="field" "#,
-                    r#"count="2" files="1" reads="1" writes="1">"#,
+                    r#"total="2" files="1" reads="1" writes="1">"#,
                 ),
-                r#"<file path="app/app.go" sites="2">"#,
+                r#"<file path="app/app.go" total="2">"#,
                 r#"<ref name="Second" qn="app.Second" lines="11-17" role="consumer" site="write" at="15"/>"#,
                 r#"<ref name="Second" qn="app.Second" lines="11-17" role="consumer" site="read" at="16"/>"#,
                 "</file>",
@@ -1245,12 +1245,12 @@ fn a_go_field_read_binds_through_the_type_its_own_function_declares_and_not_a_na
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Size" matches="1">"#,
+                r#"<references of="Size" total="1">"#,
                 concat!(
                     r#"<match lang="go" of="Size" qn="app.fields.Size" loc="app/app.go:5" kind="field" "#,
-                    r#"count="2" files="1" reads="1" writes="1">"#,
+                    r#"total="2" files="1" reads="1" writes="1">"#,
                 ),
-                r#"<file path="app/app.go" sites="2">"#,
+                r#"<file path="app/app.go" total="2">"#,
                 r#"<ref name="First" qn="app.First" lines="3-9" role="consumer" site="write" at="7"/>"#,
                 r#"<ref name="First" qn="app.First" lines="3-9" role="consumer" site="read" at="8"/>"#,
                 "</file>",
@@ -1290,9 +1290,9 @@ fn a_go_type_defined_over_an_interface_has_the_interface_s_methods() {
         answers,
         [
             lines(&[
-                r#"<callees of="viaDefined" matches="1">"#,
+                r#"<callees of="viaDefined" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="viaDefined" qn="log.viaDefined" loc="log/log.go:7-9" count="1" "#,
+                    r#"<match lang="go" of="viaDefined" qn="log.viaDefined" loc="log/log.go:7-9" total="1" "#,
                     r#"unexpanded="1">"#,
                 ),
                 concat!(
@@ -1303,9 +1303,9 @@ fn a_go_type_defined_over_an_interface_has_the_interface_s_methods() {
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="viaConversion" matches="1">"#,
+                r#"<callees of="viaConversion" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="viaConversion" qn="log.viaConversion" loc="log/log.go:15-17" count="2" "#,
+                    r#"<match lang="go" of="viaConversion" qn="log.viaConversion" loc="log/log.go:15-17" total="2" "#,
                     r#"unexpanded="2">"#,
                 ),
                 concat!(
@@ -1342,18 +1342,18 @@ fn a_go_type_defined_over_a_struct_takes_none_of_the_struct_s_methods() {
         answers,
         [
             lines(&[
-                r#"<callees of="use" matches="1">"#,
+                r#"<callees of="use" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="use" qn="p.use" loc="p.go:9-11" count="0" unresolved="1">no callees - no "#,
+                    r#"<match lang="go" of="use" qn="p.use" loc="p.go:9-11" total="0" unresolved="1">no callees - no "#,
                     "call in its body binds a definition the graph holds; a call into a library or a builtin, ",
                     "through a function value, or by dynamic dispatch binds none</match>",
                 ),
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="convert" matches="1">"#,
+                r#"<callees of="convert" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="convert" qn="p.convert" loc="p.go:13-15" count="1" unexpanded="1" "#,
+                    r#"<match lang="go" of="convert" qn="p.convert" loc="p.go:13-15" total="1" unexpanded="1" "#,
                     r#"unresolved="1">"#,
                 ),
                 r#"<ref name="T" qn="p.T" loc="p.go:7" role="consumer" hops="1" at="14"/>"#,
@@ -1387,8 +1387,8 @@ fn a_go_type_defined_over_a_struct_keeps_its_fields_and_what_they_promote() {
         answers,
         [
             lines(&[
-                r#"<callees of="viaDefined" matches="1">"#,
-                r#"<match lang="go" of="viaDefined" qn="p.viaDefined" loc="a.go:19-22" count="1" unexpanded="1">"#,
+                r#"<callees of="viaDefined" total="1">"#,
+                r#"<match lang="go" of="viaDefined" qn="p.viaDefined" loc="a.go:19-22" total="1" unexpanded="1">"#,
                 concat!(
                     r#"<ref name="Promoted" qn="p.Inner.Promoted" loc="a.go:5" role="consumer" hops="1" "#,
                     r#"at="20"/>"#,
@@ -1397,9 +1397,9 @@ fn a_go_type_defined_over_a_struct_keeps_its_fields_and_what_they_promote() {
                 "</callees>",
             ]),
             lines(&[
-                r#"<references of="S.X" matches="1">"#,
-                r#"<match lang="go" of="X" qn="p.S.X" loc="a.go:9" kind="field" count="2" files="1" reads="2">"#,
-                r#"<file path="a.go" sites="2">"#,
+                r#"<references of="S.X" total="1">"#,
+                r#"<match lang="go" of="X" qn="p.S.X" loc="a.go:9" kind="field" total="2" files="1" reads="2">"#,
+                r#"<file path="a.go" total="2">"#,
                 r#"<ref name="viaStruct" qn="p.viaStruct" lines="14-17" role="consumer" site="read" at="16"/>"#,
                 r#"<ref name="viaDefined" qn="p.viaDefined" lines="19-22" role="consumer" site="read" at="21"/>"#,
                 "</file>",
@@ -1948,12 +1948,12 @@ fn a_go_closure_reads_a_field_through_the_type_its_enclosing_function_declares()
     assert_eq!(
         answers,
         [lines(&[
-            r#"<references of="app.fields.Size" matches="1">"#,
+            r#"<references of="app.fields.Size" total="1">"#,
             concat!(
                 r#"<match lang="go" of="Size" qn="app.fields.Size" loc="app/app.go:12" kind="field" "#,
-                r#"count="3" files="1" reads="1" writes="1" updates="1" passed_over="1">"#,
+                r#"total="3" files="1" reads="1" writes="1" updates="1" passed_over="1">"#,
             ),
-            r#"<file path="app/app.go" sites="3">"#,
+            r#"<file path="app/app.go" total="3">"#,
             r#"<ref name="Second" qn="app.Second" lines="10-19" role="consumer" site="write" at="15"/>"#,
             r#"<ref name="Second" qn="app.Second" lines="10-19" role="consumer" site="update" at="16"/>"#,
             r#"<ref name="Second" qn="app.Second" lines="10-19" role="consumer" site="read" at="17"/>"#,
@@ -1991,20 +1991,20 @@ fn find_references_lists_a_typescript_field_s_sites_and_says_what_an_untyped_acc
     assert_eq!(
         answer,
         lines(&[
-            r#"<references of="Config.timeout" matches="1">"#,
+            r#"<references of="Config.timeout" total="1">"#,
             concat!(
                 r#"<match lang="jsts" of="timeout" qn="Config.timeout" loc="src/config.ts:2" kind="field" "#,
-                r#"count="3" files="2" reads="1" writes="1" updates="1" ambiguous="1">"#,
+                r#"total="3" files="2" reads="1" writes="1" updates="1" ambiguous="1">"#,
             ),
             concat!(
                 "<note>a member access on a value whose declaration spells no one type binds nothing; ambiguous ",
                 "counts those</note>",
             ),
-            r#"<file path="src/main.ts" sites="2">"#,
+            r#"<file path="src/main.ts" total="2">"#,
             r#"<ref name="run" lines="3-6" role="consumer" site="write" at="4"/>"#,
             r#"<ref name="run" lines="3-6" role="consumer" site="read" at="5"/>"#,
             "</file>",
-            r#"<file path="src/config.ts" sites="1">"#,
+            r#"<file path="src/config.ts" total="1">"#,
             r#"<ref name="grow" qn="Config.grow" lines="3-5" role="consumer" site="update" at="4"/>"#,
             "</file>",
             "</match>",
@@ -2015,12 +2015,12 @@ fn find_references_lists_a_typescript_field_s_sites_and_says_what_an_untyped_acc
     assert_eq!(
         limit,
         lines(&[
-            r#"<references of="LIMIT" matches="1">"#,
+            r#"<references of="LIMIT" total="1">"#,
             concat!(
-                r#"<match lang="jsts" of="LIMIT" loc="src/limits.ts:1" kind="constant" count="1" files="1" "#,
+                r#"<match lang="jsts" of="LIMIT" loc="src/limits.ts:1" kind="constant" total="1" files="1" "#,
                 r#"reads="1">"#,
             ),
-            r#"<file path="src/main.ts" sites="1">"#,
+            r#"<file path="src/main.ts" total="1">"#,
             r#"<ref name="cap" lines="7" role="consumer" site="read" at="7" confidence="likely"/>"#,
             "</file>",
             "</match>",
@@ -2056,16 +2056,16 @@ fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_thro
     assert_eq!(
         field,
         lines(&[
-            r#"<references of="pkg.config.Config.timeout" matches="1">"#,
+            r#"<references of="pkg.config.Config.timeout" total="1">"#,
             concat!(
                 r#"<match lang="python" of="timeout" qn="pkg.config.Config.timeout" loc="pkg/config.py:6" "#,
-                r#"kind="field" count="2" files="1" writes="1" updates="1" ambiguous="2">"#,
+                r#"kind="field" total="2" files="1" writes="1" updates="1" ambiguous="2">"#,
             ),
             concat!(
                 "<note>an attribute of a value whose class the extraction cannot name binds only where one field ",
                 "of the name is in its own file; ambiguous counts the rest</note>",
             ),
-            r#"<file path="pkg/config.py" sites="2">"#,
+            r#"<file path="pkg/config.py" total="2">"#,
             r#"<ref name="__init__" qn="pkg.config.Config.__init__" lines="5-6" role="entry" site="write" at="6"/>"#,
             r#"<ref name="grow" qn="pkg.config.Config.grow" lines="8-9" role="consumer" site="update" at="9"/>"#,
             "</file>",
@@ -2077,12 +2077,12 @@ fn find_references_lists_a_python_attribute_s_sites_and_a_module_value_read_thro
     assert_eq!(
         value,
         lines(&[
-            r#"<references of="pkg.config.LIMIT" matches="1">"#,
+            r#"<references of="pkg.config.LIMIT" total="1">"#,
             concat!(
                 r#"<match lang="python" of="LIMIT" qn="pkg.config.LIMIT" loc="pkg/config.py:1" kind="variable" "#,
-                r#"count="1" files="1" reads="1">"#,
+                r#"total="1" files="1" reads="1">"#,
             ),
-            r#"<file path="main.py" sites="1">"#,
+            r#"<file path="main.py" total="1">"#,
             r#"<ref name="run" qn="main.run" lines="4-6" role="consumer" site="read" at="6"/>"#,
             "</file>",
             "</match>",
@@ -2106,16 +2106,16 @@ fn find_references_lists_the_read_a_python_class_body_makes_of_its_own_attribute
         assert_eq!(
             client.answer("find_references", &json!({"name": name})),
             lines(&[
-                &format!(r#"<references of="{name}" matches="1">"#),
+                &format!(r#"<references of="{name}" total="1">"#),
                 &format!(
                     "<match lang=\"python\" of=\"{name}\" qn=\"devices.Devices.{name}\" loc=\"devices.py:{line}\" \
-                     kind=\"field\" count=\"1\" files=\"1\" reads=\"1\">"
+                     kind=\"field\" total=\"1\" files=\"1\" reads=\"1\">"
                 ),
                 concat!(
                     "<note>an attribute of a value whose class the extraction cannot name binds only where one field ",
                     "of the name is in its own file; ambiguous counts the rest</note>",
                 ),
-                r#"<file path="devices.py" sites="1">"#,
+                r#"<file path="devices.py" total="1">"#,
                 r#"<ref name="Devices" qn="devices.Devices" lines="1-4" role="consumer" site="read" at="4"/>"#,
                 "</file>",
                 "</match>",
@@ -2147,16 +2147,16 @@ fn find_references_lists_a_cpp_field_s_sites_and_says_what_an_untyped_access_lea
     assert_eq!(
         answer,
         lines(&[
-            r#"<references of="Widget::width" matches="1">"#,
+            r#"<references of="Widget::width" total="1">"#,
             concat!(
-                r#"<match lang="cpp" of="width" qn="Widget::width" loc="widget.h:2" kind="field" count="3" "#,
+                r#"<match lang="cpp" of="width" qn="Widget::width" loc="widget.h:2" kind="field" total="3" "#,
                 r#"files="1" reads="1" writes="1" updates="1" ambiguous="1">"#,
             ),
             concat!(
                 "<note>a member access on a value whose type the graph cannot name binds only where one field of the ",
                 "name is in the file or the files it includes; ambiguous counts the rest</note>",
             ),
-            r#"<file path="widget.cpp" sites="3">"#,
+            r#"<file path="widget.cpp" total="3">"#,
             r#"<ref name="grow" qn="Widget::grow" lines="3-5" role="consumer" site="update" at="4"/>"#,
             r#"<ref name="paint" lines="7-11" role="consumer" site="write" at="8"/>"#,
             r#"<ref name="paint" lines="7-11" role="consumer" site="read" at="9"/>"#,
@@ -2194,9 +2194,9 @@ fn find_references_says_the_rust_graph_records_no_use_of_a_type_as_one() {
         answers,
         [
             lines(&[
-                r#"<references of="Watcher" matches="1">"#,
+                r#"<references of="Watcher" total="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="Watcher" loc="src/watch.rs:1-3" kind="struct" count="0">no recorded "#,
+                    r#"<match lang="rust" of="Watcher" loc="src/watch.rs:1-3" kind="struct" total="0">no recorded "#,
                     "site - the rust graph records no use of a type where code names it as one, such as a ",
                     "declaration, a signature, a generic argument or an import, so this does not show that nothing ",
                     "uses the type; grep finds where code names it</match>",
@@ -2204,9 +2204,9 @@ fn find_references_says_the_rust_graph_records_no_use_of_a_type_as_one() {
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Point" matches="1">"#,
+                r#"<references of="Point" total="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="Point" loc="src/watch.rs:5" kind="struct" count="1" files="1" "#,
+                    r#"<match lang="rust" of="Point" loc="src/watch.rs:5" kind="struct" total="1" files="1" "#,
                     r#"calls="1">"#,
                 ),
                 concat!(
@@ -2214,7 +2214,7 @@ fn find_references_says_the_rust_graph_records_no_use_of_a_type_as_one() {
                     "declaration, a signature, a generic argument or an import, so every such use is missing from ",
                     "this answer</note>",
                 ),
-                r#"<file path="src/run.rs" sites="1">"#,
+                r#"<file path="src/run.rs" total="1">"#,
                 r#"<ref name="start" lines="3-5" role="consumer" site="call" at="4"/>"#,
                 "</file>",
                 "</match>",
@@ -2435,28 +2435,28 @@ fn find_references_keeps_its_answer_for_a_type_where_go_and_python_record_type_u
         answers,
         [
             lines(&[
-                r#"<references of="Spare" matches="2">"#,
+                r#"<references of="Spare" total="2">"#,
                 concat!(
                     r#"<match lang="go" of="Spare" qn="pkg.Spare" loc="pkg/kinds.go:3" kind="struct" "#,
-                    r#"count="0">no recorded site - resolved calls can omit dynamic or unresolved ones, and uses "#,
+                    r#"total="0">no recorded site - resolved calls can omit dynamic or unresolved ones, and uses "#,
                     "other than calls are recorded only where the graph records them, so this does not show that ",
                     "nothing uses the symbol</match>",
                 ),
                 concat!(
                     r#"<match lang="python" of="Spare" qn="models.Spare" loc="models.py:5-6" kind="class" "#,
-                    r#"count="0">no recorded site - resolved calls can omit dynamic or unresolved ones, and uses "#,
+                    r#"total="0">no recorded site - resolved calls can omit dynamic or unresolved ones, and uses "#,
                     "other than calls are recorded only where the graph records them, so this does not show that ",
                     "nothing uses the symbol</match>",
                 ),
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Config" matches="1">"#,
+                r#"<references of="Config" total="1">"#,
                 concat!(
                     r#"<match lang="python" of="Config" qn="models.Config" loc="models.py:1-2" kind="class" "#,
-                    r#"count="1" files="1" types="1">"#,
+                    r#"total="1" files="1" types="1">"#,
                 ),
-                r#"<file path="models.py" sites="1">"#,
+                r#"<file path="models.py" total="1">"#,
                 r#"<ref name="load" qn="models.load" lines="9-11" role="consumer" site="type" at="10"/>"#,
                 "</file>",
                 "</match>",
@@ -2493,9 +2493,9 @@ fn find_references_labels_a_member_read_through_a_type_a_read_and_not_a_use_as_a
         answers,
         [
             lines(&[
-                r#"<references of="EventType" matches="1">"#,
+                r#"<references of="EventType" total="1">"#,
                 concat!(
-                    r#"<match lang="jsts" of="EventType" loc="events.ts:1-3" kind="enum" count="1" files="1" "#,
+                    r#"<match lang="jsts" of="EventType" loc="events.ts:1-3" kind="enum" total="1" files="1" "#,
                     r#"reads="1">"#,
                 ),
                 concat!(
@@ -2503,19 +2503,19 @@ fn find_references_labels_a_member_read_through_a_type_a_read_and_not_a_use_as_a
                     "declaration, a signature, a generic argument or an import, so every such use is missing from ",
                     "this answer</note>",
                 ),
-                r#"<file path="card.ts" sites="1">"#,
+                r#"<file path="card.ts" total="1">"#,
                 r#"<ref name="kind" lines="3-5" role="consumer" site="read" at="4" confidence="likely"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Palette" matches="1">"#,
+                r#"<references of="Palette" total="1">"#,
                 concat!(
                     r#"<match lang="python" of="Palette" qn="palette.Palette" loc="palette.py:1-2" kind="class" "#,
-                    r#"count="2" files="1" types="1" reads="1">"#,
+                    r#"total="2" files="1" types="1" reads="1">"#,
                 ),
-                r#"<file path="palette.py" sites="2">"#,
+                r#"<file path="palette.py" total="2">"#,
                 r#"<ref name="pick" qn="palette.pick" lines="5-6" role="consumer" site="type" at="5"/>"#,
                 r#"<ref name="pick" qn="palette.pick" lines="5-6" role="consumer" site="read" at="6"/>"#,
                 "</file>",
@@ -2557,18 +2557,18 @@ fn find_references_keeps_the_uses_as_a_type_alone_or_among_the_reads() {
         answers,
         [
             lines(&[
-                r#"<references of="Palette" matches="1">"#,
-                &format!(r#"{head}count="1" {counts}"#),
-                r#"<file path="palette.py" sites="1">"#,
+                r#"<references of="Palette" total="1">"#,
+                &format!(r#"{head}total="1" {counts}"#),
+                r#"<file path="palette.py" total="1">"#,
                 &site("5-6", "type", 5),
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Palette" matches="1">"#,
-                &format!(r#"{head}count="2" {counts}"#),
-                r#"<file path="palette.py" sites="2">"#,
+                r#"<references of="Palette" total="1">"#,
+                &format!(r#"{head}total="2" {counts}"#),
+                r#"<file path="palette.py" total="2">"#,
                 &site("5-6", "type", 5),
                 &site("5-6", "read", 6),
                 "</file>",
@@ -2610,34 +2610,34 @@ fn find_references_names_the_language_that_records_no_read_or_write_of_the_symbo
         answers,
         [
             lines(&[
-                r#"<references of="Point::x" matches="1">"#,
+                r#"<references of="Point::x" total="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="x" qn="Point::x" loc="src/shapes.rs:2" kind="field" count="0">no "#,
+                    r#"<match lang="rust" of="x" qn="Point::x" loc="src/shapes.rs:2" kind="field" total="0">no "#,
                     "recorded site - the rust graph records no read or write of a field, so this does not show that ",
                     "nothing uses the field; grep finds where code names it</match>",
                 ),
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="LOG" matches="1">"#,
+                r#"<references of="LOG" total="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="LOG" loc="tools/run.sh:1" kind="variable" count="0">no recorded "#,
+                    r#"<match lang="bash" of="LOG" loc="tools/run.sh:1" kind="variable" total="0">no recorded "#,
                     "site - the bash graph records no read or write of a variable, so this does not show that ",
                     "nothing uses the variable; grep finds where code names it</match>",
                 ),
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="TMP" matches="1">"#,
+                r#"<references of="TMP" total="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="TMP" loc="tools/clean.sh:1" kind="variable" count="1" files="1" "#,
+                    r#"<match lang="bash" of="TMP" loc="tools/clean.sh:1" kind="variable" total="1" files="1" "#,
                     r#"reads="1">"#,
                 ),
                 concat!(
                     "<note>the bash graph records no read or write of a variable, so every such use is missing from ",
                     "this answer</note>",
                 ),
-                r#"<file path="tools/clean.sh" sites="1">"#,
+                r#"<file path="tools/clean.sh" total="1">"#,
                 r#"<ref name="clean" lines="2-5" role="consumer" site="read" at="4"/>"#,
                 "</file>",
                 "</match>",
@@ -2667,9 +2667,9 @@ fn find_references_says_that_no_read_of_a_function_s_local_is_recorded() {
         answers,
         [
             lines(&[
-                r#"<references of="resp" matches="1">"#,
+                r#"<references of="resp" total="1">"#,
                 concat!(
-                    r#"<match lang="jsts" of="resp" loc="src/useSearch.ts:2" kind="constant" count="0">no "#,
+                    r#"<match lang="jsts" of="resp" loc="src/useSearch.ts:2" kind="constant" total="0">no "#,
                     "recorded site - the jsts graph records no read or write of a constant local to a function ",
                     "body, so this does not show that nothing uses the constant; grep finds where code names it",
                     "</match>",
@@ -2677,16 +2677,16 @@ fn find_references_says_that_no_read_of_a_function_s_local_is_recorded() {
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="done" matches="1">"#,
+                r#"<references of="done" total="1">"#,
                 concat!(
-                    r#"<match lang="jsts" of="done" loc="src/useSearch.ts:3" kind="constant" count="1" "#,
+                    r#"<match lang="jsts" of="done" loc="src/useSearch.ts:3" kind="constant" total="1" "#,
                     r#"files="1" calls="1">"#,
                 ),
                 concat!(
                     "<note>the jsts graph records no read or write of a constant local to a function body, so every ",
                     "such use is missing from this answer</note>",
                 ),
-                r#"<file path="src/useSearch.ts" sites="1">"#,
+                r#"<file path="src/useSearch.ts" total="1">"#,
                 r#"<ref name="useSearch" lines="1-6" role="consumer" site="call" at="4"/>"#,
                 "</file>",
                 "</match>",
@@ -2731,31 +2731,31 @@ fn find_references_says_that_no_use_of_a_function_s_local_function_as_a_value_is
         answers,
         [
             lines(&[
-                r#"<references of="double" matches="2">"#,
-                r#"<match lang="rust" of="double" loc="src/lib.rs:2-4" kind="function" count="1" files="1" calls="1">"#,
+                r#"<references of="double" total="2">"#,
+                r#"<match lang="rust" of="double" loc="src/lib.rs:2-4" kind="function" total="1" files="1" calls="1">"#,
                 &note("rust"),
-                r#"<file path="src/lib.rs" sites="1">"#,
+                r#"<file path="src/lib.rs" total="1">"#,
                 r#"<ref name="outer" lines="1-7" role="consumer" site="call" at="5"/>"#,
                 "</file>",
                 "</match>",
                 concat!(
-                    r#"<match lang="python" of="double" qn="m.double" loc="m.py:2-3" kind="function" count="1" "#,
+                    r#"<match lang="python" of="double" qn="m.double" loc="m.py:2-3" kind="function" total="1" "#,
                     r#"files="1" calls="1">"#,
                 ),
                 &note("python"),
-                r#"<file path="m.py" sites="1">"#,
+                r#"<file path="m.py" total="1">"#,
                 r#"<ref name="outer" qn="m.outer" lines="1-6" role="consumer" site="call" at="5"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="triple" matches="1">"#,
+                r#"<references of="triple" total="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="triple" loc="src/lib.rs:9-11" kind="function" count="2" files="1" "#,
+                    r#"<match lang="rust" of="triple" loc="src/lib.rs:9-11" kind="function" total="2" files="1" "#,
                     r#"calls="1" reads="1">"#,
                 ),
-                r#"<file path="src/lib.rs" sites="2">"#,
+                r#"<file path="src/lib.rs" total="2">"#,
                 r#"<ref name="control" lines="13-16" role="consumer" site="call" at="14"/>"#,
                 r#"<ref name="control" lines="13-16" role="consumer" site="read" at="15"/>"#,
                 "</file>",
@@ -2791,29 +2791,29 @@ fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
         answers,
         [
             lines(&[
-                r#"<references of="Inner" matches="1">"#,
+                r#"<references of="Inner" total="1">"#,
                 concat!(
-                    r#"<match lang="python" of="Inner" qn="m.Inner" loc="m.py:2-7" kind="class" count="1" files="1" "#,
+                    r#"<match lang="python" of="Inner" qn="m.Inner" loc="m.py:2-7" kind="class" total="1" files="1" "#,
                     r#"calls="1">"#,
                 ),
                 concat!(
                     "<note>the python graph records no use as a type or a value of a type local to a function body, ",
                     "so every such use is missing from this answer</note>",
                 ),
-                r#"<file path="m.py" sites="1">"#,
+                r#"<file path="m.py" total="1">"#,
                 r#"<ref name="outer" qn="m.outer" lines="1-13" role="consumer" site="call" at="9"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Outer" matches="1">"#,
+                r#"<references of="Outer" total="1">"#,
                 concat!(
-                    r#"<match lang="python" of="Outer" qn="m.Outer" loc="m.py:16-18" kind="class" count="3" "#,
+                    r#"<match lang="python" of="Outer" qn="m.Outer" loc="m.py:16-18" kind="class" total="3" "#,
                     r#"files="1" "#,
                     r#"calls="1" types="1" reads="1">"#,
                 ),
-                r#"<file path="m.py" sites="3">"#,
+                r#"<file path="m.py" total="3">"#,
                 r#"<ref name="control" qn="m.control" lines="21-26" role="consumer" site="call" at="22"/>"#,
                 r#"<ref name="control" qn="m.control" lines="21-26" role="consumer" site="type" at="23"/>"#,
                 r#"<ref name="control" qn="m.control" lines="21-26" role="consumer" site="read" at="24"/>"#,
@@ -2822,16 +2822,16 @@ fn find_references_says_that_no_use_of_a_function_s_local_type_is_recorded() {
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="size" matches="1">"#,
+                r#"<references of="size" total="1">"#,
                 concat!(
-                    r#"<match lang="python" of="size" qn="m.Inner.size" loc="m.py:6-7" kind="method" count="1" "#,
+                    r#"<match lang="python" of="size" qn="m.Inner.size" loc="m.py:6-7" kind="method" total="1" "#,
                     r#"files="1" calls="1">"#,
                 ),
                 concat!(
                     "<note>a call through a value of the owner's type resolves only where the graph can name that ",
                     "type, so some of those calls can be missing</note>",
                 ),
-                r#"<file path="m.py" sites="1">"#,
+                r#"<file path="m.py" total="1">"#,
                 r#"<ref name="outer" qn="m.outer" lines="1-13" role="consumer" site="call" at="12"/>"#,
                 "</file>",
                 "</match>",
@@ -2864,14 +2864,14 @@ fn find_references_states_a_go_body_s_local_type_and_a_rust_body_s_local_struct(
     assert_eq!(
         answers,
         [lines(&[
-            r#"<references of="Shape" matches="2">"#,
+            r#"<references of="Shape" total="2">"#,
             concat!(
-                r#"<match lang="go" of="Shape" qn="m.Shape" loc="m.go:4" kind="struct" count="0">no recorded "#,
+                r#"<match lang="go" of="Shape" qn="m.Shape" loc="m.go:4" kind="struct" total="0">no recorded "#,
                 "site - the go graph records no use as a type or a value of a type local to a function body, so ",
                 "this does not show that nothing uses the type; grep finds where code names it</match>",
             ),
             concat!(
-                r#"<match lang="rust" of="Shape" loc="src/lib.rs:2-4" kind="struct" count="0">no recorded site - "#,
+                r#"<match lang="rust" of="Shape" loc="src/lib.rs:2-4" kind="struct" total="0">no recorded site - "#,
                 "the rust graph records no use as a type or a value of a type local to a function body, so this ",
                 "does not show that nothing uses the type; grep finds where code names it</match>",
             ),
@@ -2915,41 +2915,41 @@ fn find_references_states_both_gaps_of_a_rust_body_s_value_struct_and_the_type_g
         answers,
         [
             lines(&[
-                r#"<references of="Inner" matches="1">"#,
+                r#"<references of="Inner" total="1">"#,
                 &format!(
-                    r#"<match lang="rust" of="Inner" loc="src/lib.rs:9" kind="struct" count="0">{}"#,
+                    r#"<match lang="rust" of="Inner" loc="src/lib.rs:9" kind="struct" total="0">{}"#,
                     no_site(local_statement)
                 ),
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Unit" matches="1">"#,
-                r#"<match lang="rust" of="Unit" loc="src/lib.rs:1" kind="struct" count="1" files="1" reads="1">"#,
+                r#"<references of="Unit" total="1">"#,
+                r#"<match lang="rust" of="Unit" loc="src/lib.rs:1" kind="struct" total="1" files="1" reads="1">"#,
                 &format!(
                     "<note>{type_statement}, so every such use is missing from this answer</note>"
                 ),
-                r#"<file path="src/lib.rs" sites="1">"#,
+                r#"<file path="src/lib.rs" total="1">"#,
                 r#"<ref name="module" lines="3-6" role="consumer" site="read" at="4"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Pair" matches="1">"#,
-                r#"<match lang="rust" of="Pair" loc="src/lib.rs:15" kind="struct" count="1" files="1" calls="1">"#,
+                r#"<references of="Pair" total="1">"#,
+                r#"<match lang="rust" of="Pair" loc="src/lib.rs:15" kind="struct" total="1" files="1" calls="1">"#,
                 &format!(
                     "<note>{local_statement}, so every such use is missing from this answer</note>"
                 ),
-                r#"<file path="src/lib.rs" sites="1">"#,
+                r#"<file path="src/lib.rs" total="1">"#,
                 r#"<ref name="pair" lines="14-22" role="consumer" site="call" at="21"/>"#,
                 "</file>",
                 "</match>",
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Mode" matches="1">"#,
+                r#"<references of="Mode" total="1">"#,
                 &format!(
-                    r#"<match lang="rust" of="Mode" loc="src/lib.rs:16-18" kind="enum" count="0">{}"#,
+                    r#"<match lang="rust" of="Mode" loc="src/lib.rs:16-18" kind="enum" total="0">{}"#,
                     no_site(type_statement)
                 ),
                 "</references>",
@@ -2989,36 +2989,36 @@ fn impact_of_edit_answers_the_symbols_a_range_overlaps() {
         answers[..3],
         [
             lines(&[
-                r#"<impact of="pkg/service.go" start_line="12" end_line="end" symbols="1">"#,
+                r#"<impact of="pkg/service.go" start_line="12" end_line="end" total="1">"#,
                 concat!(
                     r#"<symbol name="Greet" qn="pkg.Service.Greet" kind="method" lines="12-14" callers="1" "#,
                     r#"callees="0" reach="2" reach_files="1" reach_band="low" "#,
                     r#"sig="func (s *Service) Greet(name string) string">"#,
                 ),
-                r#"<callers shown="1" of="1">"#,
+                r#"<callers total="1">"#,
                 r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10-12" role="consumer" at="11"/>"#,
                 "</callers>",
                 "</symbol>",
-                r#"<includes count="0"/>"#,
-                r#"<included-by count="1">"#,
+                r#"<includes total="0"/>"#,
+                r#"<included-by total="1">"#,
                 r#"<file path="cmd/app/main.go"/>"#,
                 "</included-by>",
                 "</impact>",
             ]),
             lines(&[
-                r#"<impact of="pkg/service.go" start_line="1" end_line="2" symbols="0">"#,
+                r#"<impact of="pkg/service.go" start_line="1" end_line="2" total="0">"#,
                 concat!(
                     "no symbols defined in this range - it may cover only file-scope code (imports, comments); ",
                     "zero symbols is not proof the edit is safe",
                 ),
-                r#"<includes count="0"/>"#,
-                r#"<included-by count="1">"#,
+                r#"<includes total="0"/>"#,
+                r#"<included-by total="1">"#,
                 r#"<file path="cmd/app/main.go"/>"#,
                 "</included-by>",
                 "</impact>",
             ]),
             format!(
-                r#"<impact of="README.md" start_line="1" end_line="end" symbols="0">{NOT_HELD}</impact>"#
+                r#"<impact of="README.md" start_line="1" end_line="end" total="0">{NOT_HELD}</impact>"#
             ),
         ]
     );
@@ -3039,7 +3039,10 @@ fn impact_of_edit_lists_10_symbols_by_default_the_first_among_equal_reaches() {
     );
 
     let answer = &answers[0];
-    assert!(answer.contains(r#"symbols="11" shown="10">"#), "{answer}");
+    assert!(
+        answer.contains(r#"total="11" shown="10" truncated="true">"#),
+        "{answer}"
+    );
     let listed: Vec<&str> = answer
         .lines()
         .filter_map(|line| line.strip_prefix(r#"<symbol name=""#))
@@ -3100,7 +3103,7 @@ fn impact_of_edit_names_the_call_that_lists_the_callers_and_callees_past_its_50(
         "{impact}"
     );
     for (rest, tag) in [(&answers[1], "callers"), (&answers[2], "callees")] {
-        assert!(rest.contains(r#"count="51""#), "{rest}");
+        assert!(rest.contains(r#"total="51""#), "{rest}");
         assert!(!rest.contains("shown="), "{tag} past the cap: {rest}");
     }
 }
@@ -3138,7 +3141,7 @@ fn impact_of_edit_names_the_call_that_lists_a_variable_s_users_past_its_50() {
         "{impact}"
     );
     assert!(
-        rest.contains(r#"count="51""#) && !rest.contains("shown="),
+        rest.contains(r#"total="51""#) && !rest.contains("shown="),
         "{rest}"
     );
 }
@@ -3175,8 +3178,8 @@ fn impact_of_edit_holds_a_whole_file_under_50_000_characters_by_cutting_every_li
     );
     let shown: Vec<&str> = answer
         .lines()
-        .filter_map(|line| line.strip_prefix(r#"<callers shown=""#))
-        .filter_map(|line| line.strip_suffix(r#"" of="50">"#))
+        .filter_map(|line| line.strip_prefix(r#"<callers total="50" shown=""#))
+        .filter_map(|line| line.strip_suffix(r#"" truncated="true">"#))
         .collect();
     assert_eq!(shown.len(), 10, "every hub lists its callers: {answer}");
     assert!(
@@ -3288,7 +3291,7 @@ fn impact_of_edit_lists_the_symbols_of_widest_reach_and_the_first_files_up_to_it
     };
     assert!(
         cut.starts_with(
-            r#"<impact of="lib/lib.go" start_line="1" end_line="end" symbols="3" shown="2">"#
+            r#"<impact of="lib/lib.go" start_line="1" end_line="end" total="3" shown="2" truncated="true">"#
         ),
         "{cut}"
     );
@@ -3303,15 +3306,15 @@ fn impact_of_edit_lists_the_symbols_of_widest_reach_and_the_first_files_up_to_it
     );
     assert!(
         cut.contains(&format!(
-            "<included-by count=\"3\" shown=\"2\">\n<file path=\"x/x.go\"/>\n<file path=\"y/y.go\"/>\n\
-             {LIMIT_CUT}\n</included-by>"
+            "<included-by total=\"3\" shown=\"2\" truncated=\"true\">\n<file path=\"x/x.go\"/>\n\
+             <file path=\"y/y.go\"/>\n{LIMIT_CUT}\n</included-by>"
         )),
         "{cut}"
     );
     assert_eq!(listed(whole), ["A", "B", "C"], "{whole}");
     assert!(
-        whole.contains(r#"symbols="3">"#)
-            && whole.contains(r#"<included-by count="3">"#)
+        whole.contains(r#"total="3">"#)
+            && whole.contains(r#"<included-by total="3">"#)
             && !whole.contains(LIMIT_CUT),
         "{whole}"
     );
@@ -3337,7 +3340,7 @@ fn find_callers_lists_the_calling_symbols_before_the_files_whose_top_level_calls
         "the calling symbols come before the file-scope records: {answer}"
     );
     assert!(
-        answer.contains(r#"count="1""#) && answer.contains(r#"file_scope="1""#),
+        answer.contains(r#"total="1""#) && answer.contains(r#"file_scope="1""#),
         "{answer}"
     );
 }
@@ -3367,9 +3370,9 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
         answers,
         [
             lines(&[
-                r#"<callers of="setup" matches="1">"#,
+                r#"<callers of="setup" total="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" count="0" "#,
+                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" total="0" "#,
                     r#"file_scope="1">"#,
                 ),
                 r#"<file_scope path="bin/run.sh"/>"#,
@@ -3377,9 +3380,9 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="shared" matches="1">"#,
+                r#"<callers of="shared" total="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" count="0" "#,
+                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" total="0" "#,
                     r#"file_scope="1">"#,
                 ),
                 r#"<file_scope path="bin/run.sh" confidence="likely"/>"#,
@@ -3387,18 +3390,18 @@ fn find_callers_lists_the_files_whose_top_level_calls_the_function() {
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="shared" matches="1">"#,
+                r#"<callers of="shared" total="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" count="0" "#,
+                    r#"<match lang="bash" of="shared" loc="lib/common.sh:1-3" total="0" "#,
                     r#"below_confidence="1">no callers at this confidence floor - 1 caller binds below it, and "#,
                     r#"min_confidence "any" lists it</match>"#,
                 ),
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="setup" role="entry" matches="1">"#,
+                r#"<callers of="setup" role="entry" total="1">"#,
                 concat!(
-                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" count="0" "#,
+                    r#"<match lang="bash" of="setup" loc="bin/run.sh:4-6" total="0" "#,
                     r#"file_scope="1" consumers="0" tests="0" entries="0" generated="0"/>"#,
                 ),
                 "</callers>",
@@ -3514,7 +3517,10 @@ fn find_callers_lists_the_nearest_callers_up_to_its_limit_and_counts_every_one()
     );
 
     let (cut, whole) = (&answers[0], &answers[1]);
-    assert!(cut.contains(r#"count="102" shown="100""#), "{cut}");
+    assert!(
+        cut.contains(r#"total="102" shown="100" truncated="true""#),
+        "{cut}"
+    );
     assert_eq!(cut.matches("<ref ").count(), 100, "{cut}");
     assert!(
         !cut.contains(r#"hops="2""#),
@@ -3524,7 +3530,7 @@ fn find_callers_lists_the_nearest_callers_up_to_its_limit_and_counts_every_one()
         cut.ends_with(&format!("\n{LIMIT_CUT}\n</match>\n</callers>")),
         "{cut}"
     );
-    assert!(whole.contains(r#"count="102""#), "{whole}");
+    assert!(whole.contains(r#"total="102""#), "{whole}");
     assert!(
         !cut.contains("reach_band") && !whole.contains("reach_band"),
         "{cut}\n{whole}"
@@ -3532,6 +3538,65 @@ fn find_callers_lists_the_nearest_callers_up_to_its_limit_and_counts_every_one()
     assert_eq!(whole.matches("<ref ").count(), 102, "{whole}");
     assert!(whole.contains(r#"hops="2""#), "{whole}");
     assert!(!whole.contains(LIMIT_CUT), "{whole}");
+}
+
+#[test]
+fn a_walk_the_node_cap_stops_counts_what_it_turned_away_and_cuts_no_list() {
+    let mut callers = String::from("package lib\n\nfunc helper() {}\n");
+    for at in 0..503 {
+        write!(callers, "\nfunc c{at:03}() {{\n\thelper()\n}}\n").expect("a string takes the text");
+    }
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/lib\n\ngo 1.22\n"),
+            ("lib.go", &callers),
+        ],
+        &[
+            (
+                "find_callers",
+                json!({"name": "helper", "hops": 1, "limit": 600}),
+            ),
+            (
+                "impact_of_edit",
+                json!({"file": "lib.go", "start_line": 3, "end_line": 3}),
+            ),
+            (
+                "impact_of_change",
+                json!({"regions": [{"file": "lib.go", "start_line": 3, "end_line": 3}]}),
+            ),
+        ],
+    );
+
+    let line = |answer: &str, at: usize| answer.lines().nth(at).unwrap_or_default().to_owned();
+    assert_eq!(
+        [
+            line(&answers[0], 1),
+            line(&answers[1], 1),
+            line(&answers[2], 0),
+            line(&answers[2], 2),
+        ],
+        [
+            concat!(
+                r#"<match lang="go" of="helper" qn="lib.helper" loc="lib.go:3" total="499" turned_away="4" "#,
+                r#"unexpanded="499">"#,
+            ),
+            concat!(
+                r#"<symbol name="helper" qn="lib.helper" kind="function" lines="3" callers="503" callees="0" "#,
+                r#"reach="499" reach_files="0" reach_band="critical" turned_away="4" unexpanded="499" "#,
+                r#"sig="func helper()">"#,
+            ),
+            concat!(
+                r#"<change regions="1" changed_symbols="1" changed_files="1" footprint="499" footprint_files="1" "#,
+                r#"stopped_walks="1">"#,
+            ),
+            concat!(
+                r#"<seed name="helper" qn="lib.helper" kind="function" loc="lib.go:3" callers="503" reach="499" "#,
+                r#"reach_band="critical" turned_away="4" unexpanded="499">"#,
+            ),
+        ],
+        "{}",
+        answers.join("\n")
+    );
 }
 
 #[test]
@@ -3557,7 +3622,8 @@ fn find_callers_spends_its_limit_on_the_callers_its_role_keeps() {
 
     let answer = &answers[0];
     assert!(
-        answer.contains(r#"count="4" shown="1""#) && answer.contains(r#"consumers="2" tests="2""#),
+        answer.contains(r#"total="4" shown="1" truncated="true""#)
+            && answer.contains(r#"consumers="2" tests="2""#),
         "{answer}"
     );
     let refs: Vec<&str> = answer
@@ -3589,9 +3655,9 @@ fn find_callers_says_how_many_callers_bind_below_the_floor_in_place_of_a_verdict
     assert_eq!(
         answers,
         [lines(&[
-            r#"<callers of="helper" matches="1">"#,
+            r#"<callers of="helper" total="1">"#,
             concat!(
-                r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:3" count="0" "#,
+                r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:3" total="0" "#,
                 r#"below_confidence="2">no callers at this confidence floor - 2 callers bind below it, and "#,
                 r#"min_confidence "any" lists them</match>"#,
             ),
@@ -3627,9 +3693,9 @@ fn find_callers_find_callees_and_find_references_agree_on_a_function_that_calls_
 
     let callers = |unexpanded: &str| {
         lines(&[
-            r#"<callers of="walk" matches="1">"#,
+            r#"<callers of="walk" total="1">"#,
             &format!(
-                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" count="1"{unexpanded}>"#
+                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" total="1"{unexpanded}>"#
             ),
             r#"<self_call at="7"/>"#,
             r#"<ref name="Run" qn="lib.Run" loc="walk.go:10-12" role="consumer" hops="1" at="11"/>"#,
@@ -3642,8 +3708,8 @@ fn find_callers_find_callees_and_find_references_agree_on_a_function_that_calls_
         [
             callers(r#" unexpanded="1""#),
             lines(&[
-                r#"<callees of="walk" matches="1">"#,
-                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" count="0">"#,
+                r#"<callees of="walk" total="1">"#,
+                r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" total="0">"#,
                 concat!(
                     "no callees but itself - no other call in its body binds a definition the graph holds; a call ",
                     "into a library or a builtin, through a function value, or by dynamic dispatch binds none",
@@ -3653,12 +3719,12 @@ fn find_callers_find_callees_and_find_references_agree_on_a_function_that_calls_
                 "</callees>",
             ]),
             lines(&[
-                r#"<references of="walk" matches="1">"#,
+                r#"<references of="walk" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" kind="function" count="2" "#,
+                    r#"<match lang="go" of="walk" qn="lib.walk" loc="walk.go:3-8" kind="function" total="2" "#,
                     r#"files="1" calls="2">"#,
                 ),
-                r#"<file path="walk.go" sites="2">"#,
+                r#"<file path="walk.go" total="2">"#,
                 r#"<ref name="walk" qn="lib.walk" lines="3-8" role="consumer" site="call" at="7"/>"#,
                 r#"<ref name="Run" qn="lib.Run" lines="10-12" role="consumer" site="call" at="11"/>"#,
                 "</file>",
@@ -3681,16 +3747,16 @@ fn a_function_that_calls_itself_alone_has_no_caller_and_no_callee_but_itself() {
         answers,
         [
             lines(&[
-                r#"<callers of="spin" matches="1">"#,
-                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14-16" count="0">"#,
+                r#"<callers of="spin" total="1">"#,
+                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14-16" total="0">"#,
                 "no callers but itself - entry point, dead code, or dynamic dispatch",
                 r#"<self_call at="15"/>"#,
                 "</match>",
                 "</callers>",
             ]),
             lines(&[
-                r#"<callees of="spin" matches="1">"#,
-                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14-16" count="0">"#,
+                r#"<callees of="spin" total="1">"#,
+                r#"<match lang="go" of="spin" qn="lib.spin" loc="walk.go:14-16" total="0">"#,
                 concat!(
                     "no callees but itself - no other call in its body binds a definition the graph holds; a call ",
                     "into a library or a builtin, through a function value, or by dynamic dispatch binds none",
@@ -3786,8 +3852,8 @@ fn find_callers_lists_a_call_through_an_interface_the_owner_implements() {
         answers,
         [
             lines(&[
-                r#"<callers of="App\\Kernel::boot" matches="1">"#,
-                r#"<match lang="php" of="boot" qn="App\\Kernel::boot" loc="src/A.php:7" count="1">"#,
+                r#"<callers of="App\\Kernel::boot" total="1">"#,
+                r#"<match lang="php" of="boot" qn="App\\Kernel::boot" loc="src/A.php:7" total="1">"#,
                 concat!(
                     r#"<ref name="start" qn="App\\Holder::start" loc="src/A.php:17" role="consumer" "#,
                     r#"through="App\\Runs::boot" hops="1" at="17"/>"#,
@@ -3796,8 +3862,8 @@ fn find_callers_lists_a_call_through_an_interface_the_owner_implements() {
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="runs.Kernel.Boot" matches="1">"#,
-                r#"<match lang="go" of="Boot" qn="runs.Kernel.Boot" loc="go/runs.go:7" count="1">"#,
+                r#"<callers of="runs.Kernel.Boot" total="1">"#,
+                r#"<match lang="go" of="Boot" qn="runs.Kernel.Boot" loc="go/runs.go:7" total="1">"#,
                 concat!(
                     r#"<ref name="start" qn="runs.start" loc="go/runs.go:14" role="consumer" "#,
                     r#"through="runs.Runs.Boot" hops="1" at="14"/>"#,
@@ -3806,8 +3872,8 @@ fn find_callers_lists_a_call_through_an_interface_the_owner_implements() {
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="Kernel.boot" languages="jsts" matches="1">"#,
-                r#"<match lang="jsts" of="boot" qn="Kernel.boot" loc="ts/runs.ts:2" count="1">"#,
+                r#"<callers of="Kernel.boot" languages="jsts" total="1">"#,
+                r#"<match lang="jsts" of="boot" qn="Kernel.boot" loc="ts/runs.ts:2" total="1">"#,
                 concat!(
                     r#"<ref name="start" loc="ts/runs.ts:3" role="consumer" through="Runs.boot" hops="1" "#,
                     r#"at="3"/>"#,
@@ -3827,7 +3893,7 @@ fn a_language_of_a_family_echoes_the_family_it_searched() {
     )]);
 
     assert!(
-        answers[0].starts_with(r#"<callers of="Kernel.boot" languages="jsts" matches="1">"#),
+        answers[0].starts_with(r#"<callers of="Kernel.boot" languages="jsts" total="1">"#),
         "javascript searches the jsts graph, which holds ts/runs.ts: {}",
         answers[0]
     );
@@ -3841,12 +3907,12 @@ fn find_callers_lists_no_call_through_an_interface_the_owner_does_not_implement(
     ]);
 
     assert!(
-        answers[0].contains(r#"count="0""#) && !answers[0].contains("through="),
+        answers[0].contains(r#"total="0""#) && !answers[0].contains("through="),
         "Plain implements no interface: {}",
         answers[0]
     );
     assert!(
-        answers[1].contains(r#"count="1""#) && !answers[1].contains("through="),
+        answers[1].contains(r#"total="1""#) && !answers[1].contains("through="),
         "the interface's own callers bind it: {}",
         answers[1]
     );
@@ -3891,7 +3957,7 @@ fn find_callers_reads_a_go_interface_that_embeds_one_as_implemented_by_a_type_wi
         answers[0]
     );
     assert!(
-        answers[1].contains(r#"count="0""#),
+        answers[1].contains(r#"total="0""#),
         "Half has no Run, so it is no Runner and no Service: {}",
         answers[1]
     );
@@ -3932,7 +3998,7 @@ fn find_callers_reads_a_go_interface_only_from_a_package_near_the_types() {
         answers[0]
     );
     assert!(
-        answers[1].contains(r#"count="0""#),
+        answers[1].contains(r#"total="0""#),
         "e and b import neither the other: {}",
         answers[1]
     );
@@ -4032,7 +4098,7 @@ fn find_callers_reads_a_cpp_member_as_reached_only_through_the_virtual_one_it_ov
     );
     for answer in &answers[1..] {
         assert!(
-            answer.contains(r#"count="0""#),
+            answer.contains(r#"total="0""#),
             "another parameter list, or no virtual, overrides nothing: {answer}"
         );
     }
@@ -4089,7 +4155,7 @@ fn find_callers_lists_no_call_from_within_another_branch_of_the_hierarchy_or_of_
     );
     for answer in &answers[2..] {
         assert!(
-            answer.contains(r#"count="0""#),
+            answer.contains(r#"total="0""#),
             "Base.boot(self) and Base.__init__(self) run Base's own: {answer}"
         );
     }
@@ -4120,7 +4186,7 @@ fn find_callers_reads_a_rust_impl_as_implementing_a_trait_and_no_namesake_struct
     );
 
     assert!(
-        answers[0].contains(r#"count="0""#),
+        answers[0].contains(r#"total="0""#),
         "x's struct Module is no trait Object implements: {}",
         answers[0]
     );
@@ -4243,9 +4309,9 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
     let no_call_binds = |qn: &str, loc: &str| {
         let of = qn.rsplit("::").next().unwrap_or(qn);
         lines(&[
-            &format!(r#"<callers of="{qn}" matches="1">"#),
+            &format!(r#"<callers of="{qn}" total="1">"#),
             &format!(
-                "<match lang=\"rust\" of=\"{of}\" qn=\"{qn}\" loc=\"{loc}\" count=\"0\" \
+                "<match lang=\"rust\" of=\"{of}\" qn=\"{qn}\" loc=\"{loc}\" total=\"0\" \
                  ambiguous=\"{}\">{NO_CALL_BINDS}</match>",
                 if of == "cancel" { 1 } else { 2 }
             ),
@@ -4259,10 +4325,10 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
             no_call_binds("Index::refresh_paths", "src/index.rs:4-6"),
             no_call_binds("Engine::refresh_paths", "src/engine.rs:4-6"),
             lines(&[
-                r#"<callers of="CancelToken::is_cancelled" matches="1">"#,
+                r#"<callers of="CancelToken::is_cancelled" total="1">"#,
                 concat!(
                     r#"<match lang="rust" of="is_cancelled" qn="CancelToken::is_cancelled" loc="src/cancel.rs:6-8" "#,
-                    r#"count="1" unexpanded="1">"#,
+                    r#"total="1" unexpanded="1">"#,
                 ),
                 concat!(
                     r#"<ref name="stop" loc="src/run.rs:3-6" role="consumer" confidence="likely" hops="1" "#,
@@ -4272,10 +4338,10 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="Engine::refresh_paths_limit" matches="1">"#,
+                r#"<callers of="Engine::refresh_paths_limit" total="1">"#,
                 concat!(
                     r#"<match lang="rust" of="refresh_paths_limit" qn="Engine::refresh_paths_limit" "#,
-                    r#"loc="src/engine.rs:8-10" count="1">"#,
+                    r#"loc="src/engine.rs:8-10" total="1">"#,
                 ),
                 concat!(
                     r#"<ref name="refresh" loc="src/state.rs:3-8" role="consumer" confidence="likely" hops="1" "#,
@@ -4285,9 +4351,9 @@ fn find_callers_counts_the_calls_of_a_shared_method_name_it_could_not_bind() {
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="Handle::cancel" matches="1">"#,
+                r#"<callers of="Handle::cancel" total="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="cancel" qn="Handle::cancel" loc="src/handle.rs:4" count="1" "#,
+                    r#"<match lang="rust" of="cancel" qn="Handle::cancel" loc="src/handle.rs:4" total="1" "#,
                     r#"unexpanded="1" ambiguous="1">"#,
                 ),
                 concat!(
@@ -4311,10 +4377,10 @@ fn find_callers_kept_to_one_role_still_counts_every_call_of_the_name_it_could_no
     assert_eq!(
         answers,
         [lines(&[
-            r#"<callers of="Index::refresh_paths" role="consumer" matches="1">"#,
+            r#"<callers of="Index::refresh_paths" role="consumer" total="1">"#,
             &format!(
                 "<match lang=\"rust\" of=\"refresh_paths\" qn=\"Index::refresh_paths\" loc=\"src/index.rs:4-6\" \
-                 count=\"0\" ambiguous=\"2\" consumers=\"0\" tests=\"0\" entries=\"0\" \
+                 total=\"0\" ambiguous=\"2\" consumers=\"0\" tests=\"0\" entries=\"0\" \
                  generated=\"0\">{NO_CALL_BINDS}</match>"
             ),
             "</callers>",
@@ -4332,10 +4398,10 @@ fn find_references_counts_the_calls_find_callers_could_not_bind() {
     assert_eq!(
         answers,
         [lines(&[
-            r#"<references of="CancelToken::cancel" matches="1">"#,
+            r#"<references of="CancelToken::cancel" total="1">"#,
             concat!(
                 r#"<match lang="rust" of="cancel" qn="CancelToken::cancel" loc="src/cancel.rs:4" kind="method" "#,
-                r#"count="0" ambiguous="1">no recorded site - resolved calls can omit dynamic or unresolved ones, "#,
+                r#"total="0" ambiguous="1">no recorded site - resolved calls can omit dynamic or unresolved ones, "#,
                 "and uses other than calls are recorded only where the graph records them, so this does not show ",
                 "that nothing uses the symbol; a call through a value of the owner's type resolves only where the ",
                 "graph can name that type, so some of those calls can be missing</match>",
@@ -4362,14 +4428,14 @@ fn the_impact_tools_count_the_calls_find_callers_could_not_bind() {
         answers,
         [
             lines(&[
-                r#"<impact of="src/cancel.rs" start_line="4" end_line="4" symbols="1">"#,
+                r#"<impact of="src/cancel.rs" start_line="4" end_line="4" total="1">"#,
                 concat!(
                     r#"<symbol name="cancel" qn="CancelToken::cancel" kind="method" lines="4" callers="0" "#,
                     r#"ambiguous="1" callees="0" reach="0" reach_files="1" reach_band="low" "#,
                     r#"sig="pub fn cancel(&self)"/>"#,
                 ),
-                r#"<includes count="0"/>"#,
-                r#"<included-by count="1">"#,
+                r#"<includes total="0"/>"#,
+                r#"<included-by total="1">"#,
                 r#"<file path="src/lib.rs"/>"#,
                 "</included-by>",
                 "</impact>",
@@ -4379,7 +4445,7 @@ fn the_impact_tools_count_the_calls_find_callers_could_not_bind() {
                     r#"<change regions="1" changed_symbols="1" changed_files="1" footprint="0" "#,
                     r#"footprint_files="0">"#,
                 ),
-                r#"<seeds shown="1" of="1">"#,
+                r#"<seeds total="1">"#,
                 concat!(
                     r#"<seed name="refresh_paths" qn="Index::refresh_paths" kind="method" loc="src/index.rs:4-6" "#,
                     r#"callers="0" ambiguous="2" reach="0" reach_band="low"/>"#,
@@ -4421,7 +4487,7 @@ fn the_impact_tools_reach_the_symbols_that_read_or_write_a_field() {
 
     let impact = [
         &[
-            r#"<impact of="wire/errors.go" start_line="4" end_line="4" symbols="2">"#,
+            r#"<impact of="wire/errors.go" start_line="4" end_line="4" total="2">"#,
             concat!(
                 r#"<symbol name="Error" qn="wire.Error" kind="struct" lines="3-5" callers="0" callees="0" "#,
                 r#"reach="0" reach_files="0" reach_band="low"/>"#,
@@ -4434,8 +4500,8 @@ fn the_impact_tools_reach_the_symbols_that_read_or_write_a_field() {
         &CODE_USERS,
         &[
             "</symbol>",
-            r#"<includes count="0"/>"#,
-            r#"<included-by count="0"/>"#,
+            r#"<includes total="0"/>"#,
+            r#"<included-by total="0"/>"#,
             "</impact>",
         ],
     ];
@@ -4445,7 +4511,7 @@ fn the_impact_tools_reach_the_symbols_that_read_or_write_a_field() {
                 r#"<change regions="1" changed_symbols="2" changed_files="1" footprint="4" "#,
                 r#"footprint_files="2">"#,
             ),
-            r#"<seeds shown="2" of="2">"#,
+            r#"<seeds total="2">"#,
             concat!(
                 r#"<seed name="Code" qn="wire.Error.Code" kind="field" loc="wire/errors.go:4" callers="0" "#,
                 r#"users="3" reach="4" reach_band="low">"#,
@@ -4468,7 +4534,7 @@ fn the_impact_tools_reach_the_symbols_that_read_or_write_a_field() {
 
 /// The users of `wire.Error.Code` the impact tools list: the function that writes it and the two methods that read it.
 const CODE_USERS: [&str; 5] = [
-    r#"<users shown="3" of="3">"#,
+    r#"<users total="3">"#,
     r#"<ref name="call" qn="wire.call" loc="wire/call.go:3-5" role="consumer" at="4"/>"#,
     r#"<ref name="Error" qn="wire.Error.Error" loc="wire/errors.go:7-9" role="consumer" at="8"/>"#,
     r#"<ref name="Unwrap" qn="wire.Error.Unwrap" loc="wire/errors.go:11-13" role="consumer" at="12"/>"#,
@@ -4495,18 +4561,18 @@ fn impact_of_edit_lists_a_called_variable_s_callers_once_among_its_users() {
     assert_eq!(
         answers,
         [lines(&[
-            r#"<impact of="hook/hook.go" start_line="3" end_line="3" symbols="1">"#,
+            r#"<impact of="hook/hook.go" start_line="3" end_line="3" total="1">"#,
             concat!(
                 r#"<symbol name="onDone" qn="hook.onDone" kind="variable" lines="3" callers="1" users="2" "#,
                 r#"callees="0" reach="2" reach_files="0" reach_band="low">"#,
             ),
-            r#"<users shown="2" of="2">"#,
+            r#"<users total="2">"#,
             r#"<ref name="Set" qn="hook.Set" loc="hook/hook.go:5-7" role="consumer" at="6"/>"#,
             r#"<ref name="Fire" qn="hook.Fire" loc="hook/hook.go:9-11" role="consumer" at="10"/>"#,
             "</users>",
             "</symbol>",
-            r#"<includes count="0"/>"#,
-            r#"<included-by count="0"/>"#,
+            r#"<includes total="0"/>"#,
+            r#"<included-by total="0"/>"#,
             "</impact>",
         ])]
     );
@@ -4550,7 +4616,7 @@ fn find_callees_binds_nothing_through_a_package_level_cycle() {
         let answer = client.answer("find_callees", &json!({"name": "run"}));
 
         assert!(
-            answer.contains(r#"count="0" unresolved="1""#),
+            answer.contains(r#"total="0" unresolved="1""#),
             "{files:?} answered {answer}"
         );
     }
@@ -4574,7 +4640,7 @@ fn find_callees_binds_nothing_through_a_cycle_across_packages() {
 
     let answer = client.answer("find_callees", &json!({"name": "run"}));
 
-    assert!(answer.contains(r#"count="0" unresolved="1""#), "{answer}");
+    assert!(answer.contains(r#"total="0" unresolved="1""#), "{answer}");
 }
 
 #[test]
@@ -4590,9 +4656,9 @@ fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
         answers,
         [
             lines(&[
-                r#"<callees of="main" matches="1">"#,
+                r#"<callees of="main" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5-8" count="2" "#,
+                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5-8" total="2" "#,
                     r#"unexpanded="2">"#,
                 ),
                 concat!(
@@ -4607,9 +4673,9 @@ fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="main" matches="1">"#,
+                r#"<callees of="main" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5-8" count="3" "#,
+                    r#"<match lang="go" of="main" qn="main.main" loc="cmd/app/main.go:5-8" total="3" "#,
                     r#"unexpanded="1">"#,
                 ),
                 concat!(
@@ -4625,16 +4691,16 @@ fn find_callees_walks_forward_with_the_line_of_each_direct_call() {
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="Greet" matches="1">"#,
+                r#"<callees of="Greet" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12-14" count="0">"#,
+                    r#"<match lang="go" of="Greet" qn="pkg.Service.Greet" loc="pkg/service.go:12-14" total="0">"#,
                     "no callees - no call in its body binds a definition the graph holds; a call into a library or a ",
                     "builtin, through a function value, or by dynamic dispatch binds none</match>",
                 ),
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="Gret" matches="0" one_edit="1">"#,
+                r#"<callees of="Gret" total="0" one_edit="1">"#,
                 "no symbol matches - did you mean:",
                 concat!(
                     r#"<suggestion name="Greet" qn="pkg.Service.Greet" kind="method" lang="go" "#,
@@ -4673,9 +4739,9 @@ fn find_callees_counts_the_calls_that_bound_nothing_and_the_callees_below_the_fl
         ],
         [
             lines(&[
-                r#"<callees of="Run" matches="1">"#,
+                r#"<callees of="Run" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5-8" count="1" unexpanded="1" "#,
+                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5-8" total="1" unexpanded="1" "#,
                     r#"unresolved="1">"#,
                 ),
                 concat!(
@@ -4686,18 +4752,18 @@ fn find_callees_counts_the_calls_that_bound_nothing_and_the_callees_below_the_fl
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="Run" matches="1">"#,
+                r#"<callees of="Run" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5-8" count="0" below_confidence="1" "#,
+                    r#"<match lang="go" of="Run" qn="lib.Run" loc="run.go:5-8" total="0" below_confidence="1" "#,
                     r#"unresolved="1">no callees at this confidence floor - 1 callee binds below it, and "#,
                     r#"min_confidence "any" lists it</match>"#,
                 ),
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="helper" matches="1">"#,
+                r#"<callees of="helper" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:3" count="0">no callees - no "#,
+                    r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:3" total="0">no callees - no "#,
                     "call in its body binds a definition the graph holds; a call into a library or a builtin, ",
                     "through a function value, or by dynamic dispatch binds none</match>",
                 ),
@@ -4743,27 +4809,27 @@ fn find_references_counts_the_sites_below_the_floor_and_names_it_only_where_it_d
         answers,
         [
             lines(&[
-                r#"<references of="helper" matches="1">"#,
+                r#"<references of="helper" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:5" kind="function" count="0" "#,
+                    r#"<match lang="go" of="helper" qn="lib.helper" loc="helper.go:5" kind="function" total="0" "#,
                     r#"below_confidence="2">no recorded site at this confidence floor - 2 uses bind below it, "#,
                     r#"and min_confidence "any" lists them</match>"#,
                 ),
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="limit" matches="1">"#,
+                r#"<references of="limit" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="limit" qn="lib.limit" loc="helper.go:3" kind="variable" count="0" "#,
+                    r#"<match lang="go" of="limit" qn="lib.limit" loc="helper.go:3" kind="variable" total="0" "#,
                     r#"below_confidence="1">no recorded site at this confidence floor - 1 use binds below it, and "#,
                     r#"min_confidence "any" without access lists it</match>"#,
                 ),
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="Stop" matches="1">"#,
+                r#"<references of="Stop" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Stop" qn="lib.Stop" loc="stop.go:3-5" kind="function" count="0">no "#,
+                    r#"<match lang="go" of="Stop" qn="lib.Stop" loc="stop.go:3-5" kind="function" total="0">no "#,
                     "recorded site - resolved calls can omit dynamic or unresolved ones, and uses other than calls ",
                     "are recorded only where the graph records them, so this does not show that nothing uses the ",
                     "symbol</match>",
@@ -4791,17 +4857,17 @@ fn find_callers_names_the_floor_only_where_it_dropped_callers() {
         answers,
         [
             lines(&[
-                r#"<callers of="CancelToken::cancel" matches="1">"#,
+                r#"<callers of="CancelToken::cancel" total="1">"#,
                 &format!(
                     "<match lang=\"rust\" of=\"cancel\" qn=\"CancelToken::cancel\" loc=\"src/cancel.rs:4\" \
-                     count=\"0\" ambiguous=\"1\">{NO_CALL_BINDS}</match>"
+                     total=\"0\" ambiguous=\"1\">{NO_CALL_BINDS}</match>"
                 ),
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="CancelToken" matches="1">"#,
+                r#"<callers of="CancelToken" total="1">"#,
                 concat!(
-                    r#"<match lang="rust" of="CancelToken" loc="src/cancel.rs:1" count="0">no "#,
+                    r#"<match lang="rust" of="CancelToken" loc="src/cancel.rs:1" total="0">no "#,
                     "callers - the graph holds no call that names this struct; find_references lists its recorded ",
                     "uses</match>",
                 ),
@@ -4841,7 +4907,7 @@ fn find_call_path_counts_the_callers_below_the_floor_that_it_did_not_follow() {
         answers,
         [
             lines(&[
-                r#"<call_path from="Run" to="helper" matches="1">"#,
+                r#"<call_path from="Run" to="helper" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="lib.Run" from_loc="run.go:3-5" to="lib.helper" to_loc="helper.go:3" "#,
                     r#"max_hops="8" below_confidence="2" "#,
@@ -4851,7 +4917,7 @@ fn find_call_path_counts_the_callers_below_the_floor_that_it_did_not_follow() {
                 "</call_path>",
             ]),
             lines(&[
-                r#"<call_path from="Run" to="Stop" matches="1">"#,
+                r#"<call_path from="Run" to="Stop" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="lib.Run" from_loc="run.go:3-5" to="lib.Stop" to_loc="stop.go:3-5" "#,
                     r#"max_hops="8" below_confidence="1" "#,
@@ -4875,7 +4941,7 @@ fn find_call_path_writes_hops_for_a_chain_alone_and_zero_for_one_symbol() {
         answers,
         [
             lines(&[
-                r#"<call_path from="Greet" to="Greet" matches="1">"#,
+                r#"<call_path from="Greet" to="Greet" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="pkg.Service.Greet" from_loc="pkg/service.go:12-14" "#,
                     r#"to="pkg.Service.Greet" to_loc="pkg/service.go:12-14" hops="0" max_hops="8"/>"#,
@@ -4883,7 +4949,7 @@ fn find_call_path_writes_hops_for_a_chain_alone_and_zero_for_one_symbol() {
                 "</call_path>",
             ]),
             lines(&[
-                r#"<call_path from="Greet" to="main" matches="1">"#,
+                r#"<call_path from="Greet" to="main" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="pkg.Service.Greet" from_loc="pkg/service.go:12-14" to="main.main" "#,
                     r#"to_loc="cmd/app/main.go:5-8" max_hops="8" found="false">no call chain within 8 calls - the "#,
@@ -4908,7 +4974,7 @@ fn find_call_path_names_the_floor_only_where_it_dropped_callers() {
     assert_eq!(
         answers,
         [lines(&[
-            r#"<call_path from="helper" to="Run" matches="1">"#,
+            r#"<call_path from="helper" to="Run" total="1">"#,
             concat!(
                 r#"<match lang="go" from="lib.helper" from_loc="helper.go:3" to="lib.Run" to_loc="run.go:3-5" "#,
                 r#"max_hops="8" found="false">no call "#,
@@ -4925,14 +4991,14 @@ const GREET_SEED: [&str; 5] = [
         r#"<seed name="Greet" qn="pkg.Service.Greet" kind="method" loc="pkg/service.go:12-14" callers="1" "#,
         r#"reach="2" reach_band="low">"#,
     ),
-    r#"<callers shown="1" of="1">"#,
+    r#"<callers total="1">"#,
     r#"<ref name="run" qn="main.run" loc="cmd/app/main.go:10-12" role="consumer" at="11"/>"#,
     "</callers>",
     "</seed>",
 ];
 
 const MAIN_HOTSPOT: [&str; 3] = [
-    r#"<hotspots shown="1" of="1">"#,
+    r#"<hotspots total="1">"#,
     concat!(
         r#"<hotspot name="main" qn="main.main" kind="function" loc="cmd/app/main.go:5-8" role="entry" "#,
         r#"reached_by="2" hops="1"/>"#,
@@ -4952,7 +5018,7 @@ fn impact_of_change_lists_the_changed_symbols_and_where_their_reaches_meet() {
             r#"<seed name="New" qn="pkg.New" kind="function" loc="pkg/service.go:7-9" callers="1" "#,
             r#"reach="1" reach_band="low">"#,
         ),
-        r#"<callers shown="1" of="1">"#,
+        r#"<callers total="1">"#,
         r#"<ref name="main" qn="main.main" loc="cmd/app/main.go:5-8" role="entry" at="6"/>"#,
         "</callers>",
         "</seed>",
@@ -4966,7 +5032,7 @@ fn impact_of_change_lists_the_changed_symbols_and_where_their_reaches_meet() {
                         r#"<change regions="1" changed_symbols="2" changed_files="1" footprint="2" "#,
                         r#"footprint_files="1">"#,
                     ),
-                    r#"<seeds shown="2" of="2">"#,
+                    r#"<seeds total="2">"#,
                 ][..],
                 &GREET_SEED,
                 &new_seed,
@@ -5016,7 +5082,7 @@ diff --git a/README.md b/README.md
                             r#"<change regions="3" changed_symbols="2" changed_files="1" footprint="2" "#,
                             r#"footprint_files="1" unheld_regions="1" unclaimed_regions="1">"#,
                         ),
-                        r#"<seeds shown="1" of="2">"#,
+                        r#"<seeds total="2" shown="1" truncated="true">"#,
                     ][..],
                     &GREET_SEED,
                     &[LIMIT_CUT, "</seeds>"],
@@ -5062,8 +5128,8 @@ fn impact_of_change_ends_the_hotspots_its_limit_cut_with_the_line_that_names_lim
 
     let (cut, whole) = (&answers[0], &answers[1]);
     assert!(
-        cut.contains(r#"<seeds shown="2" of="2">"#)
-            && cut.contains(r#"<hotspots shown="2" of="3">"#),
+        cut.contains(r#"<seeds total="2">"#)
+            && cut.contains(r#"<hotspots total="3" shown="2" truncated="true">"#),
         "{cut}"
     );
     assert!(
@@ -5076,7 +5142,7 @@ fn impact_of_change_ends_the_hotspots_its_limit_cut_with_the_line_that_names_lim
         "the seeds the limit did not cut end with no line: {cut}"
     );
     assert!(
-        whole.contains(r#"<hotspots shown="3" of="3">"#) && !whole.contains(LIMIT_CUT),
+        whole.contains(r#"<hotspots total="3">"#) && !whole.contains(LIMIT_CUT),
         "{whole}"
     );
 }
@@ -5148,7 +5214,7 @@ diff --git a/gone.go b/gone.go
                     r#"<change regions="4" changed_symbols="1" changed_files="1" footprint="0" footprint_files="0" "#,
                     r#"unheld_regions="3" unclaimed_regions="1">"#,
                 ),
-                r#"<seeds shown="1" of="1">"#,
+                r#"<seeds total="1">"#,
                 r#"<seed name="A" qn="app.A" kind="function" loc="a.go:3" callers="0" reach="0" reach_band="low"/>"#,
                 "</seeds>",
                 &declined(2),
@@ -5187,8 +5253,8 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
         ],
         [
             lines(&[
-                r#"<unused count="2" live="2">"#,
-                r#"<excluded test="1" entry="1"/>"#,
+                r#"<unused total="2" live="2">"#,
+                r#"<unjudged test="1" entry="1"/>"#,
                 r#"<symbol name="unused" qn="main.unused" kind="function" lang="go" loc="main.go:10"/>"#,
                 concat!(
                     r#"<symbol name="Helper" qn="pkg.Helper" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
@@ -5197,15 +5263,15 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
                 "</unused>",
             ]),
             lines(&[
-                r#"<unused count="1" total="2" truncated="true" live="2">"#,
-                r#"<excluded test="1" entry="1"/>"#,
+                r#"<unused total="2" shown="1" truncated="true" live="2">"#,
+                r#"<unjudged test="1" entry="1"/>"#,
                 r#"<symbol name="unused" qn="main.unused" kind="function" lang="go" loc="main.go:10"/>"#,
                 LIMIT_CUT,
                 "</unused>",
             ]),
             lines(&[
-                r#"<unused path_prefix="pkg/" count="1" live="0">"#,
-                r#"<excluded test="1"/>"#,
+                r#"<unused path_prefix="pkg/" total="1" live="0">"#,
+                r#"<unjudged test="1"/>"#,
                 concat!(
                     r#"<symbol name="Helper" qn="pkg.Helper" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
                     r#"name_used_elsewhere="true"/>"#,
@@ -5213,18 +5279,18 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
                 "</unused>",
             ]),
             lines(&[
-                r#"<unused path_prefix="pkg/pkg_test.go" count="0" live="0">"#,
-                r#"<excluded test="1"/>"#,
-                "no unused definition among those judged - what was not judged is counted in <excluded>",
+                r#"<unused path_prefix="pkg/pkg_test.go" total="0" live="0">"#,
+                r#"<unjudged test="1"/>"#,
+                "no unused definition among those judged - what was not judged is counted in <unjudged>",
                 "</unused>",
             ]),
             concat!(
-                r#"<unused path_prefix="go." count="0" live="0">no definition in a code graph lies under "#,
+                r#"<unused path_prefix="go." total="0" live="0">no definition in a code graph lies under "#,
                 "path_prefix - the paths it starts are in no graph, or define nothing</unused>",
             )
             .to_owned(),
             concat!(
-                r#"<unused languages="[]" count="0" live="0">no language selected - an empty languages list "#,
+                r#"<unused languages="[]" total="0" live="0">no language selected - an empty languages list "#,
                 "searches no graph; omit languages to search every indexed language</unused>",
             )
             .to_owned(),
@@ -5250,7 +5316,7 @@ fn find_unused_that_judged_everything_and_found_it_reached_points_at_no_exclusio
     assert_eq!(
         answer,
         concat!(
-            r#"<unused path_prefix="pkg/a.go" count="0" live="2">no unused definition - every definition was "#,
+            r#"<unused path_prefix="pkg/a.go" total="0" live="2">no unused definition - every definition was "#,
             "judged, and a call or a use reaches each</unused>",
         )
     );
@@ -5272,8 +5338,8 @@ fn find_unused_judges_go_fields_by_their_uses_and_counts_those_a_struct_tag_hand
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused count="2" live="2">"#,
-            r#"<excluded entry="1" reflected="1"/>"#,
+            r#"<unused total="2" live="2">"#,
+            r#"<unjudged entry="1" reflected="1"/>"#,
             r#"<symbol name="Skipped" qn="main.Seed.Skipped" kind="field" lang="go" loc="main.go:6"/>"#,
             r#"<symbol name="Spare" qn="main.Seed.Spare" kind="field" lang="go" loc="main.go:7"/>"#,
             "</unused>",
@@ -5298,8 +5364,8 @@ fn find_unused_counts_a_go_field_that_only_a_decoder_writes_as_reflected() {
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused count="1" live="2">"#,
-            r#"<excluded unobservable="1" reflected="1"/>"#,
+            r#"<unused total="1" live="2">"#,
+            r#"<unjudged unobservable="1" reflected="1"/>"#,
             r#"<symbol name="Parse" qn="live.Parse" kind="function" lang="go" loc="live/live.go:10-14"/>"#,
             "</unused>",
         ])
@@ -5331,8 +5397,8 @@ fn find_unused_lists_a_go_field_a_marshal_call_meets_only_through_a_func_type() 
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused count="5" live="4">"#,
-            r#"<excluded reflected="1"/>"#,
+            r#"<unused total="5" live="4">"#,
+            r#"<unjudged reflected="1"/>"#,
             r#"<symbol name="Name" qn="b.S.Name" kind="field" lang="go" loc="b/a.go:6"/>"#,
             r#"<symbol name="run" qn="b.run" kind="function" lang="go" loc="b/a.go:11"/>"#,
             r#"<symbol name="Tag" qn="b.C.Tag" kind="field" lang="go" loc="b/c.go:4"/>"#,
@@ -5368,8 +5434,8 @@ fn find_unused_lists_a_go_field_a_marshal_call_meets_only_through_a_channel() {
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused count="5" live="3">"#,
-            r#"<excluded reflected="1"/>"#,
+            r#"<unused total="5" live="3">"#,
+            r#"<unjudged reflected="1"/>"#,
             r#"<symbol name="Name" qn="b.S.Name" kind="field" lang="go" loc="b/a.go:6"/>"#,
             r#"<symbol name="run" qn="b.run" kind="function" lang="go" loc="b/a.go:9"/>"#,
             r#"<symbol name="Tag" qn="b.C.Tag" kind="field" lang="go" loc="b/c.go:4"/>"#,
@@ -5397,8 +5463,8 @@ fn a_go_range_over_a_channel_reads_its_value_as_the_element() {
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused count="1" live="2">"#,
-            r#"<excluded reflected="1"/>"#,
+            r#"<unused total="1" live="2">"#,
+            r#"<unjudged reflected="1"/>"#,
             r#"<symbol name="run" qn="b.run" kind="function" lang="go" loc="b/a.go:11-16"/>"#,
             "</unused>",
         ])
@@ -5422,8 +5488,8 @@ fn find_unused_counts_the_exports_a_go_plugin_s_host_looks_up_by_name_as_reflect
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused count="1" live="0">"#,
-            r#"<excluded reflected="2"/>"#,
+            r#"<unused total="1" live="0">"#,
+            r#"<unjudged reflected="2"/>"#,
             r#"<symbol name="spare" qn="main.spare" kind="function" lang="go" loc="lib/adder/adder.go:9"/>"#,
             "</unused>",
         ])
@@ -5614,7 +5680,7 @@ fn find_callees_binds_a_call_through_a_field_embedded_beside_an_import() {
         let answer = client.answer("find_callees", &json!({"name": caller}));
 
         assert!(
-            answer.contains(r#"count="1""#) && answer.contains("b.Base.M"),
+            answer.contains(r#"total="1""#) && answer.contains("b.Base.M"),
             "{caller} binds the embedded field's method: {answer}"
         );
     }
@@ -5639,7 +5705,7 @@ fn find_callees_takes_no_member_from_an_interface_a_file_asserts() {
         let answer = client.answer("find_callees", &json!({"name": caller}));
 
         assert!(
-            answer.contains(r#"count="1""#) && answer.contains("a.Deep.M"),
+            answer.contains(r#"total="1""#) && answer.contains("a.Deep.M"),
             "{caller} binds the method Go selects: {answer}"
         );
     }
@@ -5753,14 +5819,14 @@ fn find_implementations_of_a_trait_outside_the_graph_lists_the_types_whose_paren
 
     assert!(
         bare.contains("outside_graph=\"true\"")
-            && bare.contains("count=\"2\"")
+            && bare.contains("total=\"2\"")
             && bare.contains("name=\"Module\"")
             && bare.contains("name=\"Path\""),
         "the types whose impls name Display: {bare}"
     );
     assert!(
         path.contains("outside_graph=\"true\"")
-            && path.contains("count=\"1\"")
+            && path.contains("total=\"1\"")
             && path.contains("name=\"Path\""),
         "only the impl that writes the whole path: {path}"
     );
@@ -5881,7 +5947,7 @@ fn find_implementations_lists_a_rust_impl_in_a_file_that_does_not_declare_its_ty
         let (named, located) = (format!("name=\"{name}\""), format!("loc=\"{file}:"));
 
         assert!(
-            answer.contains("count=\"1\"") && answer.contains(&named) && answer.contains(&located),
+            answer.contains("total=\"1\"") && answer.contains(&named) && answer.contains(&located),
             "{implementing} implements the trait for {name} of {file}: {answer}"
         );
     }
@@ -5905,7 +5971,7 @@ fn find_implementations_lists_no_type_a_rust_impl_does_not_reach() {
         let answer = implementors_of_a_trait_a_third_file_implements(implementing);
 
         assert!(
-            answer.contains("count=\"0\""),
+            answer.contains("total=\"0\""),
             "{implementing} implements the trait for no type of the tree: {answer}"
         );
     }
@@ -5925,7 +5991,7 @@ fn find_implementations_reads_a_trait_a_rust_file_declares_past_a_glob_that_hold
     );
 
     assert!(
-        globbed.contains("count=\"0\"") && declared.contains("count=\"1\""),
+        globbed.contains("total=\"0\"") && declared.contains("total=\"1\""),
         "the file's own item shadows the glob's: {globbed} {declared}"
     );
 }
@@ -5950,7 +6016,7 @@ fn find_implementations_lists_no_type_past_the_crates_a_rust_impl_is_built_with(
     let answer = client.answer("find_implementations", &json!({"name": "Own"}));
 
     assert!(
-        answer.contains("count=\"0\""),
+        answer.contains("total=\"0\""),
         "the crate is not built with the one type of the name: {answer}"
     );
 }
@@ -6320,7 +6386,7 @@ fn find_references_reads_an_embedded_field_over_a_promoted_field_of_its_name() {
 
     let promoted = client.answer("find_references", &json!({"name": "base.Config.Config"}));
     assert!(
-        promoted.contains(r#"count="0""#) && !promoted.contains("<ref "),
+        promoted.contains(r#"total="0""#) && !promoted.contains("<ref "),
         "the embedded field shadows the promoted one: {promoted}"
     );
 
@@ -6351,7 +6417,7 @@ fn find_callees_calls_no_type_through_an_embedded_field() {
     let answer = client.answer("find_callees", &json!({"name": "a.run"}));
 
     assert!(
-        answer.contains(r#"count="0""#) && !answer.contains("<ref "),
+        answer.contains(r#"total="0""#) && !answer.contains("<ref "),
         "the embedded func field shadows Plain.Run, and its type is no callee: {answer}"
     );
 }
@@ -6430,7 +6496,7 @@ fn a_call_path_lists_each_ends_passed_over_symbols_and_what_an_unselected_end_ma
         answers,
         [
             lines(&[
-                r#"<call_path from="One" to="util.Parse" matches="1">"#,
+                r#"<call_path from="One" to="util.Parse" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="util.One" from_loc="a/util/util.go:5" to="util.Parse" "#,
                     r#"to_loc="a/util/util.go:3" hops="1" max_hops="8" "#,
@@ -6445,7 +6511,7 @@ fn a_call_path_lists_each_ends_passed_over_symbols_and_what_an_unselected_end_ma
                 "</call_path>",
             ]),
             lines(&[
-                r#"<call_path from="One" to="util.Parse" matches="0">"#,
+                r#"<call_path from="One" to="util.Parse" total="0">"#,
                 "<to>",
                 "no definition of this name is under to_path_prefix - 2 are elsewhere:",
                 r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="a/util/util.go:3" lang="go"/>"#,
@@ -6454,7 +6520,7 @@ fn a_call_path_lists_each_ends_passed_over_symbols_and_what_an_unselected_end_ma
                 "</call_path>",
             ]),
             lines(&[
-                r#"<call_path from="Store.Close" to="util.Parse" matches="0">"#,
+                r#"<call_path from="Store.Close" to="util.Parse" total="0">"#,
                 "<from>",
                 concat!(
                     "2 definitions end with this name and it picks none of them - a longer name, or ",
@@ -6525,9 +6591,9 @@ fn a_name_several_symbols_share_lists_the_others_and_a_path_prefix_picks_one() {
         answers,
         [
             lines(&[
-                r#"<callers of="util.Parse" matches="1">"#,
+                r#"<callers of="util.Parse" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Parse" qn="util.Parse" loc="a/util/util.go:3" count="2" "#,
+                    r#"<match lang="go" of="Parse" qn="util.Parse" loc="a/util/util.go:3" total="2" "#,
                     r#"unexpanded="2" passed_over="1">"#,
                 ),
                 r#"<ref name="One" qn="util.One" loc="a/util/util.go:5" role="consumer" hops="1" at="5"/>"#,
@@ -6537,9 +6603,9 @@ fn a_name_several_symbols_share_lists_the_others_and_a_path_prefix_picks_one() {
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="util.Parse" matches="1">"#,
+                r#"<callers of="util.Parse" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Parse" qn="util.Parse" loc="b/util/util.go:3" count="1" "#,
+                    r#"<match lang="go" of="Parse" qn="util.Parse" loc="b/util/util.go:3" total="1" "#,
                     r#"unexpanded="1">"#,
                 ),
                 concat!(
@@ -6550,7 +6616,7 @@ fn a_name_several_symbols_share_lists_the_others_and_a_path_prefix_picks_one() {
                 "</callers>",
             ]),
             lines(&[
-                r#"<callers of="util.Parse" matches="0">"#,
+                r#"<callers of="util.Parse" total="0">"#,
                 "no definition of this name is under path_prefix - 2 are elsewhere:",
                 r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="a/util/util.go:3" lang="go"/>"#,
                 r#"<candidate name="Parse" qn="util.Parse" kind="function" loc="b/util/util.go:3" lang="go"/>"#,
@@ -6606,9 +6672,9 @@ fn a_line_picks_one_of_several_symbols_of_a_name_in_one_file() {
         answers,
         [
             lines(&[
-                r#"<callees of="ns::f" matches="1">"#,
+                r#"<callees of="ns::f" total="1">"#,
                 concat!(
-                    r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:4" count="1" unexpanded="1" "#,
+                    r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:4" total="1" unexpanded="1" "#,
                     r#"passed_over="1">"#,
                 ),
                 r#"<ref name="a" loc="o.cpp:1" role="consumer" hops="1" at="4"/>"#,
@@ -6617,30 +6683,30 @@ fn a_line_picks_one_of_several_symbols_of_a_name_in_one_file() {
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="ns::f" matches="1">"#,
-                r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" count="1" unexpanded="1">"#,
+                r#"<callees of="ns::f" total="1">"#,
+                r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" total="1" unexpanded="1">"#,
                 r#"<ref name="b" loc="o.cpp:2" role="consumer" hops="1" at="5"/>"#,
                 "</match>",
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="ns::f" matches="0">"#,
+                r#"<callees of="ns::f" total="0">"#,
                 "no definition of this name under path_prefix starts on line 3 - 2 are elsewhere:",
                 r#"<candidate name="f" qn="ns::f" kind="function" loc="o.cpp:4" lang="cpp"/>"#,
                 r#"<candidate name="f" qn="ns::f" kind="function" loc="o.cpp:5" lang="cpp"/>"#,
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="ns::f" matches="1">"#,
-                r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" count="1" unexpanded="1">"#,
+                r#"<callees of="ns::f" total="1">"#,
+                r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" total="1" unexpanded="1">"#,
                 r#"<ref name="b" loc="o.cpp:2" role="consumer" hops="1" at="5"/>"#,
                 "</match>",
                 "</callees>",
             ]),
             lines(&[
-                r#"<callers of="S::m" languages="cpp" matches="1">"#,
+                r#"<callers of="S::m" languages="cpp" total="1">"#,
                 concat!(
-                    r#"<match lang="cpp" of="m" qn="S::m" loc="o.cpp:14" count="0">"#,
+                    r#"<match lang="cpp" of="m" qn="S::m" loc="o.cpp:14" total="0">"#,
                     "no callers - entry point, dead code, or dynamic dispatch</match>",
                 ),
                 "</callers>",
@@ -6674,9 +6740,9 @@ fn a_line_picks_the_symbol_of_each_tool_that_selects_one() {
         answers,
         [
             lines(&[
-                r#"<references of="ns::f" matches="1">"#,
+                r#"<references of="ns::f" total="1">"#,
                 concat!(
-                    r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" kind="function" count="0">no recorded "#,
+                    r#"<match lang="cpp" of="f" qn="ns::f" loc="o.cpp:5" kind="function" total="0">no recorded "#,
                     "site - resolved calls can omit dynamic or unresolved ones, and uses other than calls are ",
                     "recorded only where the graph records them, so this does not show that nothing uses the ",
                     "symbol</match>",
@@ -6684,19 +6750,19 @@ fn a_line_picks_the_symbol_of_each_tool_that_selects_one() {
                 "</references>",
             ]),
             concat!(
-                r#"<implementations of="S" languages="cpp" count="0">the symbol is indexed but nothing "#,
+                r#"<implementations of="S" languages="cpp" total="0">the symbol is indexed but nothing "#,
                 "implements or extends it</implementations>",
             )
             .to_owned(),
             lines(&[
-                r#"<call_path from="ns::f" to="b" matches="1">"#,
+                r#"<call_path from="ns::f" to="b" total="1">"#,
                 r#"<match lang="cpp" from="ns::f" from_loc="o.cpp:5" to="b" to_loc="o.cpp:2" hops="1" max_hops="8">"#,
                 r#"<ref name="f" qn="ns::f" loc="o.cpp:5" role="consumer" at="5"/>"#,
                 "</match>",
                 "</call_path>",
             ]),
             lines(&[
-                r#"<call_path from="ns::f" to="b" matches="0">"#,
+                r#"<call_path from="ns::f" to="b" total="0">"#,
                 "<to>",
                 "no definition of this name starts on to_line 3 - 2 are elsewhere:",
                 r#"<candidate name="b" kind="function" loc="o.cpp:2" lang="cpp"/>"#,
@@ -6718,7 +6784,7 @@ fn a_name_several_symbols_of_one_file_end_with_names_the_line_that_picks_one() {
     assert_eq!(
         answers,
         [lines(&[
-            r#"<callers of="S::m" languages="rust" matches="0">"#,
+            r#"<callers of="S::m" languages="rust" total="0">"#,
             concat!(
                 "2 definitions end with this name and it picks none of them - a longer name, or path_prefix ",
                 "with one's file and line with its line, picks one:",
@@ -6765,9 +6831,9 @@ fn callees_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() {
         answers,
         [
             lines(&[
-                r#"<callees of="util.Run" matches="1">"#,
+                r#"<callees of="util.Run" total="1">"#,
                 concat!(
-                    r#"<match lang="go" of="Run" qn="util.Run" loc="a/util/util.go:7" count="1" unexpanded="1" "#,
+                    r#"<match lang="go" of="Run" qn="util.Run" loc="a/util/util.go:7" total="1" unexpanded="1" "#,
                     r#"passed_over="1">"#,
                 ),
                 concat!(
@@ -6779,8 +6845,8 @@ fn callees_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() {
                 "</callees>",
             ]),
             lines(&[
-                r#"<callees of="util.Run" matches="1">"#,
-                r#"<match lang="go" of="Run" qn="util.Run" loc="b/util/util.go:7" count="1" unexpanded="1">"#,
+                r#"<callees of="util.Run" total="1">"#,
+                r#"<match lang="go" of="Run" qn="util.Run" loc="b/util/util.go:7" total="1" unexpanded="1">"#,
                 concat!(
                     r#"<ref name="Check" qn="util.Check" loc="b/util/util.go:5" role="consumer" hops="1" "#,
                     r#"at="7"/>"#,
@@ -6806,12 +6872,12 @@ fn references_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() 
         answers,
         [
             lines(&[
-                r#"<references of="util.Limit" matches="1">"#,
+                r#"<references of="util.Limit" total="1">"#,
                 concat!(
                     r#"<match lang="go" of="Limit" qn="util.Limit" loc="b/util/util.go:3" kind="variable" "#,
-                    r#"count="2" files="1" reads="2" passed_over="1">"#,
+                    r#"total="2" files="1" reads="2" passed_over="1">"#,
                 ),
-                r#"<file path="b/util/util.go" sites="2">"#,
+                r#"<file path="b/util/util.go" total="2">"#,
                 r#"<ref name="Other" qn="util.Other" lines="9-12" role="consumer" site="read" at="10,11"/>"#,
                 "</file>",
                 r#"<candidate name="Limit" qn="util.Limit" kind="variable" loc="a/util/util.go:3" sites="1"/>"#,
@@ -6819,12 +6885,12 @@ fn references_of_a_shared_name_list_the_other_copy_and_a_path_prefix_picks_it() 
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="util.Limit" matches="1">"#,
+                r#"<references of="util.Limit" total="1">"#,
                 concat!(
                     r#"<match lang="go" of="Limit" qn="util.Limit" loc="a/util/util.go:3" kind="variable" "#,
-                    r#"count="1" files="1" reads="1">"#,
+                    r#"total="1" files="1" reads="1">"#,
                 ),
-                r#"<file path="a/util/util.go" sites="1">"#,
+                r#"<file path="a/util/util.go" total="1">"#,
                 r#"<ref name="Run" qn="util.Run" lines="7" role="consumer" site="read" at="7"/>"#,
                 "</file>",
                 "</match>",
@@ -6851,12 +6917,12 @@ fn a_c_typedef_of_a_struct_to_its_own_name_answers_as_the_struct_alone() {
         answers,
         [
             lines(&[
-                r#"<implementations of="S" count="1">"#,
+                r#"<implementations of="S" total="1">"#,
                 r#"<type name="Child" lang="cpp" loc="s.h:2"/>"#,
                 "</implementations>",
             ]),
             lines(&[
-                r#"<symbols of="S" count="3">"#,
+                r#"<symbols of="S" total="3">"#,
                 r#"<hit name="S" kind="struct" lang="cpp" loc="s.h:1"/>"#,
                 r#"<hit name="x" qn="S::x" owner="S" kind="field" lang="cpp" loc="s.h:1" sig="int x"/>"#,
                 r#"<hit name="Child" kind="struct" lang="cpp" loc="s.h:2"/>"#,
@@ -6884,10 +6950,10 @@ fn implementations_of_a_cpp_enum_answer_that_nothing_implements_it() {
     assert_eq!(
         answers,
         [
-            r#"<implementations of="Plain" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
-            r#"<implementations of="Scoped" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
-            r#"<implementations of="Pair" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
-            r#"<implementations of="Unheld" count="0">no symbol matches - find_symbols can pin the exact name</implementations>"#,
+            r#"<implementations of="Plain" total="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
+            r#"<implementations of="Scoped" total="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
+            r#"<implementations of="Pair" total="0">the symbol is indexed but nothing implements or extends it</implementations>"#,
+            r#"<implementations of="Unheld" total="0">no symbol matches - find_symbols can pin the exact name</implementations>"#,
         ]
     );
 }
@@ -6928,32 +6994,32 @@ fn a_name_held_only_as_kinds_a_tool_refuses_names_its_kinds_and_definitions() {
         answers,
         [
             lines(&[
-                r#"<implementations of="cfree" count="0">"#,
+                r#"<implementations of="cfree" total="0">"#,
                 "the name is held only as function (1) - this tool takes no root of that kind:",
                 r#"<candidate name="cfree" kind="function" loc="f.cpp:1" lang="cpp"/>"#,
                 "</implementations>",
             ]),
             lines(&[
-                r#"<implementations of="Celsius" count="0">"#,
+                r#"<implementations of="Celsius" total="0">"#,
                 "the name is held only as defined-type (1) - this tool takes no root of that kind:",
                 r#"<candidate name="Celsius" qn="g.Celsius" kind="defined-type" loc="g/g.go:3" lang="go"/>"#,
                 "</implementations>",
             ]),
             lines(&[
-                r#"<implementations of="shared" count="0">"#,
+                r#"<implementations of="shared" total="0">"#,
                 "the name is held only as function (1), variable (1) - this tool takes no root of those kinds:",
                 r#"<candidate name="shared" qn="g.shared" kind="function" loc="g/g.go:9" lang="go"/>"#,
                 r#"<candidate name="shared" kind="variable" loc="f.cpp:3" lang="cpp"/>"#,
                 "</implementations>",
             ]),
             lines(&[
-                r#"<references of="Crimson" matches="0">"#,
+                r#"<references of="Crimson" total="0">"#,
                 "the name is held only as enum-variant (1) - this tool takes no root of that kind:",
                 r#"<candidate name="Crimson" qn="Colour::Crimson" kind="enum-variant" loc="src/lib.rs:2" lang="rust"/>"#,
                 "</references>",
             ]),
             lines(&[
-                r#"<implementations of="dup" count="0">"#,
+                r#"<implementations of="dup" total="0">"#,
                 concat!(
                     "the name is held only as function (6) - this tool takes no root of that kind, the first 5 of 6 ",
                     "listed:",
@@ -6967,7 +7033,7 @@ fn a_name_held_only_as_kinds_a_tool_refuses_names_its_kinds_and_definitions() {
                 "</implementations>",
             ]),
             lines(&[
-                r#"<implementations of="Base" count="1">"#,
+                r#"<implementations of="Base" total="1">"#,
                 r#"<type name="Boxed" qn="g.Boxed" lang="go" loc="g/g.go:7"/>"#,
                 "</implementations>",
             ]),
@@ -6996,7 +7062,7 @@ fn an_impl_of_an_outside_trait_does_not_implement_an_enum_of_its_name() {
     assert_eq!(
         answers,
         [
-            r#"<implementations of="Visit" count="0">the symbol is indexed but nothing implements or extends it</implementations>"#
+            r#"<implementations of="Visit" total="0">the symbol is indexed but nothing implements or extends it</implementations>"#
         ]
     );
 }
@@ -7017,7 +7083,7 @@ fn a_cpp_base_names_a_class_past_a_nearer_enum_of_its_name() {
     assert_eq!(
         answers,
         [lines(&[
-            r#"<implementations of="Base" count="1">"#,
+            r#"<implementations of="Base" total="1">"#,
             r#"<type name="Child" qn="ns::Child" lang="cpp" loc="b.cpp:4"/>"#,
             "</implementations>",
         ])]
@@ -7051,7 +7117,7 @@ fn implementations_of_a_shared_name_list_the_other_type_and_a_path_prefix_picks_
         answers,
         [
             lines(&[
-                r#"<implementations of="Base" count="2" passed_over="1">"#,
+                r#"<implementations of="Base" total="2" passed_over="1">"#,
                 r#"<root name="Base" qn="alpha.Base" lang="go" loc="a/alpha/base.go:3"/>"#,
                 concat!(
                     r#"<candidate name="Base" qn="beta.Base" kind="interface" loc="b/beta/base.go:3" lang="go" "#,
@@ -7062,7 +7128,7 @@ fn implementations_of_a_shared_name_list_the_other_type_and_a_path_prefix_picks_
                 "</implementations>",
             ]),
             lines(&[
-                r#"<implementations of="Base" count="1">"#,
+                r#"<implementations of="Base" total="1">"#,
                 r#"<type name="Narrow" qn="beta.Narrow" lang="go" loc="b/beta/base.go:5"/>"#,
                 "</implementations>",
             ]),
@@ -7087,7 +7153,7 @@ fn a_call_path_from_a_shared_name_starts_where_from_path_prefix_picks() {
         answers,
         [
             lines(&[
-                r#"<call_path from="util.Run" to="util.Check" matches="1">"#,
+                r#"<call_path from="util.Run" to="util.Check" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="util.Run" from_loc="a/util/util.go:7" to="util.Check" "#,
                     r#"to_loc="b/util/util.go:5" max_hops="8" passed_over_from="1" found="false">"#,
@@ -7105,7 +7171,7 @@ fn a_call_path_from_a_shared_name_starts_where_from_path_prefix_picks() {
                 "</call_path>",
             ]),
             lines(&[
-                r#"<call_path from="util.Run" to="util.Check" matches="1">"#,
+                r#"<call_path from="util.Run" to="util.Check" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="util.Run" from_loc="b/util/util.go:7" to="util.Check" "#,
                     r#"to_loc="b/util/util.go:5" hops="1" max_hops="8">"#,
@@ -7150,10 +7216,10 @@ fn a_name_several_types_end_with_lists_them_in_callers_and_in_implementations_al
     assert_eq!(
         answers,
         [
-            format!("<callers of=\"ns::Node\" matches=\"0\">\n{listing}\n</callers>"),
-            format!("<implementations of=\"ns::Node\" count=\"0\">\n{listing}\n</implementations>"),
+            format!("<callers of=\"ns::Node\" total=\"0\">\n{listing}\n</callers>"),
+            format!("<implementations of=\"ns::Node\" total=\"0\">\n{listing}\n</implementations>"),
             lines(&[
-                r#"<implementations of="ns::Node" count="1">"#,
+                r#"<implementations of="ns::Node" total="1">"#,
                 r#"<type name="Leaf" qn="b::ns::Leaf" lang="cpp" loc="b.h:3"/>"#,
                 "</implementations>",
             ]),
@@ -7176,7 +7242,7 @@ fn a_name_that_picks_no_one_of_several_lists_them_and_implementations_name_the_t
         answers,
         [
             lines(&[
-                r#"<references of="Store.Close" matches="0">"#,
+                r#"<references of="Store.Close" total="0">"#,
                 concat!(
                     "2 definitions end with this name and it picks none of them - a longer name, or path_prefix ",
                     "with one's file and line with its line, picks one:",
@@ -7186,7 +7252,7 @@ fn a_name_that_picks_no_one_of_several_lists_them_and_implementations_name_the_t
                 "</references>",
             ]),
             lines(&[
-                r#"<implementations of="Base" count="1" passed_over="1">"#,
+                r#"<implementations of="Base" total="1" passed_over="1">"#,
                 r#"<root name="Base" qn="alpha.Base" lang="go" loc="a/alpha/store.go:3"/>"#,
                 concat!(
                     r#"<candidate name="Base" qn="beta.Base" kind="interface" loc="b/beta/store.go:3" lang="go" "#,
@@ -7196,7 +7262,7 @@ fn a_name_that_picks_no_one_of_several_lists_them_and_implementations_name_the_t
                 "</implementations>",
             ]),
             lines(&[
-                r#"<call_path from="Three" to="util.Parse" matches="1">"#,
+                r#"<call_path from="Three" to="util.Parse" total="1">"#,
                 concat!(
                     r#"<match lang="go" from="util.Three" from_loc="b/util/util.go:5" to="util.Parse" "#,
                     r#"to_loc="b/util/util.go:3" hops="1" max_hops="8">"#,
@@ -7237,12 +7303,12 @@ fn find_references_names_the_files_whose_top_level_reads_a_constant_and_sees_it(
         answers,
         [
             lines(&[
-                r#"<references of="LIMIT" matches="1">"#,
+                r#"<references of="LIMIT" total="1">"#,
                 concat!(
-                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" count="1" files="1" "#,
+                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" total="1" files="1" "#,
                     r#"reads="1" file_scope="1">"#,
                 ),
-                r#"<file path="ts/b.ts" sites="1">"#,
+                r#"<file path="ts/b.ts" total="1">"#,
                 r#"<ref name="f" lines="4-6" role="consumer" site="read" at="5" confidence="likely"/>"#,
                 "</file>",
                 r#"<file_scope path="ts/b.ts" confidence="likely"/>"#,
@@ -7250,9 +7316,9 @@ fn find_references_names_the_files_whose_top_level_reads_a_constant_and_sees_it(
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="LIMIT" matches="1">"#,
+                r#"<references of="LIMIT" total="1">"#,
                 concat!(
-                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" count="0" reads="1" "#,
+                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" total="0" reads="1" "#,
                     r#"file_scope="1">"#,
                 ),
                 r#"<file_scope path="ts/b.ts" confidence="likely"/>"#,
@@ -7260,9 +7326,9 @@ fn find_references_names_the_files_whose_top_level_reads_a_constant_and_sees_it(
                 "</references>",
             ]),
             lines(&[
-                r#"<references of="LIMIT" matches="1">"#,
+                r#"<references of="LIMIT" total="1">"#,
                 concat!(
-                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" count="0" "#,
+                    r#"<match lang="jsts" of="LIMIT" loc="ts/a.ts:1" kind="constant" total="0" "#,
                     r#"below_confidence="2">no recorded site at this confidence floor - 2 uses bind below it, "#,
                     r#"and min_confidence "any" lists them</match>"#,
                 ),

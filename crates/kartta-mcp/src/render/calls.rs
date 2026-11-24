@@ -114,7 +114,7 @@ pub(crate) fn call_path(
         .attr("to", ask.to)
         .optional("to_read_as", ask.to_read_as)
         .optional("languages", ask.languages)
-        .attr("matches", paths.len());
+        .attr("total", paths.len());
     if paths.is_empty() {
         if let Some(note) = empty_languages_note(ask.languages) {
             return element.inline(note);
@@ -159,9 +159,8 @@ fn path_match(ask: &PathAsk<'_>, family: &str, path: &CallPath<'_>) -> String {
         .attr("to_loc", span(&path.to))
         .optional("hops", path.found.then_some(path.hops.len()))
         .attr("max_hops", ask.hops)
-        .flag("truncated", path.truncated)
         .count("turned_away", path.turned_away)
-        .count("at_depth_bound", path.at_depth_bound)
+        .count("at_hops_bound", path.at_depth_bound)
         .count("below_confidence", path.below_confidence)
         .count("passed_over_from", passed_over_from)
         .count("passed_over_to", passed_over_to);
@@ -272,7 +271,7 @@ pub(crate) fn references(
         .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
         .optional("sites_under", listed.under)
-        .attr("matches", found.len());
+        .attr("total", found.len());
     if found.is_empty() {
         return unresolved(element, ask.languages, ask.asked(), unmatched);
     }
@@ -357,10 +356,12 @@ fn reference_match(
         listing.files
     };
     let shown = sites.len().min(LISTED_SITES);
+    let cut = sites.len() > shown || listing.records.len() < listing.files;
     let element = match_of(family, symbol)
         .attr("kind", kind(symbol.kind))
-        .attr("count", references.total)
+        .attr("total", references.total)
         .optional("shown", (references.total > shown).then_some(shown))
+        .flag("truncated", cut)
         .count("files", files)
         .optional(
             "files_shown",
@@ -548,12 +549,13 @@ impl Listing {
 fn file_record(sites: &[Reference<'_>], listed: usize) -> String {
     let element = Element::new("file")
         .attr("path", sites[0].site_of.file)
-        .attr("sites", sites.len());
+        .attr("total", sites.len());
     if listed == 0 {
         return element.close();
     }
     element
         .optional("shown", (listed < sites.len()).then_some(listed))
+        .flag("truncated", listed < sites.len())
         .children(site_records(&sites[..listed]).iter().map(site_record))
 }
 
@@ -650,13 +652,14 @@ pub(crate) fn impact(
         .attr("start_line", start_line)
         .attr("end_line", end);
     let Some(segment) = segment else {
-        return element.attr("symbols", 0).inline(&graphless.note());
+        return element.attr("total", 0).inline(&graphless.note());
     };
     let symbols = segment.symbols.len();
     let cut = symbols > ask.listed;
     let element = element
-        .attr("symbols", symbols)
-        .optional("shown", cut.then_some(ask.listed));
+        .attr("total", symbols)
+        .optional("shown", cut.then_some(ask.listed))
+        .flag("truncated", cut);
     let has_includes = !segment.includes.is_empty() || !segment.included_by.is_empty();
     if segment.symbols.is_empty() && !has_includes {
         return element.inline(NO_SYMBOLS);
@@ -791,7 +794,7 @@ fn segment_symbol(
         .attr("reach", blast.reach)
         .attr("reach_files", blast.affected_files)
         .attr("reach_band", blast.band.label())
-        .flag("truncated", blast.truncated)
+        .count("turned_away", blast.turned_away)
         .count("unexpanded", blast.unexpanded)
         .count("unresolved", symbol.unresolved)
         .optional("sig", definition.signature.map(flat))
@@ -802,8 +805,9 @@ fn segment_symbol(
 fn file_list(tag: &'static str, paths: &[&str], listed: usize) -> String {
     let cut = paths.len() > listed;
     Element::new(tag)
-        .attr("count", paths.len())
+        .attr("total", paths.len())
         .optional("shown", cut.then_some(listed))
+        .flag("truncated", cut)
         .children(
             paths
                 .iter()
@@ -814,7 +818,7 @@ fn file_list(tag: &'static str, paths: &[&str], listed: usize) -> String {
 }
 
 /// The `impact_of_change` answer: what the change reaches in all, then the changed symbols, widest reach first, and
-/// the symbols where their reaches meet, each list cut to `limit` and saying so as `shown` of `of`, and in a last line
+/// the symbols where their reaches meet, each list cut to `limit` and saying so in `shown`, and in a last line
 /// when `limit` cut it, then each language that leaves a region's file out of its graph, with its reason, and each
 /// language the build's `languages` filter left out that claims a region's file, as `unbuilt` counts them.
 pub(crate) fn change(
@@ -833,7 +837,7 @@ pub(crate) fn change(
         .attr("changed_files", change.changed_files)
         .attr("footprint", change.footprint)
         .attr("footprint_files", change.footprint_files)
-        .count("truncated_walks", change.truncated_seeds)
+        .count("stopped_walks", change.truncated_seeds)
         .count("unheld_regions", change.unheld_regions)
         .count("missing_regions", answer.missing_regions)
         .count("symlink_regions", answer.symlink_regions)
@@ -874,18 +878,22 @@ pub(crate) fn change(
         return element.children(iter::once(NO_SYMBOLS.to_owned()).chain(reasons));
     }
     let limit_cut = |listed: usize| (listed > limit).then(|| LIMIT_CUT.to_owned());
-    let seeds = Element::new("seeds")
-        .attr("shown", change.seeds.len().min(limit))
-        .attr("of", change.changed_symbols)
-        .children((change.seeds.iter().take(limit).map(seed)).chain(limit_cut(change.seeds.len())));
+    let seeds = listed_of(
+        "seeds",
+        change.seeds.len().min(limit),
+        change.changed_symbols,
+    )
+    .children((change.seeds.iter().take(limit).map(seed)).chain(limit_cut(change.seeds.len())));
     let hotspots = (change.total_hotspots > 0).then(|| {
-        Element::new("hotspots")
-            .attr("shown", change.hotspots.len().min(limit))
-            .attr("of", change.total_hotspots)
-            .children(
-                (change.hotspots.iter().take(limit).map(hotspot))
-                    .chain(limit_cut(change.hotspots.len())),
-            )
+        listed_of(
+            "hotspots",
+            change.hotspots.len().min(limit),
+            change.total_hotspots,
+        )
+        .children(
+            (change.hotspots.iter().take(limit).map(hotspot))
+                .chain(limit_cut(change.hotspots.len())),
+        )
     });
     element.children(iter::once(seeds).chain(hotspots).chain(reasons))
 }
@@ -903,7 +911,6 @@ fn seed(seed: &Seed<'_>) -> String {
         .count("ambiguous", seed.ambiguous)
         .attr("reach", seed.reach)
         .attr("reach_band", seed.band.label())
-        .flag("truncated", seed.truncated)
         .count("turned_away", seed.turned_away)
         .count("unexpanded", seed.unexpanded);
     let (listed, dirs_tag) = if seed.user_count > 0 {
@@ -926,33 +933,37 @@ fn seed(seed: &Seed<'_>) -> String {
         })
     };
     let callers = (!seed.consumers.is_empty()).then(|| {
-        Element::new(listed)
-            .attr("shown", seed.consumers.len().min(SEED_CALLERS))
-            .attr("of", seed.consumers.len())
-            .children(
-                seed.consumers
-                    .iter()
-                    .take(SEED_CALLERS)
-                    .map(|reached| edge("ref", reached).attr("at", reached.line).close())
-                    .chain(cut(seed.consumers.len())),
-            )
+        listed_of(
+            listed,
+            seed.consumers.len().min(SEED_CALLERS),
+            seed.consumers.len(),
+        )
+        .children(
+            seed.consumers
+                .iter()
+                .take(SEED_CALLERS)
+                .map(|reached| edge("ref", reached).attr("at", reached.line).close())
+                .chain(cut(seed.consumers.len())),
+        )
     });
     let dirs = (!seed.consumer_dirs.is_empty()).then(|| {
-        Element::new(dirs_tag)
-            .attr("shown", seed.consumer_dirs.len().min(SEED_CALLERS))
-            .attr("of", seed.consumer_dirs.len())
-            .children(
-                seed.consumer_dirs
-                    .iter()
-                    .take(SEED_CALLERS)
-                    .map(|dir| {
-                        Element::new("dir")
-                            .attr("path", dir.dir)
-                            .attr(listed, dir.count)
-                            .close()
-                    })
-                    .chain(cut(seed.consumer_dirs.len())),
-            )
+        listed_of(
+            dirs_tag,
+            seed.consumer_dirs.len().min(SEED_CALLERS),
+            seed.consumer_dirs.len(),
+        )
+        .children(
+            seed.consumer_dirs
+                .iter()
+                .take(SEED_CALLERS)
+                .map(|dir| {
+                    Element::new("dir")
+                        .attr("path", dir.dir)
+                        .attr(listed, dir.count)
+                        .close()
+                })
+                .chain(cut(seed.consumer_dirs.len())),
+        )
     });
     element.children(callers.into_iter().chain(dirs))
 }
@@ -970,7 +981,7 @@ fn hotspot(hotspot: &Hotspot<'_>) -> String {
         .close()
 }
 
-/// One side of a symbol's direct calls, its first `shown` records disclosing the cut as `shown` of `of`, and ending
+/// One side of a symbol's direct calls, its first `shown` records disclosing the cut as `shown` of `total`, and ending
 /// with the call that lists the rest when the answer's size or the cap cut them.
 fn direct(list: DirectList<'_, '_>, shown: usize) -> String {
     let DirectList {
@@ -987,11 +998,18 @@ fn direct(list: DirectList<'_, '_>, shown: usize) -> String {
     } else {
         (calls.total > records.len()).then(|| fixed_cut("this list", Some(&way)))
     };
-    Element::new(tag)
-        .attr("shown", records.len())
-        .attr("of", calls.total)
+    listed_of(tag, records.len(), calls.total)
         .count("below_confidence", calls.below_confidence)
         .children(records.into_iter().chain(cut))
+}
+
+/// Starts a list element of `total` records whose first `shown` it lists, marking the cut when it lists fewer.
+fn listed_of(tag: &'static str, shown: usize, total: usize) -> Element {
+    let cut = shown < total;
+    Element::new(tag)
+        .attr("total", total)
+        .optional("shown", cut.then_some(shown))
+        .flag("truncated", cut)
 }
 
 /// Each caller role, and the `<match>` attribute that counts it when `find_callers` keeps one role.
@@ -1038,7 +1056,7 @@ pub(crate) fn callers(
         .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
         .optional("role", ask.role)
-        .attr("matches", walks.len());
+        .attr("total", walks.len());
     if walks.is_empty() {
         return unresolved(element, ask.languages, ask.asked(), unmatched);
     }
@@ -1059,10 +1077,11 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
             .is_none_or(|role| edge_role(caller.symbol.flags) == role)
     };
     let kept = walk.reached.iter().filter(keeps).count();
+    let shown = kept.min(listed);
     let element = match_of(family, root)
-        .attr("count", reached)
-        .optional("shown", (kept > listed).then_some(listed))
-        .flag("truncated", walk.truncated)
+        .attr("total", reached)
+        .optional("shown", (reached > shown).then_some(shown))
+        .flag("truncated", kept > listed)
         .count("turned_away", walk.turned_away)
         .count("unexpanded", walk.unexpanded)
         .count("ambiguous", walk.ambiguous)
@@ -1139,7 +1158,7 @@ pub(crate) fn callees(
         .attr("of", ask.selector.name)
         .optional("read_as", ask.read_as)
         .optional("languages", ask.languages)
-        .attr("matches", walks.len());
+        .attr("total", walks.len());
     if walks.is_empty() {
         return unresolved(element, ask.languages, ask.asked(), unmatched);
     }
@@ -1155,8 +1174,7 @@ pub(crate) fn callees(
 fn callee_match(family: &str, walk: &Walk<'_>) -> String {
     let root = &walk.root;
     let element = match_of(family, root)
-        .attr("count", walk.reached.len())
-        .flag("truncated", walk.truncated)
+        .attr("total", walk.reached.len())
         .count("turned_away", walk.turned_away)
         .count("unexpanded", walk.unexpanded)
         .count("below_confidence", walk.below_confidence)

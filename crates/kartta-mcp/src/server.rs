@@ -684,11 +684,11 @@ impl Server {
                        directory immediately preceding its children; a directory the listing did not enter (below \
                        max_depth or suppressed) carries unlisted= with the count of entries beneath it. Capped at \
                        max_entries (default 1000), truncated=\"true\" when the cap cut it; total= on <dir> counts \
-                       every entry the index holds under the path when the listing shows fewer, and excluded= the \
-                       entries skip_dotfiles dropped. An empty directory is a successful empty answer, not an error. \
-                       The entries are the indexed universe - what the walk saw, not the live filesystem - while a \
-                       file's size is read from the filesystem when the file is first listed. Requires index_repo \
-                       first."
+                       every entry the index holds under the path, shown= the entries listed when fewer, and \
+                       excluded= the entries skip_dotfiles dropped. An empty directory is a successful empty answer, \
+                       not an error. The entries are the indexed universe - what the walk saw, not the live filesystem \
+                       - while a file's size is read from the filesystem when the file is first listed. Requires \
+                       index_repo first."
     )]
     async fn list_dir(&self, Parameters(p): Parameters<ListDirParams>) -> Result<String, String> {
         let names = p
@@ -744,18 +744,18 @@ impl Server {
                        one-line sig. A hit whose name is the query outranks every other. To read a definition's \
                        source, pass its name to read_definitions. When keyword matches underfill the limit, fuzzy \
                        name matches top the answer up - those records carry fuzzy=true and are not matches for the \
-                       query as requested. truncated=true with total= on <symbols>, and a last line after the hits, \
-                       mean the limit cut the answer: a higher limit or a narrower query shows more; unmatched= names \
-                       the query's words no definition holds, and then up to 5 <suggestion/> records before the hits \
-                       list the definitions named one edit from the whole query - a character swapped with the next, \
-                       dropped, or replaced or added by an ASCII letter, a digit, _ or a character of the query - \
-                       which one_edit= counts; ask an unmatched word alone for those of that word. A record carrying \
-                       a 'role' attribute is a reach artifact rather than ordinary code - one of test, entry or \
-                       generated, in that precedence; an ordinary record carries none. Symbols in GENERATED or \
-                       vendored code rank below hand-written ones. An answer with NO hits says so, and names any \
-                       searched language holding files that yielded no symbols (an unsupported dialect or a failed \
-                       parse) - read that as missing coverage rather than as the symbol not existing, and call \
-                       index_stats for the per-language counts. Requires index_repo first."
+                       query as requested. total= on <symbols> counts every match; truncated=true with shown=, and a \
+                       last line after the hits, mean the limit cut the answer: a higher limit or a narrower query \
+                       shows more; unmatched= names the query's words no definition holds, and then up to 5 \
+                       <suggestion/> records before the hits list the definitions named one edit from the whole query \
+                       - a character swapped with the next, dropped, or replaced or added by an ASCII letter, a digit, \
+                       _ or a character of the query - which one_edit= counts; ask an unmatched word alone for those \
+                       of that word. A record carrying a 'role' attribute is a reach artifact rather than ordinary \
+                       code - one of test, entry or generated, in that precedence; an ordinary record carries none. \
+                       Symbols in GENERATED or vendored code rank below hand-written ones. An answer with NO hits says \
+                       so, and names any searched language holding files that yielded no symbols (an unsupported \
+                       dialect or a failed parse) - read that as missing coverage rather than as the symbol not \
+                       existing, and call index_stats for the per-language counts. Requires index_repo first."
     )]
     async fn find_symbols(
         &self,
@@ -867,10 +867,10 @@ impl Server {
                        old span, and resized=true marks a file whose size changed since. truncated=true marks a body \
                        cut before the span ends, or missing because the file no longer reaches the span; a definition \
                        whose file could not be read has no body, carries error= with the reason and its sig when one \
-                       was captured. total on a <name> counts every definition the name selects; shown=N and a last \
-                       line after its definitions mean the limit cut the list to N. A name nothing defines answers \
-                       total=0 with up to 5 close alternatives (did you mean): those named one edit from it, which \
-                       one_edit= counts, or else the best search hits. Requires index_repo first."
+                       was captured. total on a <name> counts every definition the name selects; shown=N with \
+                       truncated=true and a last line after its definitions mean the limit cut the list to N. A name \
+                       nothing defines answers total=0 with up to 5 close alternatives (did you mean): those named one \
+                       edit from it, which one_edit= counts, or else the best search hits. Requires index_repo first."
     )]
     async fn read_definitions(
         &self,
@@ -978,9 +978,9 @@ impl Server {
                        the real targets behind a dynamically-dispatched call site. Searches every indexed language \
                        unless narrowed with 'languages'. Returns an <implementations> envelope, one <type/> record \
                        per implementor with its lang and loc (file:start-end, its full span, or file:line for one \
-                       line), nearest first; depth=N marks one that implements the type through N-1 others. At most \
-                       500 are listed, and total= then counts them all; passed_over= counts the other types the \
-                       name selects, and then a <root/> names the type \
+                       line), nearest first; depth=N marks one that implements the type through N-1 others. total= \
+                       counts every implementor; at most 500 are listed, and shown= with truncated=true then say so; \
+                       passed_over= counts the other types the name selects, and then a <root/> names the type \
                        answered for and up to 5 <candidate/> records list the most implemented others - path_prefix \
                        with one's file and line with its line pick it. A type that implements an interface without \
                        naming it, as Go's structural typing allows, is not found. A name no indexed type has, as a \
@@ -1058,10 +1058,10 @@ impl Server {
         description = "Find every file that imports or includes a given file, directly or through a chain of imports \
                        (followed up to 'hops', default 3) - the downstream files of a shared module, header, or type-definition \
                        file. This is whole-file impact: for line-level impact use impact_of_edit, for a single \
-                       function use find_callers. Returns an <importers> envelope, count= counting every downstream \
+                       function use find_callers. Returns an <importers> envelope, total= counting every downstream \
                        file, with one <file/> record per downstream file, nearest first and at most 'limit' (default \
-                       200), where shown= and a last line say the limit cut them; depth=N marks one that reaches the \
-                       file through N-1 others, and \
+                       200), where shown=, truncated=true and a last line say the limit cut them; hops=N marks one \
+                       that reaches the file through N-1 others, and \
                        unexpanded= counts the importers at the hops limit whose own importers were not followed, \
                        which a higher hops reaches. A \
                        Go file counts every importer of its package. For a file a code graph holds, a <note>, the \
@@ -1098,19 +1098,19 @@ impl Server {
     #[tool(
         annotations(read_only_hint = true),
         description = "List the definitions of one known file in source order - \"where in this file is X?\" when the \
-                       file is known but the place in it is not. Returns an <outline> envelope, symbols= counting \
+                       file is known but the place in it is not. Returns an <outline> envelope, total= counting \
                        every definition, with one <symbol/> record per definition, the first 'limit' (default 100) \
-                       in source order, where shown= and a last line say the limit cut them: name; qn, the qualified name, omitted when it equals name; owner, the \
-                       declaring type or namespace; in, on a definition without an owner inside another listed one - \
-                       a local of a body, a member of an inline type or object literal, an item of a module block - \
-                       the qn of the innermost one holding it, judged by lines, so one starting on its holder's first \
-                       or last line, as in minified code, carries it only as a field or method of a callable's \
-                       signature; a definition with neither starts outside every other listed one or on such a line; \
-                       kind; lines=\"start-end\" (the definition's full span, or the one line of a one-line \
-                       definition, nested definitions inside their enclosing one's span); and sig, the declaration, \
-                       omitted when none was captured. Read the one \
-                       span you need instead of the whole file or a guessed window. A file no code graph holds and a \
-                       file with no recorded definition both report symbols=\"0\", told apart by the note. For \
+                       in source order, where shown=, truncated=true and a last line say the limit cut them: name; qn, \
+                       the qualified name, omitted when it equals name; owner, the declaring type or namespace; in, on \
+                       a definition without an owner inside another listed one - a local of a body, a member of an \
+                       inline type or object literal, an item of a module block - the qn of the innermost one holding \
+                       it, judged by lines, so one starting on its holder's first or last line, as in minified code, \
+                       carries it only as a field or method of a callable's signature; a definition with neither \
+                       starts outside every other listed one or on such a line; kind; lines=\"start-end\" (the \
+                       definition's full span, or the one line of a one-line definition, nested definitions inside \
+                       their enclosing one's span); and sig, the declaration, omitted when none was captured. Read the \
+                       one span you need instead of the whole file or a guessed window. A file no code graph holds and \
+                       a file with no recorded definition both report total=\"0\", told apart by the note. For \
                        callers and reach of a range use impact_of_edit. Requires index_repo first."
     )]
     async fn file_outline(
@@ -1144,16 +1144,16 @@ impl Server {
                        base-class method a hop's call binds where it reaches the next method only through it, as \
                        find_callers marks it. A match without a chain carries \
                        found=false and states that an absent chain in the graph does not show one absent in the code; \
-                       at_depth_bound= counts the callers at the hops limit a longer chain could pass through, and \
+                       at_hops_bound= counts the callers at the hops limit a longer chain could pass through, and \
                        below_confidence= the callers the floor dropped. With below_confidence=, a match without a \
                        chain that the node cap did not stop states only how many callers bind below the confidence \
                        floor, which min_confidence \"any\" follows. A search the node cap (20000) stops carries \
-                       truncated=true. When from and to resolve to one symbol, the match has hops=0 and no ref. \
-                       passed_over_from= and passed_over_to= count the other symbols each name selects, the most \
-                       called of them listed as up to 5 <candidate end=\"from\"|\"to\" callers=N/> records - \
-                       from_path_prefix with one's file and from_line with its line pick a from candidate, \
-                       to_path_prefix and to_line a to one; only the picked pair is searched, which a match without a \
-                       chain then says. With no match, an end whose name selects no symbol lists \
+                       turned_away=, the callers the cap turned away. When from and to resolve to one symbol, the \
+                       match has hops=0 and no ref. passed_over_from= and passed_over_to= count the other symbols each \
+                       name selects, the most called of them listed as up to 5 <candidate end=\"from\"|\"to\" \
+                       callers=N/> records - from_path_prefix with one's file and from_line with its line pick a from \
+                       candidate, to_path_prefix and to_line a to one; only the picked pair is searched, which a match \
+                       without a chain then says. With no match, an end whose name selects no symbol lists \
                        what it matches instead under <from> or <to>. Requires index_repo first."
     )]
     async fn find_call_path(
@@ -1241,9 +1241,9 @@ impl Server {
                        indexed language unless narrowed with 'languages'; a name resolving in several languages \
                        yields one match per language. Returns a <references> envelope of <match lang=..> records: each \
                        the resolved symbol with its loc (file:start-end, its span, or file:line for one line), kind, \
-                       and count= of the sites it keeps, calls= types= reads= \
+                       and total= of the sites it keeps, calls= types= reads= \
                        writes= updates= counting every site whatever access keeps, and files= the files \
-                       holding them. The sites come grouped in <file path= sites=N> records, the files with the most \
+                       holding them. The sites come grouped in <file path= total=N> records, the files with the most \
                        sites first: one <ref> per enclosing symbol and site kind in line order, carrying the enclosing \
                        symbol's name, qn and lines= (its span: start-end, or one line), its explicit role= \
                        (\"consumer\", or test/entry/generated), site= \
@@ -1265,29 +1265,30 @@ impl Server {
                        graph could not follow: any of them may be this symbol, and none is listed. A method's calls \
                        through a value of its owner's type resolve only \
                        where the graph can name that type, so a missing site does not show an unused symbol. A match \
-                       lists at most 100 sites one by one, then names 50 more files with their sites= count alone. It \
-                       carries shown= only when it lists fewer sites than count=, a <file> carries shown= only when it \
-                       lists part of its sites, and files_shown= appears only when the match names fewer files than \
-                       files=. A file whose top level, outside every definition, names the symbol and sees it is a \
-                       user no definition holds: file_scope=N counts them, and after the <file> records each is a \
-                       <file_scope path=../> record, with the confidence find_callers gives it, or a guess for a \
-                       member, as the file keeps no receiver for the name; the first 50 in path order are listed, and \
-                       file_scope_shown=\"50\" says so when there are more. The graph keeps no line for such a use and \
-                       not how it touches the symbol, so count= does not count them, access does not filter them, \
-                       and grep in the file finds the line. sites_under, a path prefix, lists only the sites and the \
-                       file_scope files under it - the way to the files past those a match names - where path_prefix \
-                       picks the symbol: every count still counts every site, excluded=, files_excluded= and \
-                       file_scope_excluded= count what it left out, and a sites_under that keeps nothing says so. \
-                       below_confidence= counts the sites and the file_scope \
-                       files the floor dropped, whatever access keeps, and passed_over= the other symbols the name \
-                       selects, the most used of them listed as up to 5 <candidate sites=N/> records - path_prefix \
-                       with one's file and line with its line pick it. A match with no site and no file_scope states \
-                       what the graph does not record; with below_confidence=, it states only how many uses, sites \
-                       and file_scope files, bind below the confidence floor, which min_confidence \"any\" lists, \
-                       without access where one was asked. A name several symbols end with lists them instead; a name \
-                       held only as enum variants, which this tool takes no root of, counts them and lists up to 5; \
-                       an unknown name answers with up to 5 close alternatives (did you mean): those named one edit \
-                       from it, which one_edit= counts, or else the best search hits. Requires index_repo first."
+                       lists at most 100 sites one by one, then names 50 more files with their total= alone. It \
+                       carries shown= only when it lists fewer sites than total=, and truncated=true when the cap cut \
+                       its sites or its files, a <file> carries shown= and truncated=true only when it lists part of \
+                       its sites, and files_shown= appears only when the match names fewer files than files=. A file \
+                       whose top level, outside every definition, names the symbol and sees it is a user no definition \
+                       holds: file_scope=N counts them, and after the <file> records each is a <file_scope path=../> \
+                       record, with the confidence find_callers gives it, or a guess for a member, as the file keeps \
+                       no receiver for the name; the first 50 in path order are listed, and file_scope_shown=\"50\" \
+                       says so when there are more. The graph keeps no line for such a use and not how it touches the \
+                       symbol, so total= does not count them, access does not filter them, and grep in the file finds \
+                       the line. sites_under, a path prefix, lists only the sites and the file_scope files under it - \
+                       the way to the files past those a match names - where path_prefix picks the symbol: every count \
+                       still counts every site, excluded=, files_excluded= and file_scope_excluded= count what it left \
+                       out, and a sites_under that keeps nothing says so. below_confidence= counts the sites and the \
+                       file_scope files the floor dropped, whatever access keeps, and passed_over= the other symbols \
+                       the name selects, the most used of them listed as up to 5 <candidate sites=N/> records - \
+                       path_prefix with one's file and line with its line pick it. A match with no site and no \
+                       file_scope states what the graph does not record; with below_confidence=, it states only how \
+                       many uses, sites and file_scope files, bind below the confidence floor, which min_confidence \
+                       \"any\" lists, without access where one was asked. A name several symbols end with lists them \
+                       instead; a name held only as enum variants, which this tool takes no root of, counts them and \
+                       lists up to 5; an unknown name answers with up to 5 close alternatives (did you mean): those \
+                       named one edit from it, which one_edit= counts, or else the best search hits. Requires \
+                       index_repo first."
     )]
     async fn find_references(
         &self,
@@ -1342,15 +1343,15 @@ impl Server {
         annotations(read_only_hint = true),
         description = "Assess the blast radius of editing a span of lines - \"what breaks if I touch these lines?\" \
                        for a diff hunk under review or an edit you are about to make. Returns an <impact> envelope \
-                       with one <symbol> record per definition overlapping the range, symbols= counting them and, past \
-                       'limit' (default 10), the ones of widest reach listed in source order with shown= and a line \
-                       after them saying the limit cut them - caller and callee counts with \
+                       with one <symbol> record per definition overlapping the range, total= counting them and, past \
+                       'limit' (default 10), the ones of widest reach listed in source order with shown=, \
+                       truncated=true and a line after them saying the limit cut them - caller and callee counts with \
                        sampled <ref/> lists (each carrying an explicit role=, \"consumer\" for a real caller/callee or \
                        test/entry/generated for a reach artifact, at= for the line of the call, or of a user's use - in \
                        the caller's or the user's own file, and in this file for a callee - weakly resolved \
                        edges marked confidence=likely/guess, and a caller that reaches a method only through an \
-                       interface, trait or base-class method marked through= as find_callers marks it; a shown=/of= \
-                       pair on the enclosing <callers>/<callees> \
+                       interface, trait or base-class method marked through= as find_callers marks it; total= on the \
+                       enclosing <callers>/<callees>, with shown= and truncated=true where it lists fewer, \
                        discloses the 50-ref sampling cap, or the fewer refs a wide answer's size leaves each list), \
                        ambiguous= for the calls of its name that bound no \
                        definition because several definitions of the name may be meant, any of which may call it and \
@@ -1361,13 +1362,13 @@ impl Server {
                        many symbols across how many files transitively depend on it within 3 hops, a field's or a \
                        value's users and their callers included, graded in reach_band: low \
                        under 10, medium 10 to 49, high 50 to 199 or from 20 for an exported symbol, and critical from \
-                       200 or from 50 for an interface; truncated=true when the \
+                       200 or from 50 for an interface; turned_away= when the \
                        500-symbol cap stopped the walk) - plus <includes> and <included-by> file lists, each counting \
-                       every file and listing the first 'limit' in path order, with shown= when the limit cut it. A \
-                       range covering only file-scope code (imports, comments) reports zero symbols and still lists \
-                       the file's includes and includers when it has any; zero symbols means nothing is defined there, \
-                       not that the edit is safe. For one named function use find_callers; for whole-file impact use \
-                       find_importers. Requires index_repo first."
+                       every file and listing the first 'limit' in path order, with shown= and truncated=true when the \
+                       limit cut it. A range covering only file-scope code (imports, comments) reports zero symbols \
+                       and still lists the file's includes and includers when it has any; zero symbols means nothing \
+                       is defined there, not that the edit is safe. For one named function use find_callers; for \
+                       whole-file impact use find_importers. Requires index_repo first."
     )]
     async fn impact_of_edit(
         &self,
@@ -1414,13 +1415,14 @@ impl Server {
                        high 50 to 199 or from 20 for an exported symbol, and critical from 200 or from 50 for an \
                        interface), its direct callers as <ref/> records with at= the \
                        line of the call in the caller's own file and through= as find_callers marks it (at most 10, \
-                       in <callers shown= of=>), \
+                       in <callers total=>), \
                        or past 30 callers their directories \
-                       as <dir path callers/> (in <caller_dirs shown= of=>) - a field, a variable or a constant with \
+                       as <dir path callers/> (in <caller_dirs total=>) - a field, a variable or a constant with \
                        users= lists those users in <users> and <user_dirs> instead; and, when two or more changed \
                        symbols reach one, a <hotspots> list of those symbols, reached_by= how many and hops= how near, \
                        changed=true on one the change touches itself. <seeds> and <hotspots> each show at most \
-                       'limit' (default 20) with shown= of=, and end with a line naming the limit when it cut them. \
+                       'limit' (default 20) with total=, and shown= with truncated=true and a last line naming the \
+                       limit when it cut them; every list of a seed marks its cut the same way. \
                        A change that overlaps no \
                        symbol answers changed_symbols=0 with a note in place of the lists. Each \
                        count of what was left out appears only when it is not zero: unheld_regions= the regions in \
@@ -1432,8 +1434,8 @@ impl Server {
                        graph and an <unbuilt language= regions=> for each language whose files the 'languages' filter \
                        of index_repo left out, \
                        regions_outside_symbols= those overlapping no symbol, \
-                       truncated_walks= the changed symbols whose walk the 500-symbol cap stopped (truncated=true and \
-                       turned_away= on the seed), unexpanded= on a seed the callers whose own callers its walk did not \
+                       stopped_walks= the changed symbols whose walk the 500-symbol cap stopped (turned_away= on \
+                       the seed), unexpanded= on a seed the callers whose own callers its walk did not \
                        follow, at the 3-hop bound or left by the cap, so its reach counts none beyond them, and \
                        ambiguous= on a seed the calls of its name that bound no definition because several definitions \
                        of the name may be meant, any of which may call it and none of which its callers or its reach \
@@ -1476,10 +1478,10 @@ impl Server {
                        calls, and Go types, fields, variables and constants through their uses. Judges every indexed \
                        language unless narrowed with 'languages'; path_prefix narrows it to a subtree, and on a large \
                        repository an unscoped call takes seconds, so scope it to the code you are cleaning. Returns an \
-                       <unused> envelope: count= the definitions listed, total= with truncated=true, and a last \
-                       line after the records, when 'limit' (default 50) cut the list, live= the definitions judged \
-                       and found used, then an <excluded/> record counting what was not judged, each only when it is \
-                       not zero - test, generated, entry (main, registered handlers, constructors, operators), \
+                       <unused> envelope: total= the unused definitions found, shown= with truncated=true, and a \
+                       last line after the records, when 'limit' (default 50) cut the list, live= the definitions \
+                       judged and found used, then an <unjudged/> record counting what was not judged, each only when \
+                       it is not zero - test, generated, entry (main, registered handlers, constructors, operators), \
                        vendored, unobservable (locals, and \
                        fields, values and types outside Go), uncertain (a call or a use of the name bound nothing \
                        certain, so it may reach this one), dispatched (a \
@@ -1525,8 +1527,9 @@ impl Server {
                        its span, or file:line for one line), the caller count \
                        within the hops limit, and flat <ref hops=N> records (hops=1 = direct, \
                        caller-ward distance from the target), nearest first and at most 'limit' (default 100), where \
-                       shown= on the match and a line after the refs say the limit cut them and count= still counts \
-                       every caller, each \
+                       shown= and truncated=true on the match and a line after the refs say the limit cut them and \
+                       total= still counts every caller - with 'role', shown= also counts the refs listed when the \
+                       role keeps fewer - each \
                        carrying the caller's loc, at= for the line of its call in the caller's own file, \
                        and an explicit role= (\"consumer\" for a real caller, or test/entry/generated for a reach \
                        artifact); 'role' keeps the callers of one role - the root then echoes role= and each <match> \
@@ -1544,7 +1547,7 @@ impl Server {
                        does not go past it; 'role' lists none of them. A call of the symbol from its own body - a \
                        recursion, or a call of a namesake the graph bound to the symbol itself - is one <self_call \
                        at=../> record, at= a line of the match's file, ahead of the refs, with the same confidence \
-                       mark, whatever 'role' keeps; count= \
+                       mark, whatever 'role' keeps; total= \
                        leaves it out, and a caller further out that calls itself is listed once, as \
                        every caller is. \
                        A <match> also counts what the walk left out, \
@@ -1556,8 +1559,8 @@ impl Server {
                        call on a value whose type the graph \
                        does not follow, or a call split between same-named methods or functions - and any of which \
                        may call it, counted for the symbol alone whatever hops and role say, below_confidence= the \
-                       callers and files the floor dropped, a self-call among them, and turned_away= with \
-                       truncated=true when the node cap (500) stopped the walk. A match without callers or file_scope \
+                       callers and files the floor dropped, a self-call among them, and turned_away= when the node \
+                       cap (500) stopped the walk. A match without callers or file_scope \
                        records states why, as \"no callers but itself\" or \"no call but its own binds it\" beside a \
                        <self_call>. With \
                        below_confidence=, it states only how many callers bind below the confidence floor, which \
@@ -1630,7 +1633,7 @@ impl Server {
                        callee, at= for the line of the call in the match's file. A call of the symbol from its own \
                        body - a recursion, or a call of a namesake the graph bound to the symbol itself - is one \
                        <self_call at=../> record, at= a line of the match's file, ahead of the refs, with the same \
-                       confidence mark; count= leaves it out, and a callee further \
+                       confidence mark; total= leaves it out, and a callee further \
                        out that calls itself is listed once, as every callee is. A <match> also counts what the walk \
                        left out, each only when it is not zero: unresolved= the calls in the bodies walked that bound \
                        no definition the \
@@ -1639,7 +1642,7 @@ impl Server {
                        <candidate callers=N/> records; path_prefix with one's file and line with its line pick it), \
                        unexpanded= the callees whose own callees were not followed, at the hops limit or left when \
                        the node cap stopped the walk, below_confidence= the callees the floor dropped, a self-call \
-                       among them, and turned_away= with truncated=true when the node cap (500) stopped the walk. A \
+                       among them, and turned_away= when the node cap (500) stopped the walk. A \
                        match without callees states that no \
                        call in its body binds a definition the graph holds, or \"no callees but itself\" beside a \
                        <self_call>; with below_confidence=, it states only how many callees bind \
@@ -1706,7 +1709,9 @@ impl ServerHandler for Server {
              status=\"building\": call index_stats until it answers the index. Each language has its own code \
              graph, and no tool follows a link from one language into another, such as a call through FFI. A path or \
              a path_prefix the index does not hold is a tool error that names what is wrong with it and the nearest \
-             paths it holds. \
+             paths it holds. Every answer counts in one vocabulary: total= is every record an element counted, \
+             shown= how many it lists where it lists fewer, truncated=\"true\" marks a list a limit or a cap cut, and \
+             hops= a distance along calls or imports. \
              Intent map: locate a file by name -> find_files; list files matching a glob -> glob_files; see what one \
              directory contains -> list_dir; find lines of text by regex / quote the exact code -> grep; where is X \
              defined -> find_symbols; where in this known file is X -> file_outline; read the source of X, Y, Z -> \
