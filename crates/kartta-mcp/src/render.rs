@@ -78,14 +78,33 @@ fn loc(file: &str, line: u32) -> String {
     format!("{file}:{line}")
 }
 
-/// A definition's span, `file:start-end`, or `file:line` for one on a single line.
-fn span(definition: &Definition<'_>) -> String {
-    let (file, line) = (definition.file, definition.line);
-    if definition.end_line > line {
-        format!("{file}:{line}-{}", definition.end_line)
-    } else {
-        loc(file, line)
+/// A definition's lines, `start-end`, or `line` for one on a single line.
+struct Lines {
+    start: u32,
+    end: u32,
+}
+
+impl Display for Lines {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.end > self.start {
+            write!(f, "{}-{}", self.start, self.end)
+        } else {
+            write!(f, "{}", self.start)
+        }
     }
+}
+
+/// The [lines](Lines) `definition` spans.
+const fn lines(definition: &Definition<'_>) -> Lines {
+    Lines {
+        start: definition.line,
+        end: definition.end_line,
+    }
+}
+
+/// A definition's span, its file and [its lines](lines): `file:start-end`, or `file:line` for one on a single line.
+fn span(definition: &Definition<'_>) -> String {
+    format!("{}:{}", definition.file, lines(definition))
 }
 
 /// Appends the mark of a line cut before its end, with the bytes the cut left out.
@@ -348,7 +367,7 @@ fn suggestion(family: &str, definition: &Definition<'_>) -> String {
         .optional("role", role(definition.flags))
         .attr("kind", kind(definition.kind))
         .attr("lang", family)
-        .attr("loc", loc(definition.file, definition.line))
+        .attr("loc", span(definition))
         .close()
 }
 
@@ -392,7 +411,7 @@ pub(crate) enum Unmatched<'g> {
 fn candidate(definition: &Definition<'_>) -> Element {
     named("candidate", definition)
         .attr("kind", kind(definition.kind))
-        .attr("loc", loc(definition.file, definition.line))
+        .attr("loc", span(definition))
 }
 
 /// An element holding `text`, then the `<candidate>` records, on one line when there are none.

@@ -977,9 +977,10 @@ impl Server {
                        transitively. Use it when a contract changes and you need everything bound to it, or to find \
                        the real targets behind a dynamically-dispatched call site. Searches every indexed language \
                        unless narrowed with 'languages'. Returns an <implementations> envelope, one <type/> record \
-                       per implementor with its lang and loc (file:line), nearest first; depth=N marks one that \
-                       implements the type through N-1 others. At most 500 are listed, and total= then counts them \
-                       all; passed_over= counts the other types the name selects, and then a <root/> names the type \
+                       per implementor with its lang and loc (file:start-end, its full span, or file:line for one \
+                       line), nearest first; depth=N marks one that implements the type through N-1 others. At most \
+                       500 are listed, and total= then counts them all; passed_over= counts the other types the \
+                       name selects, and then a <root/> names the type \
                        answered for and up to 5 <candidate/> records list the most implemented others - path_prefix \
                        with one's file and line with its line pick it. A type that implements an interface without \
                        naming it, as Go's structural typing allows, is not found. A name no indexed type has, as a \
@@ -1105,8 +1106,9 @@ impl Server {
                        the qn of the innermost one holding it, judged by lines, so one starting on its holder's first \
                        or last line, as in minified code, carries it only as a field or method of a callable's \
                        signature; a definition with neither starts outside every other listed one or on such a line; \
-                       kind; lines=\"start-end\" (the definition's full span, nested definitions inside their \
-                       enclosing one's span); and sig, the declaration, omitted when none was captured. Read the one \
+                       kind; lines=\"start-end\" (the definition's full span, or the one line of a one-line \
+                       definition, nested definitions inside their enclosing one's span); and sig, the declaration, \
+                       omitted when none was captured. Read the one \
                        span you need instead of the whole file or a guessed window. A file no code graph holds and a \
                        file with no recorded definition both report symbols=\"0\", told apart by the note. For \
                        callers and reach of a range use impact_of_edit. Requires index_repo first."
@@ -1133,10 +1135,10 @@ impl Server {
                        one call, where following the calls by hand takes a read per hop. Searches every indexed \
                        language unless narrowed with 'languages'; a pair resolving in several languages yields one \
                        match per language. Returns a <call_path> envelope of <match lang=..> records: each the \
-                       resolved from and to with from_loc and to_loc (file:line), the chain length in hops and the \
-                       searched bound in max_hops, and one \
-                       <ref> per caller in call order - the last one calls to - each carrying loc= at the caller's \
-                       definition, call= at the line where it calls the next symbol, an explicit role=, a \
+                       resolved from and to with from_loc and to_loc (file:start-end, each one's span, or \
+                       file:line for one line), the chain length in hops and the searched bound in max_hops, and one \
+                       <ref> per caller in call order - the last one calls to - each carrying loc= the caller's span, \
+                       call= at the line where it calls the next symbol, an explicit role=, a \
                        confidence=likely / guess mark on a weakly resolved hop, and through= the interface, trait or \
                        base-class method a hop's call binds where it reaches the next method only through it, as \
                        find_callers marks it. A match without a chain carries \
@@ -1237,11 +1239,13 @@ impl Server {
                        text search that also matches strings, comments, and same-named symbols. Searches every \
                        indexed language unless narrowed with 'languages'; a name resolving in several languages \
                        yields one match per language. Returns a <references> envelope of <match lang=..> records: each \
-                       the resolved symbol with its loc, kind, and count= of the sites it keeps, calls= types= reads= \
+                       the resolved symbol with its loc (file:start-end, its span, or file:line for one line), kind, \
+                       and count= of the sites it keeps, calls= types= reads= \
                        writes= updates= counting every site whatever access keeps, and files= the files \
                        holding them. The sites come grouped in <file path= sites=N> records, the files with the most \
                        sites first: one <ref> per enclosing symbol and site kind in line order, carrying the enclosing \
-                       symbol's name, qn and line=, its explicit role= (\"consumer\", or test/entry/generated), site= \
+                       symbol's name, qn and lines= (its span: start-end, or one line), its explicit role= \
+                       (\"consumer\", or test/entry/generated), site= \
                        (call; type where code names it as a type; read where code reads it, a member taken through \
                        a type, EventType.Created, reading the type; write; or update for += and ++), at= the lines \
                        where it touches the symbol, \
@@ -1510,7 +1514,8 @@ impl Server {
                        function or method, hop by hop. Answers \"what is affected if I change this function?\" before \
                        an edit, rename, or removal. Searches every indexed language unless narrowed with 'languages'; \
                        a name resolving in several languages yields one match per language. Returns a <callers> \
-                       envelope of <match lang=..> records: each the resolved symbol with its loc, the caller count \
+                       envelope of <match lang=..> records: each the resolved symbol with its loc (file:start-end, \
+                       its span, or file:line for one line), the caller count \
                        within the hops limit, a reach-band grade, and flat <ref hops=N> records (hops=1 = direct, \
                        caller-ward distance from the target), nearest first and at most 'limit' (default 100), where \
                        shown= on the match and a line after the refs say the limit cut them and count= and the grade \
@@ -1609,7 +1614,8 @@ impl Server {
                        without reading its body and every body it calls. Searches every indexed language unless \
                        narrowed with 'languages'; a name resolving in several languages yields one match per language. \
                        Returns a \
-                       <callees> envelope of <match lang=..> records: each the resolved symbol with its loc and the \
+                       <callees> envelope of <match lang=..> records: each the resolved symbol with its loc \
+                       (file:start-end, its span, or file:line for one line) and the \
                        callee count within the hops limit (default 1, direct callees only), and flat <ref hops=N> \
                        records nearest first carrying the callee's loc, an explicit role= (\"consumer\", or \
                        test/entry/generated), confidence=likely / guess on a weakly resolved call, and, on a direct \
