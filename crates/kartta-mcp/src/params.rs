@@ -208,14 +208,14 @@ pub(crate) struct FindCallersParams {
     #[serde(default)]
     pub(crate) min_confidence: Option<ConfidenceFloor>,
     /// Keep only the callers of this role: "consumer", "test", "entry", or "generated" - the role= value a <ref/>
-    /// carries. Each <match> then counts its callers per role (consumers, tests, entries, generated), and count still
+    /// carries. Each <match> then counts its callers per role (consumers, tests, entries, generated), and total still
     /// counts every caller. The walk is the same with or without it, so a caller of another role still leads to the
     /// callers beyond it. Omitted or null keeps every caller.
     #[serde(default)]
     pub(crate) role: Option<CallerRole>,
     /// Positive cap on the <ref/> records a match lists, nearest first, after 'role' keeps its callers. Omitted or null
-    /// = 100. Zero and negatives are rejected. count= still counts every caller the walk reached, and shown= on a
-    /// match says how many refs it lists when the cap cut them.
+    /// = 100. Zero and negatives are rejected. total= still counts every caller the walk reached, and shown= with
+    /// truncated=true on a match says how many refs it lists when the cap cut them.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -625,8 +625,8 @@ pub(crate) struct FileOutlineParams {
     /// "pkg/service.go") - not absolute, not a bare filename.
     pub(crate) file: String,
     /// Positive cap on the <symbol/> records listed, the first in source order. Omitted or null = 100. Zero and
-    /// negatives are rejected. symbols= counts every definition of the file, and shown= says how many are listed when
-    /// the cap cut them.
+    /// negatives are rejected. total= counts every definition of the file, and shown= with truncated=true says how many
+    /// are listed when the cap cut them.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -644,8 +644,8 @@ pub(crate) struct FindImportersParams {
     #[schemars(range(max = u32::MAX))]
     pub(crate) hops: Option<NonZeroU32>,
     /// Positive cap on the <file/> records listed, nearest first. Omitted or null = 200. Zero and negatives are
-    /// rejected. count= counts every importer the walk reached, and shown= says how many are listed when the cap cut
-    /// them.
+    /// rejected. total= counts every importer the walk reached, and shown= with truncated=true says how many are
+    /// listed when the cap cut them.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }
@@ -664,8 +664,8 @@ pub(crate) struct ImpactOfEditParams {
     pub(crate) end_line: Option<NonZeroU32>,
     /// Positive cap on the <symbol> records listed, those of widest reach kept in source order, and separately on the
     /// files each of <includes> and <included-by> lists, in path order. Omitted or null = 10. Zero and negatives are
-    /// rejected. symbols= and each list's count= count every one, and shown= says how many are listed when the cap
-    /// cut them.
+    /// rejected. total= on the answer and on each list counts every one, and shown= with truncated=true says how
+    /// many are listed when the cap cut them.
     #[serde(default)]
     pub(crate) limit: Option<NonZeroUsize>,
 }

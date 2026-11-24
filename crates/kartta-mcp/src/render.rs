@@ -617,7 +617,9 @@ fn failures(count: usize, failed: impl Iterator<Item = impl Display>) -> Option<
     }
     Some(
         Element::new("errors")
-            .attr("count", count)
+            .attr("total", count)
+            .optional("shown", (count > LISTED_ERRORS).then_some(LISTED_ERRORS))
+            .flag("truncated", count > LISTED_ERRORS)
             .wrap(&listed.join("\n")),
     )
 }

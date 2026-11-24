@@ -200,7 +200,7 @@ pub(crate) fn grep(
         .attr("patterns", patterns.join("\n"))
         .attr("candidates", matches.candidates())
         .attr("files", matches.files().len())
-        .attr("matches", matches.lines())
+        .attr("total", matches.lines())
         .flag("truncated", matches.truncated())
         .count("unsearched", matches.unsearched())
         .count("excluded", matches.excluded())
@@ -327,7 +327,12 @@ fn failures_block(failures: &[Failure], paths: &mut Paths<'_>) -> Option<String>
     }
     Some(
         Element::new("failures")
-            .attr("count", failures.len())
+            .attr("total", failures.len())
+            .optional(
+                "shown",
+                (failures.len() > LISTED_FAILURES).then_some(LISTED_FAILURES),
+            )
+            .flag("truncated", failures.len() > LISTED_FAILURES)
             .wrap(&text),
     )
 }
@@ -350,7 +355,7 @@ fn file_block(path: &str, lines: &[Line], reach: usize) -> String {
     }
     Element::new("file")
         .attr("path", path)
-        .attr("matches", matched)
+        .attr("total", matched)
         .wrap(&body)
 }
 
@@ -397,10 +402,10 @@ pub(crate) fn dir(path: &str, listing: &Listing<'_>) -> String {
     let shown = if path.is_empty() { "." } else { path };
     let element = Element::new("dir")
         .attr("path", shown)
-        .attr("entries", listing.len())
+        .attr("total", listing.total())
         .optional(
-            "total",
-            (listing.total() != listing.len()).then(|| listing.total()),
+            "shown",
+            (listing.total() != listing.len()).then(|| listing.len()),
         )
         .count("excluded", listing.excluded())
         .flag("truncated", listing.truncated());
