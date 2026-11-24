@@ -29,5 +29,5 @@ serde_json = "1.0.154"
 # The golden test reads answers back exactly, so a score pinned in a golden file is the one the engine answered.
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 # The reference test reads the wire's types from their source, where every field, value and default is stated.
-syn = { version = "3.0.9", features = ["full", "visit"] }
+syn = { version = "3.0.10", features = ["full", "visit"] }
 tempfile = "3.27.0"

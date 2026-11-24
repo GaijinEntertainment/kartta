@@ -11,7 +11,12 @@ all-features = true
 # the build rather than warning into a log nobody reads.
 yanked = "deny"
 # Every ignore needs a dated reason. An empty list is the correct steady state; an entry here is a debt with a name.
-ignore = []
+ignore = [
+    # 2026-11-24: chrono is unmaintained, with no fixed version. rmcp 3.11.0 depends on it unconditionally and turns on
+    # schemars' `chrono04` feature, so no feature setting of kartta-mcp removes it. The advisory names no defect; the
+    # entry goes when rmcp drops chrono.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained chrono; rmcp 3.11.0 requires it with no feature to drop it" },
+]
 
 [licenses]
 # Every licence the resolved graph actually carries, and nothing speculative -- cargo-deny warns on an allowance it
