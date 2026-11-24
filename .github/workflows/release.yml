@@ -205,7 +205,11 @@ jobs:
           path: npm
           pattern: npm-*
           merge-multiple: true
-      - run: scripts/npm-publish.sh npm --dry-run
+      # constraint: the run's artifact listing can miss an artifact the same job finalized seconds before (#1260), so
+      # the dry run reads the pack from the working tree
+      - run: |
+          mv bindings/node/*.tgz npm/
+          scripts/npm-publish.sh npm --dry-run
         working-directory: .
 
   # ADR 4.55: the token is a secret of the `npm` environment, so each publishing run waits for its approval.
