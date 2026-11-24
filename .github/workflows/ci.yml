@@ -141,7 +141,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: >-
           docker run --rm -v "$PWD:/src" -w /src -e CARGO_PROFILE_DEV_DEBUG=line-tables-only
-          rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+          rust:1.100.0-alpine3.24@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33
           cargo test --locked --workspace --exclude kartta-node --all-features
 
   # What a `cargo install` without `--locked` builds: the newest version each requirement allows, a dependency's newest
@@ -283,7 +283,7 @@ jobs:
           cache: false
       - run: >-
           docker run --rm -v "$PWD:/src" -v "$(go env GOROOT):/usr/local/go:ro" -w /src
-          rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+          rust:1.100.0-alpine3.24@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33
           scripts/go-musl.sh ${{ matrix.target }}
 
   # The Node binding, loading the addon the same checkout builds. Its tests replay the golden files through every typed
@@ -335,7 +335,7 @@ jobs:
           true
       - run: >-
           docker run --rm -v "$PWD:/src" -v node:/opt/node:ro -w /src
-          rust:1.99.1-alpine3.24@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d
+          rust:1.100.0-alpine3.24@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33
           scripts/node-musl.sh
 
   markdown:
