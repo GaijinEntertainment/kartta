@@ -31,8 +31,7 @@ commit is a lockstep `X.Y.(Z+1)` of every artifact**, cut from the start below, 
 1. On a branch, run `scripts/version.sh X.Y.Z`. Its pull request runs the release workflow's builds and both publishes
    as dry runs. Merge it once they pass.
 2. Tag the merge commit on `main` and push the tag: `git tag vX.Y.Z <commit>`, then `git push origin vX.Y.Z`.
-3. Approve the deployments to the `crates-io` and `npm` environments when the run asks for them.
-4. Once both branches finish, run the install checks from the registries on every target:
+3. Once both branches finish, run the install checks from the registries on every target:
    `gh workflow run verify-release.yml --ref vX.Y.Z -f version=X.Y.Z`. A check that fails on what the release published
    is a defect in it, below.
 
@@ -51,9 +50,11 @@ defect in the tree: fix it on `main` and cut `X.Y.(Z+1)`. The tag `vX.Y.Z` stays
 `crates` waits on `checksums`, and `publish` on `crates`, so the Go tag and the GitHub release are not out either.
 
 - **`checksums` failed**: nothing of this branch uploaded. Re-run.
-- **Before any upload**, for want of a token, or an approval refused: set the `crates-io` environment's secret
-  `CARGO_REGISTRY_TOKEN` (#1058), then re-run. A crate that fails to package or verify is a defect in the tree:
-  `X.Y.(Z+1)`.
+- **Before any upload**, a crate that fails to package or verify is a defect in the tree: `X.Y.(Z+1)`.
+- **For want of a publisher**: the `rust-lang/crates-io-auth-action` step fails before any upload when no crate holds
+  a trusted publisher of this repository and `release.yml`. When only some crates lack one, crates.io refuses the
+  first of them to upload, after the crates before it went out. Add each missing publisher (below), then re-run, which
+  leaves out what went out.
 - **Midway**, some crates uploaded: re-run. `scripts/publish-crates.sh` leaves out each crate whose version the index
   lists. A re-run that comes before the index lists the last upload tries that crate again and crates.io refuses it;
   re-run again later.
@@ -76,9 +77,10 @@ meanwhile.
 
 - **`npm-pack` failed**: nothing of this branch uploaded. A runner or network fault: re-run. A defect in the tree:
   `X.Y.(Z+1)`.
-- **Before any upload**, for want of a token, or an approval refused: set the `npm` environment's secret `NPM_TOKEN`
-  (#1058), then re-run. The re-run job references the environment, so it waits for an approval as the first did
-  (GitHub's "Deployments and environments", "Required reviewers").
+- **For want of a publisher**: `npm publish` of a package fails with `ENEEDAUTH` when it holds no trusted publisher
+  of this repository and `release.yml`, or holds one that expired, which npm does to a publisher no publish used
+  within 2 days of its creation. Any package before it is out. Delete an expired one, add the publisher (below), then
+  re-run within 2 days; the script skips what is out.
 - **Midway**, some target packages uploaded and `kartta` not: re-run. `scripts/npm-publish.sh` skips each version the
   registry holds and publishes `kartta` last, so no install of `kartta` reaches a missing target's package.
 - **Nothing more can upload** from this tree, or the 30 days of re-runs are over: cut `X.Y.(Z+1)`. The other channels'
@@ -100,8 +102,8 @@ A version without the defect stays as it is: a yank or a deprecation is for the 
 
 ## The settings a cut relies on
 
-The maintainer sets these when the repository goes public (#144), before the first tag, and reads them back before each
-cut.
+The maintainer sets these when the repository goes public (#144), before the first tag, except the npm publishers,
+which go in within the 2 days before it, and reads them back before each cut.
 
 - [ ] Secret scanning and its push protection are on:
       `gh api repos/GaijinEntertainment/kartta --jq .security_and_analysis`.
@@ -115,10 +117,16 @@ cut.
       `gh api repos/GaijinEntertainment/kartta/actions/permissions --jq .sha_pinning_required`.
 - [ ] The description and the homepage are set:
       `gh api repos/GaijinEntertainment/kartta --jq '.description, .homepage'`.
-- [ ] The `crates-io` and `npm` environments exist, each with a required reviewer and its secret (#1058):
-      `gh api repos/GaijinEntertainment/kartta/environments --jq '.environments[] | {name, protection_rules}'`, then
-      `gh secret list --env crates-io` names `CARGO_REGISTRY_TOKEN` and `gh secret list --env npm` names `NPM_TOKEN`,
-      without their values (GitHub's REST "List environment secrets").
+- [ ] The repository is public, since npm signs no provenance for a private one:
+      `gh api repos/GaijinEntertainment/kartta --jq .visibility` prints `public`.
+- [ ] Each crate whose `publish` is unset holds a GitHub trusted publisher on crates.io: owner `GaijinEntertainment`,
+      repository `kartta`, workflow `release.yml`, no environment. Its page's Settings, Trusted Publishing, lists it. A
+      crate new to the workspace first takes a `0.0.0` published by hand, since crates.io adds a publisher only to a
+      crate it holds ([ADR 4.55](/design-docs/adr/4.55-release-workflow.md)).
+- [ ] Each of the seven npm packages holds a GitHub Actions trusted publisher: repository `GaijinEntertainment/kartta`,
+      workflow `release.yml`, no environment, `npm publish` allowed. `npm trust list <package>` lists it. npm expires a
+      publisher that no publish used within 2 days of its creation, so add each within the 2 days before the first tag;
+      a new package first takes a `0.0.0` published by hand ([ADR 4.65](/design-docs/adr/4.65-npm-publish.md)).
 - [ ] The ruleset `protect-release-tags` stands as "What cannot be undone" relies on: active on `refs/tags/v*` and
       `refs/tags/bindings/go/v*`, with the rules `deletion`, `non_fast_forward` and `update` and no bypass actor.
       `gh api repos/GaijinEntertainment/kartta/rulesets --jq '.[] | select(.name == "protect-release-tags") | .id'`
