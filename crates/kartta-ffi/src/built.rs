@@ -11,11 +11,6 @@ use crate::error::{Error, ErrorCode};
 use crate::wire::graph::Wired;
 use crate::wire::{self, RefreshAnswer, StoppedView, StoredErrors};
 
-const NO_STAMPS: &str = concat!(
-    "the build kept no stamps, so a refresh would read every file again and build every graph again while every ",
-    r#"query waits, longer than a build; call build {"stamps": true} to refresh"#,
-);
-
 pub(crate) const BROKEN: &str =
     "a refresh panicked partway, so the engine may hold half of it; call build to build it again";
 
@@ -23,7 +18,6 @@ pub(crate) const BROKEN: &str =
 pub(crate) struct Built {
     pub(crate) engine: Engine,
     pub(crate) errors: StoredErrors,
-    pub(crate) stamps: bool,
     /// What the follow of a build that asked for one reports; `None` when the build asked for none.
     pub(crate) watch: Option<Watch>,
 }
@@ -96,7 +90,7 @@ impl Shared {
         cancel: &CancelToken,
     ) -> Result<Self, BuildError> {
         let outcome = Engine::build(root, options, languages, Some(cancel))?;
-        Ok(Self::new(outcome, options.stamps, None))
+        Ok(Self::new(outcome, None))
     }
 
     /// Builds `root` as [`Engine::build_watched`] does, with the changes its watcher holds taken in, and answers the
@@ -108,17 +102,16 @@ impl Shared {
         cancel: &CancelToken,
     ) -> Result<(Self, Option<Follower>), BuildError> {
         let (outcome, watcher) = Engine::build_watched(root, options, languages, Some(cancel))?;
-        let shared = Self::new(outcome, options.stamps, Some(Watch::default()));
+        let shared = Self::new(outcome, Some(Watch::default()));
         let follower = Follower::caught_up(&shared, watcher);
         Ok((shared, follower))
     }
 
-    fn new(outcome: kartta::EngineOutcome, stamps: bool, watch: Option<Watch>) -> Self {
+    fn new(outcome: kartta::EngineOutcome, watch: Option<Watch>) -> Self {
         Self {
             built: RwLock::new(Built {
                 errors: StoredErrors::new(outcome.engine.index().root(), &outcome.errors),
                 engine: outcome.engine,
-                stamps,
                 watch,
             }),
             follow: CancelToken::new(),
@@ -228,7 +221,7 @@ impl<'b, T> Matches<'b, T> {
 /// The engine's refusal of the first of `paths` it refuses by its spelling, as the wire answers it.
 ///
 /// A refresh asks this before it reads the handle's state, so a wrong path answers `invalid_params` before `not_built`
-/// or `no_stamps` would, neither of which reaches the engine's own refusal.
+/// would, which never reaches the engine's own refusal.
 pub(crate) fn misspelled(paths: Option<&[String]>) -> Result<(), Error> {
     let refused = paths.into_iter().flatten().find_map(|path| {
         Some(BuildError::Misspelled {
@@ -245,6 +238,12 @@ fn refresh_error(error: BuildError) -> Error {
         BuildError::Cancelled => Error::new(
             ErrorCode::RefreshCancelled,
             "a cancel stopped the refresh; the engine answers as it did before it",
+        ),
+        BuildError::RefreshWithoutStamps => Error::new(
+            ErrorCode::NoStamps,
+            format!(
+                r#"{error}, longer than a build while every query waits; call build {{"stamps": true}} to refresh"#
+            ),
         ),
         BuildError::Misspelled { .. } => Error::new(
             ErrorCode::InvalidParams,
@@ -267,9 +266,6 @@ impl Built {
         paths: Option<&[String]>,
         cancel: &CancelToken,
     ) -> Result<Vec<u8>, Error> {
-        if !self.stamps {
-            return Err(Error::new(ErrorCode::NoStamps, NO_STAMPS));
-        }
         let refreshed = match paths {
             None => self.engine.refresh(Some(cancel)),
             Some(paths) => self
