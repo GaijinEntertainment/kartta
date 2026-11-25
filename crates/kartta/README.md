@@ -7,7 +7,7 @@ queries over the resulting code graph — symbol lookup, call and reference edge
 
 This crate is the entry point. It owns the engine and re-exports the types that cross its API boundary, so ordinary use
 needs no direct dependency on the `kartta-*` building blocks. An MCP server over the same engine ships separately as
-`kartta-mcp`, and Go and Node bindings are published from the engine's C ABI.
+`kartta-mcp`, and the Go and Node bindings call it through the C ABI crate `kartta-ffi`.
 
 The engine names no language of its own: it is handed the languages to build with, each a value implementing
 [`kartta-lang`](https://crates.io/crates/kartta-lang)'s `Language` trait, so a language kartta does not ship plugs in as
