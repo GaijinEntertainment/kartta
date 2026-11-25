@@ -20,10 +20,8 @@ pub(crate) struct RefreshAnswer<'r> {
     removed: usize,
     extracted: usize,
     resolved_again: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dropped: Option<usize>,
+    dropped: usize,
     reconfigured: &'r [String],
-    rebuilt: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     widened: Option<WidenedView>,
     errors: &'r StoredErrors,
@@ -53,9 +51,8 @@ impl<'r> RefreshAnswer<'r> {
             removed: refresh.index.removed.len(),
             extracted: refresh.extracted,
             resolved_again: refresh.resolved_again,
-            dropped: refresh.dropped,
+            dropped: refresh.dropped.unwrap_or(0),
             reconfigured: &refresh.reconfigured,
-            rebuilt: refresh.rebuilt,
             widened: refresh.widened.map(
                 |Widened {
                      named,

@@ -30,14 +30,12 @@ type Refresh struct {
 	// ResolvedAgain counts the unchanged files read and resolved again, because a question their resolution asked of
 	// the tree has another answer now, or their family's configuration changed.
 	ResolvedAgain int `json:"resolved_again"`
-	// Dropped counts the files the graphs held and hold no more; nil when every graph was built again.
-	Dropped *int `json:"dropped,omitempty"`
+	// Dropped counts the files the graphs held and hold no more.
+	Dropped int `json:"dropped"`
 	// Reconfigured names the language families whose resolver read another configuration than it read before and
 	// derived another from it, such as jsts for TypeScript and JavaScript, so that every file of theirs was resolved
 	// again.
 	Reconfigured []string `json:"reconfigured"`
-	// Rebuilt reports that every graph was built again from every file.
-	Rebuilt bool `json:"rebuilt"`
 	// Widened is set when the paths came to more parts than a refresh walks apart, so it walked the whole tree.
 	Widened *Widened `json:"widened,omitempty"`
 	// Errors are the failures the refresh collected; Stats lists those the tree fails now.
