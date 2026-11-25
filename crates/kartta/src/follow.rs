@@ -63,8 +63,8 @@ pub struct Watch {
 /// failure ends the follow, a restart that fails because nothing is at the root's path any more included, and
 /// [`Watch::off`] says why.
 ///
-/// An engine built without [`BuildOptions::stamps`](kartta_fs::BuildOptions::stamps) reads every file again and builds
-/// every graph again on each refresh, so [`Engine::build_watched`] refuses to build an engine without them.
+/// An engine built without [`BuildOptions::stamps`](kartta_fs::BuildOptions::stamps) refuses every refresh, so
+/// [`Engine::build_watched`] refuses to build an engine without them.
 #[derive(Debug)]
 pub struct Follower {
     watcher: Watcher,

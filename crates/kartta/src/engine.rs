@@ -252,8 +252,7 @@ impl Engine {
     /// # Errors
     ///
     /// [`BuildError::WatchWithoutStamps`] when `options` keeps no [stamps](BuildOptions::stamps): each change the
-    /// watcher reports is taken in by a refresh, which without them reads every file again and builds every graph
-    /// again.
+    /// watcher reports is taken in by a refresh, which [`Engine::refresh`] refuses without them.
     #[cfg(feature = "watch")]
     pub const fn check_watched(options: &BuildOptions) -> Result<(), BuildError> {
         if options.stamps {
@@ -344,9 +343,7 @@ impl Engine {
     /// Walks the tree again as [`kartta_fs::Index::refresh`] does and brings every family's graph up to it, in place,
     /// so each answers as a build of the tree would now, stopping the walk when `cancel` is cancelled.
     ///
-    /// What the refresh costs depends on [`BuildOptions::stamps`] at the build. Without stamps the engine kept nothing
-    /// for a refresh, every file is read again, and each graph is built again from every file. With stamps the
-    /// engine kept, for each file its graphs hold, the questions its family's [resolver](Language::resolver) asked
+    /// A refresh needs [`BuildOptions::stamps`] at the build: for each file its graphs hold, the engine kept the questions its family's [resolver](Language::resolver) asked
     /// of the tree while it resolved that file: a file read again is extracted again, through the content cache when
     /// it holds the new bytes, a file gone or no longer read as text leaves its graph, and a file whose questions the
     /// refresh answers differently, such as an include that now finds a file or a Go package that gained one, is read
@@ -368,8 +365,9 @@ impl Engine {
     ///
     /// # Errors
     ///
-    /// As [`kartta_fs::Index::refresh`]: a returned error, a cancelled refresh included, leaves the engine answering
-    /// as it did. Once the index is replaced, the graphs are brought up to it whatever `cancel` says.
+    /// [`BuildError::RefreshWithoutStamps`] for an engine built without [`BuildOptions::stamps`], before anything is
+    /// walked. Otherwise as [`kartta_fs::Index::refresh`]: a returned error, a cancelled refresh included, leaves the
+    /// engine answering as it did. Once the index is replaced, the graphs are brought up to it whatever `cancel` says.
     pub fn refresh(&mut self, cancel: Option<&CancelToken>) -> Result<EngineRefresh, BuildError> {
         let (refresh, ()) = self
             .refresh_from_walk(|index, visitor| Ok((index.refresh(Some(visitor), cancel)?, ())))?;
@@ -404,12 +402,12 @@ impl Engine {
     /// parts are those [`kartta_fs::Index::parts_of`] answers: the paths inside a directory the index does not hold,
     /// such as an ignored `target/`, are one part, and a path the index skips is none. A call named more paths than the
     /// limit works their parts out first, at the cost [`kartta_fs::Index::parts_of`] states, whether it then walks them
-    /// or the whole tree. Without [`BuildOptions::stamps`] at the build, the engine kept nothing to find the files a
-    /// change reaches, so this is [`Engine::refresh`] and walks the whole tree, however few the paths.
+    /// or the whole tree.
     ///
     /// # Errors
     ///
-    /// As [`kartta_fs::Index::refresh_paths`], and as [`Engine::refresh`] once the walk is done.
+    /// As [`kartta_fs::Index::refresh_paths`], and as [`Engine::refresh`]: an engine built without
+    /// [`BuildOptions::stamps`] refuses a path by its spelling as the index does, then refuses the refresh.
     pub fn refresh_paths<'p>(
         &mut self,
         paths: impl IntoIterator<Item = &'p str>,
@@ -460,8 +458,7 @@ impl Engine {
                     fault,
                 });
             }
-            return self
-                .refresh_from_walk(|index, visitor| walk(index, &mut iter::once(""), visitor));
+            return Err(BuildError::RefreshWithoutStamps);
         }
         let limit = self.refresh_paths_limit();
         let first: Vec<&str> = paths.by_ref().take(limit + 1).collect();
@@ -499,22 +496,13 @@ impl Engine {
         &mut self,
         walk: impl FnOnce(&mut Index, &dyn ContentVisitor) -> Result<(RefreshOutcome, T), BuildError>,
     ) -> Result<(EngineRefresh, T), BuildError> {
+        let Some(following) = self.following.as_mut() else {
+            return Err(BuildError::RefreshWithoutStamps);
+        };
         let extracting = Extracting::new(&self.languages);
         let (outcome, walked) = walk(&mut self.index, &extracting)?;
         let (extracted, counts) = extracting.into_extracted();
-        let refresh = self.brought_up(Walked {
-            outcome,
-            extracted,
-            counts,
-        });
-        Ok((refresh, walked))
-    }
-
-    fn brought_up(&mut self, walked: Walked) -> EngineRefresh {
-        let Some(following) = self.following.as_mut() else {
-            return self.rebuilt(walked);
-        };
-        following.refresh(
+        let refresh = following.refresh(
             Refreshing {
                 index: &self.index,
                 languages: &self.languages,
@@ -522,44 +510,13 @@ impl Engine {
                 families: &mut self.families,
                 file_counts: &mut self.file_counts,
             },
-            walked,
-        )
-    }
-
-    fn rebuilt(&mut self, walked: Walked) -> EngineRefresh {
-        let Walked {
-            outcome,
-            extracted,
-            mut counts,
-        } = walked;
-        let resolving = Resolving {
-            index: &self.index,
-            languages: &self.languages,
-            family_of: &self.family_of,
-            cancel: None,
-            recording: false,
-        };
-        let Graphs {
-            families, inserted, ..
-        } = resolving.graphs(families(&self.languages).0, extracted);
-        for (counts, held) in counts.iter_mut().zip(inserted.held) {
-            counts.held = held;
-        }
-        let extracted = counts.iter().map(|counts| counts.held).sum();
-        self.families = families;
-        self.file_counts = counts;
-        release_freed_memory();
-
-        EngineRefresh {
-            index: outcome,
-            errors: inserted.errors,
-            extracted,
-            resolved_again: 0,
-            dropped: None,
-            reconfigured: Vec::new(),
-            rebuilt: true,
-            widened: None,
-        }
+            Walked {
+                outcome,
+                extracted,
+                counts,
+            },
+        );
+        Ok((refresh, walked))
     }
 
     /// The tree's file index.

@@ -180,14 +180,12 @@ fn an_engine_refreshed_after_edits_answers_as_a_build_of_the_edited_tree() {
     let tree = settled_tree();
     let mut followed = build(tree.path(), true);
     let mut scoped = build(tree.path(), true);
-    let mut inert = build(tree.path(), false);
     let before = answers(&followed);
 
     edit(tree.path());
     let fresh = answers(&build(tree.path(), false));
     let whole = refreshed(followed.refresh(None));
     let named = refreshed(scoped.refresh_paths(EDITED.iter().copied(), None));
-    let rebuilt = refreshed(inert.refresh(None));
 
     assert_ne!(before, fresh, "the edits change what the engine answers");
     assert_eq!(
@@ -196,12 +194,6 @@ fn an_engine_refreshed_after_edits_answers_as_a_build_of_the_edited_tree() {
         "a refresh that follows the change"
     );
     assert_eq!(answers(&scoped), fresh, "a refresh of the named paths");
-    assert_eq!(
-        answers(&inert),
-        fresh,
-        "a refresh that builds every graph again"
-    );
-    assert!(!whole.rebuilt && !named.rebuilt && rebuilt.rebuilt);
     assert_eq!((whole.widened, named.widened), (None, None));
     assert_ne!(named.index.walked, [""], "the named paths are walked apart");
     assert!(
@@ -211,8 +203,8 @@ fn an_engine_refreshed_after_edits_answers_as_a_build_of_the_edited_tree() {
         named.resolved_again
     );
     assert_eq!(
-        (whole.dropped, named.dropped, rebuilt.dropped),
-        (Some(2), Some(2), None),
+        (whole.dropped, named.dropped),
+        (Some(2), Some(2)),
         "gone.cpp and old.cpp leave"
     );
 }
@@ -245,7 +237,6 @@ fn named_paths_that_come_to_more_parts_than_the_limit_refresh_the_whole_tree() {
         "the paths inside a directory the index does not hold come to one part"
     );
     assert_eq!(refresh.index.walked, [""]);
-    assert!(!refresh.rebuilt);
     assert_eq!(answers(&engine), answers(&build(tree.path(), false)));
 }
 
