@@ -47,7 +47,9 @@ impl Index {
     ///
     /// A path inside a `.git` directory names nothing the index holds and is skipped, as is a `.git` at the root, a
     /// `.git` anywhere when no ignore rules apply, and a path through a name in
-    /// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names).
+    /// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names). While ignore rules apply, a part below a
+    /// directory that is a linked worktree of the root's repository, as [`Index::pruned_worktrees`] says, is walked as
+    /// gone, at a read of that directory's `.git` and of the `commondir` it leads to, and the worktree is named again.
     ///
     /// A path names the entry the disk holds. On macOS and Windows, where a volume can find an entry by a name in
     /// another letter case, or on macOS in another Unicode normalization form, than the one it holds, a part the index
@@ -112,6 +114,7 @@ impl Index {
             pending,
             errors,
             changed,
+            worktrees,
         } = self.counting_handed(|index, handed| index.plan(&scopes, asked, handed))?;
         let retired = match pending {
             Some((pending, content)) => {
@@ -122,6 +125,7 @@ impl Index {
             }
             None => Vec::new(),
         };
+        self.note_worktrees(&scopes, worktrees);
 
         Ok(RefreshOutcome::new(errors, retired, scopes, changed))
     }
@@ -312,21 +316,19 @@ impl Index {
             ran_out_of_ids,
             content,
             targets,
+            worktrees,
         } = policy.into_report();
         if ran_out_of_ids {
             return Err(BuildError::ContentIdsExhausted);
         }
         errors.extend(read_errors);
         order_errors(&mut errors);
-        let changes_nothing = ranges
-            .iter()
-            .zip(&found)
-            .all(|(range, found)| range.is_empty() && found.scope.is_none());
-        if changes_nothing && self.stopped_refresh_ids().is_empty() {
+        if changes_nothing(&ranges, &found) && self.stopped_refresh_ids().is_empty() {
             return Ok(Planned {
                 pending: None,
                 errors,
                 changed: ChangedFiles::since(self),
+                worktrees,
             });
         }
 
@@ -364,6 +366,7 @@ impl Index {
             pending: Some((pending, content)),
             errors,
             changed,
+            worktrees,
         })
     }
 
@@ -427,6 +430,7 @@ struct Planned {
     pending: Option<(Pending, Option<ContentIndexes>)>,
     errors: Vec<BuildError>,
     changed: ChangedFiles,
+    worktrees: Vec<Box<str>>,
 }
 
 struct Found {
@@ -467,15 +471,15 @@ impl Rewalk<'_, '_> {
             .read_rules(&dirs, ROUND_TRIP)
             .ok_or(BuildError::Cancelled)?;
         let none = Rules::default();
-        let mut rules: Vec<Rules> = Vec::with_capacity(dirs.len());
+        let mut rules: Vec<Option<Rules>> = Vec::with_capacity(dirs.len());
         for (added, dir) in added.into_iter().zip(&dirs) {
-            let dir_rules = added.below(dir.parent.map_or(&none, |at| &rules[at]));
-            rules.push(dir_rules);
+            let inherited = dir.parent.map_or(Some(&none), |at| rules[at].as_ref());
+            rules.push(inherited.and_then(|inherited| added.below(inherited)));
         }
 
         Ok(holding
             .into_iter()
-            .map(|at| at.map(|at| rules[at].clone()))
+            .map(|at| at.and_then(|at| rules[at].clone()))
             .collect())
     }
 
@@ -835,6 +839,13 @@ fn parent_of(path: &str) -> &str {
 
 fn name_of(path: &str) -> &str {
     path.rfind('/').map_or(path, |at| &path[at + 1..])
+}
+
+fn changes_nothing(ranges: &[Range<usize>], found: &[Found]) -> bool {
+    ranges
+        .iter()
+        .zip(found)
+        .all(|(range, found)| range.is_empty() && found.scope.is_none())
 }
 
 pub(super) fn holds(dir: &str, path: &str) -> bool {

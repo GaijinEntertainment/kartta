@@ -61,6 +61,13 @@
 //! and the inherited rule stack resets there, exactly as git's own rules stop at a repository boundary. Its contents
 //! are still indexed: this crate indexes a directory tree, not a git index.
 //!
+//! One such directory is held empty instead: a linked worktree of the repository the root belongs to, a second checkout
+//! of that repository that would put every file in the index twice. It is known by what git itself writes, never by
+//! its shape: its `.git` is a gitfile, `gitdir: <path>`, whose git directory holds a `commondir` that comes to the
+//! common git directory of the root's own `.git`. [`Index::pruned_worktrees`] names each. A submodule, a clone and a
+//! worktree of another repository are indexed under their own rules like any other directory, and at
+//! [`IgnoreSources::None`] no worktree is held empty.
+//!
 //! That reset applies to a nested repository the walk reaches. An outer rule that hides the directory itself hides
 //! everything under it, nested repository or not, because an ignored directory is never descended — which is git's own
 //! answer, as `git status` on a tree whose `.gitignore` names the directory will confirm.
@@ -173,6 +180,7 @@ mod stamp;
 mod trigram;
 #[cfg(feature = "watch")]
 mod watch;
+mod worktree;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
