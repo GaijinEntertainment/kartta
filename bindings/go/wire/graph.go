@@ -435,6 +435,126 @@ type Implementor struct {
 	Depth  int        `json:"depth"`
 }
 
+// DeadCodeParams are the params of the dead_code method.
+type DeadCodeParams struct {
+	Lang string `json:"lang,omitempty"`
+	// Kinds are the labels of the kinds to judge, as Definition's Kind spells them; nil judges every kind.
+	Kinds []string `json:"kinds,omitempty"`
+	// PathPrefix judges only the definitions in files whose root-relative path starts with it; empty judges every file.
+	PathPrefix string `json:"path_prefix,omitempty"`
+	// Limit caps the definitions answered, and 0 answers the counts alone. It is required: nil answers InvalidParams.
+	Limit *int `json:"limit,omitempty"`
+}
+
+// DeadCode are the definitions of one graph that no call and no use the graph holds reaches, and the counts of what
+// the judgement left out.
+type DeadCode struct {
+	Graph string `json:"graph"`
+	// Found lists the dead definitions in path order, at most the params' Limit.
+	Found []Dead `json:"found"`
+	// Total counts the dead definitions, before the limit.
+	Total int `json:"total"`
+	// Live counts the definitions judged and found reached.
+	Live int `json:"live"`
+	// Excluded counts the definitions left unjudged, by reason.
+	Excluded Excluded `json:"excluded"`
+}
+
+// Dead is a definition no call and no use the graph holds reaches.
+type Dead struct {
+	Definition Definition `json:"definition"`
+	// Spelled reports that a call or a use the graph holds spells the definition's name: they were resolved, and none
+	// reaches it.
+	Spelled bool `json:"spelled"`
+}
+
+// Excluded counts the definitions dead_code left unjudged, each once, under the first reason that holds for it.
+type Excluded struct {
+	// Kind counts those of a kind the params' Kinds did not ask for.
+	Kind int `json:"kind"`
+	// Test counts test code, which a test runner calls.
+	Test int `json:"test"`
+	// Generated counts generated code.
+	Generated int `json:"generated"`
+	// Entry counts entry points, which run with no call that spells their name.
+	Entry int `json:"entry"`
+	// Vendored counts vendored code.
+	Vendored int `json:"vendored"`
+	// Unobservable counts those of a kind that no call and no use the language records shows to be used.
+	Unobservable int `json:"unobservable"`
+	// Uncertain counts those that a call or a use of their name may reach which binds no definition, or binds one only
+	// by proximity.
+	Uncertain int `json:"uncertain"`
+	// Dispatched counts the methods a call through another type may reach.
+	Dispatched int `json:"dispatched"`
+	// Reflected counts those the language's runtime reads or writes by their name, through reflection.
+	Reflected int `json:"reflected"`
+}
+
+// ResolutionParams are the params of the resolution method.
+type ResolutionParams struct {
+	Lang string `json:"lang,omitempty"`
+	// Limit caps the unbound call sites listed of each graph, and 0 answers the counts alone. It is required: nil
+	// answers InvalidParams.
+	Limit *int `json:"limit,omitempty"`
+}
+
+// Resolution is how the call sites of one graph bound.
+type Resolution struct {
+	Graph string `json:"graph"`
+	// Sites counts the call sites resolved.
+	Sites int `json:"sites"`
+	// Bound counts the sites that bound a definition by the confidence of the tier that bound them, the surest first,
+	// every confidence no site bound at left out.
+	Bound []Bound `json:"bound"`
+	// Edges counts the pairs of a caller and the definition it calls, each pair once.
+	Edges int `json:"edges"`
+	// Misses counts the sites that bound none, by reason.
+	Misses Misses `json:"misses"`
+	// Unbound lists sites that bound none, in path order, at most the params' Limit.
+	Unbound []Unbound `json:"unbound"`
+	// Unlisted counts the sites that bound none and that Unbound does not list.
+	Unlisted int `json:"unlisted"`
+}
+
+// Bound counts the sites one confidence tier bound.
+type Bound struct {
+	Confidence int `json:"confidence"`
+	Sites      int `json:"sites"`
+}
+
+// Misses counts the call sites that bound no definition, by the Miss of Unbound that names each.
+type Misses struct {
+	ExternalImport int `json:"external_import"`
+	NotExported    int `json:"not_exported"`
+	Undefined      int `json:"undefined"`
+	NotAdmitted    int `json:"not_admitted"`
+	Ambiguous      int `json:"ambiguous"`
+	PastBound      int `json:"past_bound,omitempty"`
+	// ThroughAReceiver counts, of the undefined and the not-admitted sites, those made through any receiver.
+	ThroughAReceiver int `json:"through_a_receiver"`
+}
+
+// Unbound is a call site that bound no definition.
+type Unbound struct {
+	// Caller is the definition whose body makes the call.
+	Caller Definition `json:"caller"`
+	// Line is the one-based line of the call.
+	Line int `json:"line"`
+	// Callee is the callee as the call writes it.
+	Callee string `json:"callee"`
+	// Receiver is the receiver as the call writes it, empty for a value the caller declares, and nil for a call with
+	// none.
+	Receiver *string `json:"receiver,omitempty"`
+	// Miss is why the call bound none: "external_import" when it names an import of a module outside the repository;
+	// "not_exported" when its receiver names an import of a directory the graph holds, which exports no callable of the
+	// name; "undefined" when no definition the graph holds has the name as the call writes it, as a builtin;
+	// "not_admitted" when definitions of the name exist and the call can bind none of them; "past_bound" when the graph
+	// stopped reading the receiver at a bound, so nothing is known of what the call reaches; or "ambiguous" when several
+	// definitions of the name may be meant, and neither scope nor nearness picks one.
+	Miss string `json:"miss"`
+}
+
 // OutlineParams are the params of the outline method.
 type OutlineParams struct {
 	File string `json:"file"`
