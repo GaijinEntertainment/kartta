@@ -532,6 +532,10 @@ pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> S
         .attr("root", &indexed.root)
         .optional("languages", indexed.languages.as_deref())
         .attr("files", indexed.files())
+        .count(
+            "pruned_worktrees",
+            indexed.engine.index().pruned_worktrees().len(),
+        )
         .attr(
             "gitignore",
             match &indexed.gitignore {

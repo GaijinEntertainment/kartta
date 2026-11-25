@@ -424,7 +424,9 @@ impl Server {
                        ($GIT_DIR/info/exclude, a global excludes file); gitignore=\"ignored\" means none applied \
                        (index_ignored). A root inside a repository whose top is above it reads gitignore=\"in-tree: \
                        the root is inside the repository at <top>, whose .gitignore files above the root were not \
-                       read\": the index can hold files those hide. While a build runs it answers status=\"building\" \
+                       read\": the index can hold files those hide. pruned_worktrees=N, absent when zero, counts the \
+                       linked worktrees of the root's repository inside the root, each listed as an empty directory: \
+                       nothing below one is indexed. While a build runs it answers status=\"building\" \
                        with the seconds so far, before any build status=\"empty\", and after a build that failed \
                        status=\"failed\" with its root and error; otherwise the <index> envelope index_repo produced. \
                        With coverage=true it adds one <coverage/> record per language, to tell \"no callers\" from a \
