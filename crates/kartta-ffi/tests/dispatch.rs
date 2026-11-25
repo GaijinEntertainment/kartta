@@ -2776,6 +2776,49 @@ fn a_build_that_names_no_ignore_applies_the_tree_s_gitignore() {
     assert_eq!(indexed(&json!({ "ignore": "none" })), json!(["ignored.go"]));
 }
 
+/// Makes `at` inside `root` a linked worktree of the repository whose `.git` directory is at `root`, as
+/// `git worktree add` writes one: the gitfile names `.git/worktrees/<id>`, whose `commondir` is `../..`.
+fn link_worktree(root: &Path, id: &str, at: &str) {
+    let git_dir = root.join(".git/worktrees").join(id);
+    fs::create_dir_all(&git_dir).expect("the worktree's git directory");
+    fs::write(git_dir.join("HEAD"), "ref: refs/heads/agent\n").expect("HEAD");
+    fs::write(git_dir.join("commondir"), "../..\n").expect("commondir");
+    let worktree = root.join(at);
+    fs::create_dir_all(&worktree).expect("the worktree");
+    fs::write(
+        worktree.join(".git"),
+        format!("gitdir: {}\n", git_dir.display()),
+    )
+    .expect("the gitfile");
+    fs::write(worktree.join("main.go"), "package main\n").expect("the worktree's main.go");
+}
+
+#[test]
+fn a_build_and_stats_name_the_worktrees_the_index_holds_empty_and_a_refresh_drops_a_removed_one() {
+    let tree = tree();
+    link_worktree(tree.path(), "agent2", ".claude/worktrees/agent2");
+    link_worktree(tree.path(), "agent1", ".claude/worktrees/agent1");
+    let kartta = open(tree.path());
+
+    let built = ok(&kartta, "build", &json!({ "stamps": true }));
+
+    let held = json!([".claude/worktrees/agent1", ".claude/worktrees/agent2"]);
+    assert_eq!(built["pruned_worktrees"], held, "{built}");
+    assert_eq!(ok(&kartta, "stats", &Value::Null)["pruned_worktrees"], held);
+    assert_eq!(globbed(&kartta, &["**/main.go"]), json!(["main.go"]));
+
+    fs::remove_dir_all(tree.path().join(".claude/worktrees/agent1")).expect("remove agent1");
+    fs::remove_dir_all(tree.path().join(".claude/worktrees/agent2")).expect("remove agent2");
+    ok(&kartta, "refresh", &Value::Null);
+
+    let stats = ok(&kartta, "stats", &Value::Null);
+    assert_eq!(
+        stats.get("pruned_worktrees"),
+        None,
+        "absent when none: {stats}"
+    );
+}
+
 #[test]
 fn a_build_answers_the_threads_it_named_and_the_ambient_pool_s_when_it_named_none() {
     let tree = tree();
