@@ -1362,6 +1362,69 @@ fn find_files_counts_every_match_when_its_cap_cuts_the_list() {
 }
 
 #[test]
+fn find_files_and_glob_files_say_when_their_default_cap_cut_the_list() {
+    let names: Vec<String> = (0..201).map(|at| format!("notes/n{at:03}.txt")).collect();
+    let files: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "x\n")).collect();
+    let tree = common::tree(&files);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    let found = client.answer("find_files", &json!({"pattern": "txt"}));
+    let globbed = client.answer("glob_files", &json!({"globs": ["*.txt"]}));
+    let capped = client.answer(
+        "glob_files",
+        &json!({"globs": ["*.txt"], "max_results": 200}),
+    );
+    let whole = [
+        client.answer(
+            "find_files",
+            &json!({"pattern": "txt", "excludes": ["notes/n200.txt"]}),
+        ),
+        client.answer(
+            "glob_files",
+            &json!({"globs": ["*.txt"], "excludes": ["notes/n200.txt"]}),
+        ),
+    ];
+    let every = [
+        client.answer("find_files", &json!({"pattern": "txt", "max_results": 0})),
+        client.answer("glob_files", &json!({"globs": ["*.txt"], "max_results": 0})),
+    ];
+
+    let marker = "(the default max_results of 200 cut this list - a higher max_results, or 0, lists the rest)";
+    assert!(
+        found.ends_with(&format!(
+            "\n(200 of 201 matching paths, best first)\n{marker}"
+        )),
+        "{found}"
+    );
+    assert_eq!(found.lines().count(), 202, "{found}");
+    assert!(
+        globbed.ends_with(&format!(
+            "\nnotes/n199.txt\n(truncated: the first 200 matching paths in path order; more match)\n{marker}"
+        )),
+        "{globbed}"
+    );
+    assert!(
+        capped.ends_with(
+            "\nnotes/n199.txt\n(truncated: the first 200 matching paths in path order; more match)"
+        ),
+        "a cap the call named takes no line for the default: {capped}"
+    );
+    assert!(
+        every
+            .iter()
+            .all(|answer| answer.lines().count() == 201 && !answer.contains('(')),
+        "0 lists every match: {every:?}"
+    );
+    assert!(
+        whole.iter().all(|answer| answer.lines().count() <= 201
+            && answer.contains("notes/n199.txt")
+            && !answer.contains("default max_results")),
+        "200 matches fill the default cap and nothing is cut: {whole:?}"
+    );
+}
+
+#[test]
 fn a_path_that_opens_with_a_parenthesis_is_quoted_so_it_cannot_read_as_the_closing_line() {
     let tree = common::tree(&[
         ("(x).txt", "x\n"),
