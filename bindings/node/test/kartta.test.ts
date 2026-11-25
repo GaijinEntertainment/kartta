@@ -118,6 +118,10 @@ test('open refuses a root that is not a directory, with invalid_root', () => {
 	expect(() => Kartta.open(missing)).toThrow(expect.objectContaining({name: 'KarttaError', code: 'invalid_root'}));
 });
 
+test('an error carries a code this package does not name', () => {
+	expect(new KarttaError('a_code_of_a_newer_library', 'message')).toHaveProperty('code', 'a_code_of_a_newer_library');
+});
+
 test('a query before any build rejects with not_built', async () => {
 	const kartta = open();
 
