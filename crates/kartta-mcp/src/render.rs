@@ -646,7 +646,6 @@ pub(crate) fn refresh(refreshed: &Refreshed) -> String {
         .count("extracted", refresh.extracted)
         .count("resolved_again", refresh.resolved_again)
         .count("dropped", refresh.dropped.unwrap_or(0))
-        .flag("rebuilt", refresh.rebuilt)
         .optional(
             "reconfigured",
             (!refresh.reconfigured.is_empty()).then(|| refresh.reconfigured.join(", ")),
@@ -663,7 +662,7 @@ pub(crate) fn refresh(refreshed: &Refreshed) -> String {
         + refresh.extracted
         + refresh.resolved_again
         + refresh.dropped.unwrap_or(0);
-    if changed == 0 && !refresh.rebuilt && refresh.reconfigured.is_empty() {
+    if changed == 0 && refresh.reconfigured.is_empty() {
         element.inline("nothing changed - the index already matched the tree")
     } else {
         element.close()

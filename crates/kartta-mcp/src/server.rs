@@ -469,7 +469,7 @@ impl Server {
                        and removed files, extracted (files parsed again), resolved_again (other files whose calls or \
                        includes bind anew), dropped (files no graph holds now), reconfigured (language families \
                        resolved again because their go.mod or tsconfig.json changed what they resolve to, jsts for \
-                       TypeScript and JavaScript), rebuilt=true, and widened= (the paths named) with parts= (the parts \
+                       TypeScript and JavaScript), and widened= (the paths named) with parts= (the parts \
                        they came to) and limit= when those were more parts than it walks apart, so it walked the tree \
                        - the paths inside a directory the index lacks, such as an ignored one, are one part; \
                        elapsed_ms; and <errors> for what it could not read."
