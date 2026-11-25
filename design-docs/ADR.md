@@ -71,7 +71,7 @@ lost, and what would reopen it.
 - [4.34 Say how a symbol method read a name, and why it matched nothing](/design-docs/adr/4.34-wire-name-misses.md)
 - [4.35 Flag a references part where its language records none of its symbol's uses](/design-docs/adr/4.35-wire-unrecorded-uses.md)
 - [4.45 Drop a handle's engine before its next build walks, and keep what a cancel leaves](/design-docs/adr/4.45-wire-build-lifecycle.md)
-- [4.52 Publish the wire as a hand-written reference a test holds to the code](/design-docs/adr/4.52-wire-reference.md)
+- [4.52 Hold the wire to a hand-written reference and to golden answers every binding replays](/design-docs/adr/4.52-wire-reference.md)
 - [4.57 State what each wire method takes and what its answer left out](/design-docs/adr/4.57-wire-params-answers.md)
 - [4.58 Keep only the C ABI global in every released static library but the MSVC one, and test each target's link command](/design-docs/adr/4.58-archive-symbols.md)
 - [4.69 Name the graph that answers a wire file query, or why none does](/design-docs/adr/4.69-wire-file-query-graph.md)
