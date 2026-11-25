@@ -54,6 +54,8 @@ func Test_ZeroParams(t *testing.T) {
 			give:     wire.ChangeParams{Depth: &zero, ConsumerLimit: &zero, SeedLimit: &zero, HotspotLimit: &zero},
 			wantKeys: []string{"depth", "consumer_limit", "seed_limit", "hotspot_limit"},
 		},
+		{name: "dead code", give: wire.DeadCodeParams{Limit: &zero}, wantKeys: []string{"limit"}},
+		{name: "resolution", give: wire.ResolutionParams{Limit: &zero}, wantKeys: []string{"limit"}},
 		{name: "grep", give: wire.GrepParams{ID: &noID}, wantKeys: []string{"id"}},
 		{name: "a build", give: wire.BuildOptions{ID: &noID, Threads: &zero}, wantKeys: []string{"id", "threads"}},
 		{name: "a refresh", give: wire.RefreshParams{ID: &noID}, wantKeys: []string{"id"}},

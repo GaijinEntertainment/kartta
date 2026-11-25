@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -27,14 +28,6 @@ func typed[P, A any](call func(*kartta.Kartta, P) (*A, error)) replay {
 			return nil, fmt.Errorf("decode the params as %T: %w", decoded, err)
 		}
 		return call(k, decoded)
-	}
-}
-
-func raw(method string) replay {
-	return func(k *kartta.Kartta, params []byte) (any, error) {
-		var answer json.RawMessage
-		err := k.Call(method, json.RawMessage(params), &answer)
-		return answer, err
 	}
 }
 
@@ -110,13 +103,17 @@ func Test_golden(t *testing.T) {
 		}),
 		"stats":           typed(func(k *kartta.Kartta, _ struct{}) (*wire.Stats, error) { return k.Stats() }),
 		"version":         typed(func(k *kartta.Kartta, _ struct{}) (*wire.Version, error) { return k.Version() }),
+		"cancel":          typed((*kartta.Kartta).Cancel),
+		"resolution":      typed((*kartta.Kartta).Resolution),
 		"callers":         typed((*kartta.Kartta).Callers),
+		"callees":         typed((*kartta.Kartta).Callees),
 		"call_path":       typed((*kartta.Kartta).CallPath),
 		"references":      typed((*kartta.Kartta).References),
 		"definitions":     typed((*kartta.Kartta).Definitions),
 		"sources":         typed((*kartta.Kartta).Sources),
 		"search":          typed((*kartta.Kartta).Search),
 		"implementations": typed((*kartta.Kartta).Implementations),
+		"dead_code":       typed((*kartta.Kartta).DeadCode),
 		"outline":         typed((*kartta.Kartta).Outline),
 		"dependents":      typed((*kartta.Kartta).Dependents),
 		"analyze_segment": typed((*kartta.Kartta).AnalyzeSegment),
@@ -147,7 +144,7 @@ func Test_golden(t *testing.T) {
 		passed := t.Run(golden.Method, func(t *testing.T) {
 			call, ok := replays[golden.Method]
 			if !ok {
-				call = raw(golden.Method)
+				t.Fatalf("%s has no typed call", golden.Method)
 			}
 			answer, err := call(k, golden.Params)
 
@@ -176,6 +173,13 @@ func Test_golden(t *testing.T) {
 		if !replayed[method] {
 			t.Errorf("no golden file asks %s", method)
 		}
+	}
+	version, err := k.Version()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typed := slices.Sorted(maps.Keys(replays)); !slices.Equal(typed, version.Methods) {
+		t.Errorf("the typed calls cover %v, want the methods the library answers, %v", typed, version.Methods)
 	}
 }
 
