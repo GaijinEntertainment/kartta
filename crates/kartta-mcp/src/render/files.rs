@@ -105,6 +105,14 @@ fn dashed(fix: Option<String>) -> String {
     fix.map_or_else(String::new, |fix| format!(" - {fix}"))
 }
 
+/// Ends a path list the cap `cap` cut, for a call that named no cap and took it as its default, with a line saying so.
+pub(crate) fn default_cut(answer: &mut String, cap: usize) {
+    let _ = write!(
+        answer,
+        "\n(the default max_results of {cap} cut this list - a higher max_results, or 0, lists the rest)"
+    );
+}
+
 /// The `find_files` answer: the paths one per line, best first, and a last line counting the `matched` paths when the
 /// cap cut them. The order says the paths left out rank lower; the count says how many, so an agent knows whether to
 /// narrow the pattern.

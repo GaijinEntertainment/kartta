@@ -161,7 +161,7 @@ pub(crate) struct FindFilesParams {
     /// e.g. ["**/vendor", "*_test.go"]. Omit to exclude nothing.
     #[serde(default)]
     pub(crate) excludes: Option<Vec<String>>,
-    /// Maximum number of paths to return; 0, omitted or null returns every match.
+    /// Maximum number of paths to return; omitted or null returns 200, and 0 every match.
     #[serde(default)]
     pub(crate) max_results: Option<usize>,
 }
@@ -335,8 +335,8 @@ pub(crate) struct GlobFilesParams {
     /// e.g. ["**/vendor"]. Omit to exclude nothing.
     #[serde(default)]
     pub(crate) excludes: Option<Vec<String>>,
-    /// Maximum number of paths to return; 0, omitted or null returns every match. A list the cap cut ends with a line
-    /// saying so.
+    /// Maximum number of paths to return; omitted or null returns 200, and 0 every match. A list the cap cut ends with
+    /// a line saying so.
     #[serde(default)]
     pub(crate) max_results: Option<usize>,
 }

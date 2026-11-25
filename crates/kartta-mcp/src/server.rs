@@ -58,6 +58,9 @@ const LIST_ENTRIES: usize = 1000;
 /// The directories `list_dir` does not enter when the call names none: vendored and generated trees.
 const LIST_COLLAPSED: [&str; 5] = ["vendor", "node_modules", "dist", "build", "__pycache__"];
 
+/// How many paths `find_files` and `glob_files` list when the call names no cap.
+const PATHS_LISTED: usize = 200;
+
 /// How many hits `find_symbols` answers when the call names no limit.
 const SYMBOLS: usize = 20;
 
@@ -530,8 +533,9 @@ impl Server {
                        repo-relative paths, one per line, best first - exactly the path format the 'file' parameters \
                        of other tools expect; a path holding a control character such as a line break, or opening with \
                        a quote or a parenthesis, is written quoted with backslash escapes (\\n, \\t, \\\", \\\\), so \
-                       no path reads as a closing line in parentheses. A list max_results cut ends with a (N of M \
-                       matching paths, best first) line counting every match."
+                       no path reads as a closing line in parentheses. A list max_results (200 when omitted) cut has a \
+                       (N of M matching paths, best first) line counting every match, and the default's cut ends with \
+                       a line naming max_results."
     )]
     async fn find_files(
         &self,
@@ -546,7 +550,7 @@ impl Server {
         let excludes = globs(p.excludes.as_deref().unwrap_or_default())?;
         self.answer(&p.root, move |indexed| {
             let index = indexed.engine.index();
-            let mut options = FuzzyOptions::default().limit(p.max_results.unwrap_or_default());
+            let mut options = FuzzyOptions::default().limit(p.max_results.unwrap_or(PATHS_LISTED));
             if let Some(includes) = &includes {
                 options = options.filter(includes);
             }
@@ -563,12 +567,14 @@ impl Server {
                 index,
                 globs: p.includes.as_deref().unwrap_or_default(),
             };
-            Ok(render::paths(
-                &p.pattern,
-                listed,
-                ranked.matched(),
-                &includes,
-            ))
+            let cut = ranked
+                .matched()
+                .is_some_and(|matched| matched > listed.len());
+            let mut answer = render::paths(&p.pattern, listed, ranked.matched(), &includes);
+            if cut && p.max_results.is_none() {
+                render::default_cut(&mut answer, PATHS_LISTED);
+            }
+            Ok(answer)
         })
         .await
     }
@@ -579,8 +585,9 @@ impl Server {
                        src/, the tree minus vendored code. Use it when the SET of files is the answer (inventory, \
                        scoping a sweep); when you are hunting ONE file by name, use find_files. Returns matching \
                        repo-relative paths, one per line, in sorted path order, quoted as find_files quotes them; a \
-                       list max_results cut ends with a (truncated: ...) line, and an (excludes removed: N) line \
-                       counts the matches the excludes dropped before the list ended."
+                       list max_results (200 when omitted) cut has a (truncated: ...) line, an (excludes removed: N) \
+                       line counts the matches the excludes dropped before the list ended, and the default's cut ends \
+                       with a line naming max_results."
     )]
     async fn glob_files(
         &self,
@@ -596,7 +603,7 @@ impl Server {
         let excludes = globs(p.excludes.as_deref().unwrap_or_default())?;
         self.answer(&p.root, move |indexed| {
             let index = indexed.engine.index();
-            let mut options = GlobOptions::default().limit(p.max_results.unwrap_or_default());
+            let mut options = GlobOptions::default().limit(p.max_results.unwrap_or(PATHS_LISTED));
             if let Some(excludes) = &excludes {
                 options = options.exclude(excludes);
             }
@@ -605,7 +612,11 @@ impl Server {
                 index,
                 globs: &p.globs,
             };
-            Ok(render::globbed(&globs, &found))
+            let mut answer = render::globbed(&globs, &found);
+            if found.truncated() && p.max_results.is_none() {
+                render::default_cut(&mut answer, PATHS_LISTED);
+            }
+            Ok(answer)
         })
         .await
     }
