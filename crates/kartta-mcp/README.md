@@ -1,15 +1,19 @@
 # kartta-mcp
 
-An MCP server over the kartta engine: one repository's file index and code graph, answered to an agent as tools over
-stdio.
+An MCP server over the kartta engine: the file index and code graph of each repository root it indexes, answered to an
+agent as tools over stdio.
 
 ```sh
 kartta-mcp [ROOT]
 ```
 
-`index_root` builds the index of a repository root, and every other tool answers from it. A `ROOT` argument, or
-`KARTTA_ROOT`, starts that build at launch; until it finishes, `index_stats` answers that it is building and every other
-query answers an error saying so. One repository is indexed per process, and indexing another replaces it.
+`index_root` builds the index of a repository root, and every other tool names the root it answers from; `index_stats`
+without a root lists every root the process holds. A `ROOT` argument, or `KARTTA_ROOT`, starts that build at launch;
+until it finishes, `index_stats` answers that it is building and every other query of that root answers an error saying
+so. The process holds the indexes of up to `KARTTA_MAX_ROOTS` roots and builds one at a time: an `index_root` of
+another root keeps the others, and past the bound drops a root whose build failed, else the least recently asked root
+that is not building. A call naming a root the process holds no index of answers an error that names the roots it
+holds.
 
 A built index follows its tree through the operating system's change notifications, from a watch started before the
 build walked the tree, and refreshes itself from each change, those made while it was built included. `index_stats` says
@@ -35,6 +39,7 @@ says how much it left out.
 | `KARTTA_GREP_INDEX_DIR` | where a `file` or `mmap` trigram index lives; the temporary directory by default |
 | `KARTTA_THREADS` | how many threads builds and queries run on; every core by default |
 | `KARTTA_WATCH` | `off`, `0`, `false` or `no`: take in edits only through `refresh`; the tree is followed by default |
+| `KARTTA_MAX_ROOTS` | how many roots the server holds an index of at once; 4 by default |
 
 A server whose environment sets neither keeps a cache and a trigram index, because every session pays for its build and
 an agent greps many times in one:

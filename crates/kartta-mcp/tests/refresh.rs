@@ -137,12 +137,12 @@ fn a_refresh_names_the_fix_for_an_absolute_path_and_a_missing_index() {
     let tree = go_module();
     let mut client = Client::unwatched(&[]);
 
-    let unindexed = client.call("refresh", &json!({}));
+    let unindexed = client.call("refresh", &json!({"root": tree.path()}));
     client.index(tree.path());
     let absolute = client.call("refresh", &json!({"paths": ["/etc/hosts"]}));
 
     assert!(
-        unindexed.is_error && unindexed.text.contains("call index_root first"),
+        unindexed.is_error && unindexed.text.contains("call index_root with root"),
         "{unindexed:?}"
     );
     assert!(

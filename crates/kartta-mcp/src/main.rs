@@ -18,7 +18,7 @@ use rmcp::transport::stdio;
 const USAGE: &str = "usage: kartta-mcp [ROOT]
 
 Serves the kartta code graph tools over MCP on stdio. ROOT, or KARTTA_ROOT when no ROOT is given, starts indexing
-that repository at launch; without either, the index_root tool builds one.
+that repository at launch; without either, the index_root tool builds one. Every tool names the root it asks about.
 
 Environment:
   KARTTA_ROOT            the repository to index at launch
@@ -32,7 +32,8 @@ Environment:
                          (default: mmap; empty: none, and grep reads every file)
   KARTTA_GREP_INDEX_DIR  where a file or mmap trigram index lives (default: the temporary directory)
   KARTTA_THREADS         how many threads builds and queries run on (default: every core)
-  KARTTA_WATCH           off, 0, false or no: take in edits only through the refresh tool (default: follow the tree)";
+  KARTTA_WATCH           off, 0, false or no: take in edits only through the refresh tool (default: follow the tree)
+  KARTTA_MAX_ROOTS       how many roots the server holds an index of at once (default: 4)";
 
 enum Launch {
     Serve(Option<PathBuf>),
