@@ -82,8 +82,9 @@
 //! outside the tree are machine-local, so honouring one gives that up; [`IgnoreSources`] carries the full reasoning.
 //!
 //! What is modelled is git's **ignore rules**, not git's index. A file git already tracks stays tracked even once a
-//! rule would hide it, and such a file is not indexed here — `git check-ignore --no-index` is the command that agrees
-//! with this crate, where `git ls-files` is the one that does not. Reading the git index to re-include those files
+//! rule would hide it, and such a file is not indexed here — within one repository, `git check-ignore --no-index` is
+//! the command that agrees with this crate, where `git ls-files` is the one that does not. Run from a superproject, git
+//! reports a submodule's files ignored by the superproject's rules, which this crate resets at the submodule's `.git`. Reading the git index to re-include those files
 //! would mean a real git repository and a large dependency tree for a case that only arises when a rule is added after
 //! a file, so a build reports what the rules say and nothing else.
 //!
