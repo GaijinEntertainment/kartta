@@ -28,9 +28,10 @@ import (
 // ErrClosed is returned by every method of a Kartta after Close.
 var ErrClosed = errors.New("kartta: the handle is closed")
 
-// ErrABI is returned by Open when the linked library implements another ABI version than the header the package was
-// compiled against: the archive and the binding come from different kartta commits.
-var ErrABI = errors.New("kartta: the library's ABI version differs from the header's")
+// ErrABI is returned by Open when the linked library is not one this package drives: it implements another ABI
+// version than the header the package was compiled against, or its major or minor version differs from the package's.
+// A library that differs in its patch version alone opens.
+var ErrABI = errors.New("kartta: the library does not match the package")
 
 // Kartta is a handle on one tree. A Kartta that becomes unreachable without a Close frees its handle in a cleanup.
 type Kartta struct {
@@ -46,6 +47,11 @@ type Kartta struct {
 
 // Open opens a handle on the tree at root. Nothing is walked until Build. A failure is a *wire.Error, or ErrABI.
 func Open(root string) (*Kartta, error) {
+	return open(root, version)
+}
+
+// open opens a handle as Open does, for a package of the version binding.
+func open(root, binding string) (*Kartta, error) {
 	if got := C.kartta_abi_version(); got != C.KARTTA_ABI_VERSION {
 		return nil, fmt.Errorf("%w: the library implements %d, the header %d", ErrABI, got, C.KARTTA_ABI_VERSION)
 	}
@@ -64,6 +70,15 @@ func Open(root string) (*Kartta, error) {
 			return nil, fmt.Errorf("kartta: decode the open error: %w", err)
 		}
 		return nil, &openError
+	}
+	var library wire.Version
+	if err := call(handle, "version", nil, &library); err != nil {
+		C.kartta_free(handle)
+		return nil, err
+	}
+	if err := matchVersion(library.Version, binding); err != nil {
+		C.kartta_free(handle)
+		return nil, err
 	}
 	k := &Kartta{handle: handle, stopping: make(map[uint64]context.CancelCauseFunc)}
 	k.cleanup = runtime.AddCleanup(k, func(handle *C.KarttaHandle) { C.kartta_free(handle) }, handle)
