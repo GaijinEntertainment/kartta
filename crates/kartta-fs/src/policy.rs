@@ -20,6 +20,7 @@ use crate::pruned::PrunedNames;
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 use crate::stamp::{Seen, Stamp, Stamping, UNTRUSTED};
 use crate::trigram::{self, Trigram, Trigrams};
+use crate::worktree::{common_dir, linked_common_dir};
 use crate::{into_inner, lock};
 
 #[derive(Debug)]
@@ -63,6 +64,8 @@ pub(crate) struct Indexing<'a> {
     ignore_sources: IgnoreSources,
     pruned_names: &'a PrunedNames,
     canonical_root: PathBuf,
+    repository: Option<PathBuf>,
+    worktrees: Mutex<Vec<Box<str>>>,
     // constraint: `Policy::enter` and `Policy::visit` return no `Result`, so a failure that costs the build information
     // collects here
     errors: Mutex<Vec<BuildError>>,
@@ -151,6 +154,7 @@ pub(crate) struct Report {
     pub(crate) ran_out_of_ids: bool,
     pub(crate) content: Option<Collected>,
     pub(crate) targets: Vec<Box<str>>,
+    pub(crate) worktrees: Vec<Box<str>>,
 }
 
 pub(crate) struct Collected {
@@ -198,10 +202,16 @@ impl<'a> Indexing<'a> {
         root: &Path,
         reading: Option<Reading<'a>>,
     ) -> Self {
+        let repository = (ignore_sources != IgnoreSources::None)
+            .then(|| common_dir(&root.join(DOT_GIT)))
+            .flatten();
+
         Self {
             ignore_sources,
             pruned_names,
             canonical_root: fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()),
+            repository,
+            worktrees: Mutex::new(Vec::new()),
             errors: Mutex::new(Vec::new()),
             reading,
             descending: None,
@@ -222,6 +232,7 @@ impl<'a> Indexing<'a> {
     pub(crate) fn into_report(self) -> Report {
         let mut errors = into_inner(self.errors);
         let targets = into_inner(self.targets);
+        let worktrees = into_inner(self.worktrees);
         let Some(reading) = self.reading else {
             return Report {
                 errors,
@@ -230,6 +241,7 @@ impl<'a> Indexing<'a> {
                 ran_out_of_ids: false,
                 content: None,
                 targets,
+                worktrees,
             };
         };
 
@@ -257,11 +269,24 @@ impl<'a> Indexing<'a> {
             ran_out_of_ids: ran_out,
             content,
             targets,
+            worktrees,
         }
     }
 
     pub(crate) fn record(&self, error: BuildError) {
         lock(&self.errors).push(error);
+    }
+
+    fn prunes_worktree(&self, dir_path: &str, dot_git: &Path) -> bool {
+        let pruned = !dir_path.is_empty()
+            && self
+                .repository
+                .as_ref()
+                .is_some_and(|repository| linked_common_dir(dot_git).as_ref() == Some(repository));
+        if pruned {
+            lock(&self.worktrees).push(dir_path.into());
+        }
+        pruned
     }
 
     fn read_ignore_file(&self, native_path: &Path) -> io::Result<IgnoreFile> {
@@ -336,15 +361,18 @@ impl<'a> Indexing<'a> {
     // above a part walked again was not listed, so it is asked for each by name, two stats a directory and a third
     // where the ignore file is read
     pub(crate) fn rules_in(&self, native_dir: &Path, dir_path: &str) -> DirRules {
-        let starts_repository = fs::symlink_metadata(native_dir.join(DOT_GIT)).is_ok();
+        let dot_git = native_dir.join(DOT_GIT);
+        let starts_repository = fs::symlink_metadata(&dot_git).is_ok();
+        let worktree = starts_repository && self.prunes_worktree(dir_path, &dot_git);
         let mut own = Rules::default();
         let native_path = native_dir.join(GITIGNORE);
-        if fs::symlink_metadata(&native_path).is_ok() {
+        if !worktree && fs::symlink_metadata(&native_path).is_ok() {
             _ = self.push_ignore_file(native_path, dir_path, &mut own);
         }
 
         DirRules {
             starts_repository,
+            worktree,
             own,
         }
     }
@@ -840,8 +868,8 @@ fn listed_control_name<'a>(dir: &Dir<'a>, control: &'a str) -> Option<&'a str> {
     dir.names().find(|name| names_match(name, control))
 }
 
-fn inherited_across_repository_boundary(dir: &Dir<'_>, parent_state: &Rules) -> Rules {
-    if listed_control_name(dir, DOT_GIT).is_some() {
+fn inherited_across_repository_boundary(starts_repository: bool, parent_state: &Rules) -> Rules {
+    if starts_repository {
         Rules::default()
     } else {
         parent_state.clone()
@@ -851,18 +879,23 @@ fn inherited_across_repository_boundary(dir: &Dir<'_>, parent_state: &Rules) -> 
 #[derive(Debug)]
 pub(crate) struct DirRules {
     starts_repository: bool,
+    worktree: bool,
     own: Rules,
 }
 
 impl DirRules {
-    pub(crate) fn below(self, inherited: &Rules) -> Rules {
+    /// The rules below this directory, or `None` where it is a worktree the walk holds empty.
+    pub(crate) fn below(self, inherited: &Rules) -> Option<Rules> {
+        if self.worktree {
+            return None;
+        }
         let mut rules = if self.starts_repository {
             Rules::default()
         } else {
             inherited.clone()
         };
         rules.extend(self.own);
-        rules
+        Some(rules)
     }
 }
 
@@ -870,6 +903,7 @@ impl DirRules {
 pub(crate) struct DirState {
     rules: Rules,
     ignore_file: IgnoreFileRead,
+    worktree: bool,
 }
 
 impl DirState {
@@ -877,6 +911,7 @@ impl DirState {
         Self {
             rules,
             ignore_file: IgnoreFileRead::Unread,
+            worktree: false,
         }
     }
 }
@@ -897,9 +932,20 @@ impl Policy for Indexing<'_> {
             return DirState::default();
         }
 
+        let dot_git = listed_control_name(dir, DOT_GIT);
+        if let Some(name) = dot_git
+            && self.prunes_worktree(dir.path(), &dir.native_path().join(name))
+        {
+            return DirState {
+                worktree: true,
+                ..DirState::default()
+            };
+        }
+
         let mut state = DirState {
-            rules: inherited_across_repository_boundary(dir, &parent_state.rules),
+            rules: inherited_across_repository_boundary(dot_git.is_some(), &parent_state.rules),
             ignore_file: IgnoreFileRead::Unread,
+            worktree: false,
         };
 
         if let Some(name) = listed_control_name(dir, GITIGNORE) {
@@ -910,7 +956,7 @@ impl Policy for Indexing<'_> {
     }
 
     fn visit(&self, entry: &Entry<'_>, state: &DirState) -> Visit<Payload> {
-        if pruned(entry.name(), self.pruned_names) {
+        if state.worktree || pruned(entry.name(), self.pruned_names) {
             return Visit::Skip;
         }
 
