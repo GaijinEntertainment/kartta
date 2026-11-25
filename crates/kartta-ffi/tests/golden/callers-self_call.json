@@ -32,6 +32,7 @@
   },
   "method": "callers",
   "params": {
+    "depth": 3,
     "lang": "go",
     "name": "unused"
   }

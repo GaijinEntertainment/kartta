@@ -11,6 +11,8 @@
   },
   "method": "dependents",
   "params": {
-    "file": "go/_skip.go"
+    "depth": 3,
+    "file": "go/_skip.go",
+    "max_files": 100
   }
 }

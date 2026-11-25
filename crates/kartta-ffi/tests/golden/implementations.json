@@ -36,6 +36,8 @@
   },
   "method": "implementations",
   "params": {
+    "depth": 3,
+    "limit": 100,
     "line": 3,
     "name": "Shape",
     "path_prefix": "cpp/shape.h"

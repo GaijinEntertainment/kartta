@@ -18,13 +18,13 @@ func Test_ZeroParams(t *testing.T) {
 	}{
 		{
 			name:     "a walk",
-			give:     wire.WalkParams{Line: &zero, Depth: &zero, MaxSymbols: &zero},
-			wantKeys: []string{"line", "depth", "max_symbols"},
+			give:     wire.WalkParams{Line: &zero, Depth: &zero, CandidateLimit: &zero},
+			wantKeys: []string{"line", "depth", "candidate_limit"},
 		},
 		{
 			name:     "a call path",
-			give:     wire.CallPathParams{FromLine: &zero, ToLine: &zero, Depth: &zero, MaxSymbols: &zero},
-			wantKeys: []string{"from_line", "to_line", "depth", "max_symbols"},
+			give:     wire.CallPathParams{FromLine: &zero, ToLine: &zero, Depth: &zero, CandidateLimit: &zero},
+			wantKeys: []string{"from_line", "to_line", "depth", "candidate_limit"},
 		},
 		{
 			name:     "references",
@@ -39,23 +39,22 @@ func Test_ZeroParams(t *testing.T) {
 			give:     wire.ImplementationsParams{Line: &zero, Depth: &zero, Limit: &zero},
 			wantKeys: []string{"line", "depth", "limit"},
 		},
-		{name: "dependents", give: wire.DependentsParams{Depth: &zero}, wantKeys: []string{"depth"}},
+		{
+			name:     "dependents",
+			give:     wire.DependentsParams{Depth: &zero, MaxFiles: &zero},
+			wantKeys: []string{"depth", "max_files"},
+		},
 		{
 			name:     "a segment",
-			give:     wire.SegmentParams{Depth: &zero, MaxSymbols: &zero},
-			wantKeys: []string{"depth", "max_symbols"},
+			give:     wire.SegmentParams{Depth: &zero, CallLimit: &zero},
+			wantKeys: []string{"depth", "call_limit"},
 		},
 		{
 			name:     "a change",
-			give:     wire.ChangeParams{Depth: &zero, MaxSymbols: &zero},
-			wantKeys: []string{"depth", "max_symbols"},
+			give:     wire.ChangeParams{Depth: &zero, ConsumerLimit: &zero, SeedLimit: &zero, HotspotLimit: &zero},
+			wantKeys: []string{"depth", "consumer_limit", "seed_limit", "hotspot_limit"},
 		},
-		{name: "fuzzy", give: wire.FuzzyParams{Limit: &zero}, wantKeys: []string{"limit"}},
-		{
-			name:     "grep",
-			give:     wire.GrepParams{ID: &noID, MaxLineBytes: &zero, MaxFileBytes: &noID},
-			wantKeys: []string{"id", "max_line_bytes", "max_file_bytes"},
-		},
+		{name: "grep", give: wire.GrepParams{ID: &noID}, wantKeys: []string{"id"}},
 		{name: "a build", give: wire.BuildOptions{ID: &noID, Threads: &zero}, wantKeys: []string{"id", "threads"}},
 		{name: "a refresh", give: wire.RefreshParams{ID: &noID}, wantKeys: []string{"id"}},
 		{
@@ -90,46 +89,42 @@ func Test_ZeroBound(t *testing.T) {
 	}
 	zero := 0
 
-	t.Run("a limit of 0 answers the total alone, and nil the default", func(t *testing.T) {
+	depth := 3
+
+	t.Run("a limit of 0 answers the total alone, and nil InvalidParams", func(t *testing.T) {
 		counted, err := k.Definitions(wire.DefinitionsParams{Name: "helper", Limit: &zero})
 		if err != nil {
 			t.Fatal(err)
 		}
-		listed, err := k.Definitions(wire.DefinitionsParams{Name: "helper"})
-		if err != nil {
-			t.Fatal(err)
-		}
+		_, unbounded := k.Definitions(wire.DefinitionsParams{Name: "helper"})
 		if part := counted.Matches[0]; len(part.Found) != 0 || part.Total != 1 {
 			t.Errorf("Limit 0 answered %d found of %d, want 0 of 1", len(part.Found), part.Total)
 		}
-		if part := listed.Matches[0]; len(part.Found) != 1 {
-			t.Errorf("nil Limit answered %d found, want 1", len(part.Found))
+		if !errors.Is(unbounded, wire.InvalidParams) {
+			t.Errorf("nil Limit = %v, want %s", unbounded, wire.InvalidParams)
 		}
 	})
 
-	t.Run("a depth of 0 follows no call, and nil the default", func(t *testing.T) {
+	t.Run("a depth of 0 follows no call, and nil InvalidParams", func(t *testing.T) {
 		stayed, err := k.Callers(wire.WalkParams{Name: "helper", Depth: &zero})
 		if err != nil {
 			t.Fatal(err)
 		}
-		walked, err := k.Callers(wire.WalkParams{Name: "helper"})
-		if err != nil {
-			t.Fatal(err)
-		}
+		_, unbounded := k.Callers(wire.WalkParams{Name: "helper"})
 		if part := stayed.Matches[0]; len(part.Reached) != 0 || part.Unexpanded != 1 {
 			t.Errorf("Depth 0 reached %d, %d unexpanded, want 0, 1", len(part.Reached), part.Unexpanded)
 		}
-		if part := walked.Matches[0]; len(part.Reached) != 2 {
-			t.Errorf("nil Depth reached %d, want 2", len(part.Reached))
+		if !errors.Is(unbounded, wire.InvalidParams) {
+			t.Errorf("nil Depth = %v, want %s", unbounded, wire.InvalidParams)
 		}
 	})
 
 	t.Run("a line of 0 selects nothing, and nil every line", func(t *testing.T) {
-		off, err := k.Callers(wire.WalkParams{Name: "helper", Line: &zero})
+		off, err := k.Callers(wire.WalkParams{Name: "helper", Line: &zero, Depth: &depth})
 		if err != nil {
 			t.Fatal(err)
 		}
-		every, err := k.Callers(wire.WalkParams{Name: "helper"})
+		every, err := k.Callers(wire.WalkParams{Name: "helper", Depth: &depth})
 		if err != nil {
 			t.Fatal(err)
 		}

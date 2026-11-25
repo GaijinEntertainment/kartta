@@ -28,6 +28,8 @@
   },
   "method": "implementations",
   "params": {
+    "depth": 3,
+    "limit": 100,
     "name": "run"
   }
 }

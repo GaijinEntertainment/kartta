@@ -124,15 +124,14 @@ test('a query before any build rejects with not_built', async () => {
 	expect(await code(kartta.stats())).toBe('not_built');
 });
 
-test('a limit of 0 answers the total alone, and one left out the default', async () => {
+test('a limit of 0 answers the total alone, and one left out rejects with invalid_params', async () => {
 	const kartta = open();
 	await kartta.build();
 
 	const counted = await kartta.definitions({name: 'f0', limit: 0});
-	const listed = await kartta.definitions({name: 'f0'});
 
 	expect(counted.matches[0]).toMatchObject({found: [], total: 1});
-	expect(listed.matches[0]?.found).toHaveLength(1);
+	expect(await code(kartta.call('definitions', {name: 'f0'}))).toBe('invalid_params');
 });
 
 test('a line of 0 selects nothing and says why, and threads of 0 rejects', async () => {
@@ -141,7 +140,7 @@ test('a line of 0 selects nothing and says why, and threads of 0 rejects', async
 	expect(await code(kartta.build({threads: 0}))).toBe('invalid_params');
 
 	await kartta.build();
-	const answer = await kartta.callers({name: 'f0', line: 0});
+	const answer = await kartta.callers({name: 'f0', line: 0, depth: 3});
 
 	expect(answer.matches).toStrictEqual([]);
 	expect(answer.unmatched?.kind).toBe('off_line');
@@ -553,7 +552,7 @@ test('every call after close rejects with closed, and closing again does nothing
 		kartta.build({}, {signal: AbortSignal.abort()}),
 		kartta.stats(),
 		kartta.version(),
-		kartta.callers({name: 'f0'}),
+		kartta.callers({name: 'f0', depth: 3}),
 		kartta.grep({patterns: ['f0']}),
 		kartta.call('cancel'),
 	];

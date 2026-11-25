@@ -865,7 +865,7 @@ mod tests {
         assert!(stats["ok"].get("stopped_build").is_none(), "{stats}");
         assert_eq!(stats["ok"]["graphs"][0]["files"], 3, "{stats}");
         assert!(
-            asked(&kartta, "callers", r#"{"name": "main"}"#)
+            asked(&kartta, "callers", r#"{"name": "main", "depth": 3}"#)
                 .get("ok")
                 .is_some()
         );

@@ -46,6 +46,7 @@
   },
   "method": "callers",
   "params": {
+    "depth": 3,
     "lang": "go",
     "line": 5,
     "name": "file.close",

@@ -64,14 +64,13 @@ type WalkParams struct {
 	Line *int `json:"line,omitempty"`
 	// Lang names the graph to ask, by a language or its family; empty asks every graph.
 	Lang string `json:"lang,omitempty"`
-	// Depth is how many calls away the walk goes; nil takes the method's default, 3 for callers and 1 for callees, and
-	// 0 follows no call.
+	// Depth is how many calls away the walk goes, and 0 follows no call. It is required: nil answers InvalidParams.
 	Depth *int `json:"depth,omitempty"`
 	// MinConfidence is the least confidence, 0 to 100, a call needs to be taken.
 	MinConfidence int `json:"min_confidence,omitempty"`
-	// MaxSymbols caps the symbols the walk reaches, its root included; nil takes the default, 500, and 0 sets no cap.
-	MaxSymbols *int `json:"max_symbols,omitempty"`
-	// CandidateLimit caps the Candidates answered; nil takes the default, 5, and 0 answers PassedOver alone.
+	// MaxSymbols caps the symbols the walk reaches, its root included; 0 sets no cap.
+	MaxSymbols int `json:"max_symbols,omitempty"`
+	// CandidateLimit caps the Candidates answered; nil answers them all, and 0 answers PassedOver alone.
 	CandidateLimit *int `json:"candidate_limit,omitempty"`
 }
 
@@ -186,13 +185,12 @@ type CallPathParams struct {
 	// symbol.
 	ToLine *int   `json:"to_line,omitempty"`
 	Lang   string `json:"lang,omitempty"`
-	// Depth is how many calls long a path may be; nil takes the default, 8, and 0 follows no call.
+	// Depth is how many calls long a path may be, and 0 follows no call. It is required: nil answers InvalidParams.
 	Depth         *int `json:"depth,omitempty"`
 	MinConfidence int  `json:"min_confidence,omitempty"`
-	// MaxSymbols caps the symbols the search reaches; nil takes the default, 20,000, and 0 sets no cap.
-	MaxSymbols *int `json:"max_symbols,omitempty"`
-	// CandidateLimit caps the Candidates answered for each end; nil takes the default, 5, and 0 answers PassedOver
-	// alone.
+	// MaxSymbols caps the symbols the search reaches; 0 sets no cap.
+	MaxSymbols int `json:"max_symbols,omitempty"`
+	// CandidateLimit caps the Candidates answered for each end; nil answers them all, and 0 answers PassedOver alone.
 	CandidateLimit *int `json:"candidate_limit,omitempty"`
 }
 
@@ -244,9 +242,9 @@ type ReferencesParams struct {
 	// type ("type"), and drops the calls; an update counts as a read and a write, and a use as a type as a read. Empty
 	// keeps every site.
 	Access string `json:"access,omitempty"`
-	// Limit caps the sites answered; nil takes the default, 500, and 0 answers the counts alone.
+	// Limit caps the sites answered, and 0 answers the counts alone. It is required: nil answers InvalidParams.
 	Limit *int `json:"limit,omitempty"`
-	// CandidateLimit caps the Candidates answered; nil takes the default, 5, and 0 answers PassedOver alone.
+	// CandidateLimit caps the Candidates answered; nil answers them all, and 0 answers PassedOver alone.
 	CandidateLimit *int `json:"candidate_limit,omitempty"`
 }
 
@@ -310,16 +308,17 @@ type DefinitionsParams struct {
 	Lang string `json:"lang,omitempty"`
 	// From is the file the lookup asks from: definitions in its directory rank first.
 	From string `json:"from,omitempty"`
-	// Limit caps the definitions answered; nil takes the default, 10, and 0 answers the total alone.
+	// Limit caps the definitions answered, and 0 answers the total alone. It is required: nil answers InvalidParams.
 	Limit *int `json:"limit,omitempty"`
 }
 
 // SourcesParams are the params of the sources method: those of definitions, and the caps on each definition's text.
 type SourcesParams struct {
-	Name  string `json:"name"`
-	Lang  string `json:"lang,omitempty"`
-	From  string `json:"from,omitempty"`
-	Limit *int   `json:"limit,omitempty"`
+	Name string `json:"name"`
+	Lang string `json:"lang,omitempty"`
+	From string `json:"from,omitempty"`
+	// Limit caps the definitions answered, and 0 answers the total alone. It is required: nil answers InvalidParams.
+	Limit *int `json:"limit,omitempty"`
 	// MaxLines caps the lines of each definition, its doc comment included; 0 answers every line.
 	MaxLines int `json:"max_lines,omitempty"`
 	// MaxLineBytes caps the bytes of each line; 0 answers lines whole.
@@ -367,7 +366,7 @@ type CutLine struct {
 type SearchParams struct {
 	Query string `json:"query"`
 	Lang  string `json:"lang,omitempty"`
-	// Limit caps the hits answered; nil takes the default, 20, and 0 answers the counts alone.
+	// Limit caps the hits answered, and 0 answers the counts alone. It is required: nil answers InvalidParams.
 	Limit *int `json:"limit,omitempty"`
 }
 
@@ -407,11 +406,12 @@ type ImplementationsParams struct {
 	// of the name in one file. nil looks at every line, and 0 selects no type.
 	Line *int   `json:"line,omitempty"`
 	Lang string `json:"lang,omitempty"`
-	// Depth is how many levels below the root the search goes; nil takes the default, 3, and 0 finds none.
+	// Depth is how many levels below the root the search goes, and 0 finds none. It is required: nil answers
+	// InvalidParams.
 	Depth *int `json:"depth,omitempty"`
-	// Limit caps the implementors answered; nil takes the default, 100, and 0 answers the total alone.
+	// Limit caps the implementors answered, and 0 answers the total alone. It is required: nil answers InvalidParams.
 	Limit *int `json:"limit,omitempty"`
-	// CandidateLimit caps the Candidates answered; nil takes the default, 5, and 0 answers PassedOver alone.
+	// CandidateLimit caps the Candidates answered; nil answers them all, and 0 answers PassedOver alone.
 	CandidateLimit *int `json:"candidate_limit,omitempty"`
 }
 
@@ -499,9 +499,9 @@ type fileState struct {
 // DependentsParams are the params of the dependents method.
 type DependentsParams struct {
 	File string `json:"file"`
-	// Depth is how many includes away the search goes; nil takes the default, 3, and 0 finds none.
+	// Depth is how many includes away the search goes, and 0 finds none. It is required: nil answers InvalidParams.
 	Depth *int `json:"depth,omitempty"`
-	// MaxFiles caps the files answered; nil takes the default, 100, and 0 sets no cap.
+	// MaxFiles caps the files answered, and 0 sets no cap. It is required: nil answers InvalidParams.
 	MaxFiles *int `json:"max_files,omitempty"`
 }
 
@@ -549,13 +549,14 @@ type SegmentParams struct {
 	StartLine int `json:"start_line,omitempty"`
 	// EndLine is the last line of the segment; 0 takes the end of the file.
 	EndLine int `json:"end_line,omitempty"`
-	// Depth is how many calls away each symbol's blast goes; nil takes the default, 3, and 0 follows no call.
+	// Depth is how many calls away each symbol's blast goes, and 0 follows no call. It is required: nil answers
+	// InvalidParams.
 	Depth         *int `json:"depth,omitempty"`
 	MinConfidence int  `json:"min_confidence,omitempty"`
-	// MaxSymbols caps the symbols each blast reaches; nil takes the default, 500, and 0 sets no cap.
-	MaxSymbols *int `json:"max_symbols,omitempty"`
-	// CallLimit caps the direct callers, callees and users answered of each symbol, each side on its own; nil takes
-	// the default, 50, and 0 answers each side's Total alone.
+	// MaxSymbols caps the symbols each blast reaches; 0 sets no cap.
+	MaxSymbols int `json:"max_symbols,omitempty"`
+	// CallLimit caps the direct callers, callees and users answered of each symbol, each side on its own; nil answers
+	// them all, and 0 answers each side's Total alone.
 	CallLimit *int `json:"call_limit,omitempty"`
 }
 
@@ -630,17 +631,18 @@ type Blast struct {
 // ChangeParams are the params of the analyze_change method.
 type ChangeParams struct {
 	Regions []Region `json:"regions"`
-	// Depth is how many calls away each changed symbol's walk goes; nil takes the default, 3, and 0 follows no call.
+	// Depth is how many calls away each changed symbol's walk goes, and 0 follows no call. It is required: nil answers
+	// InvalidParams.
 	Depth         *int `json:"depth,omitempty"`
 	MinConfidence int  `json:"min_confidence,omitempty"`
-	// MaxSymbols caps the symbols each walk reaches; nil takes the default, 500, and 0 sets no cap.
-	MaxSymbols *int `json:"max_symbols,omitempty"`
+	// MaxSymbols caps the symbols each walk reaches; 0 sets no cap.
+	MaxSymbols int `json:"max_symbols,omitempty"`
 	// ConsumerLimit is the most direct callers or users a changed symbol lists, past which it counts them by
-	// directory; nil takes the default, 30.
+	// directory; nil lists them all.
 	ConsumerLimit *int `json:"consumer_limit,omitempty"`
-	// SeedLimit caps the changed symbols answered; nil takes the default, 300, and 0 answers ChangedSymbols alone.
+	// SeedLimit caps the changed symbols answered; nil answers them all, and 0 answers ChangedSymbols alone.
 	SeedLimit *int `json:"seed_limit,omitempty"`
-	// HotspotLimit caps the hotspots answered; nil takes the default, 300, and 0 answers TotalHotspots alone.
+	// HotspotLimit caps the hotspots answered; nil answers them all, and 0 answers TotalHotspots alone.
 	HotspotLimit *int `json:"hotspot_limit,omitempty"`
 }
 

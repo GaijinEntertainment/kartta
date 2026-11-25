@@ -61,6 +61,7 @@
   "method": "call_path",
   "params": {
     "candidate_limit": 1,
+    "depth": 8,
     "from": "close",
     "to": "shut"
   }

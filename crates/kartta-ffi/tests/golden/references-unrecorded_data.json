@@ -34,6 +34,7 @@
   "method": "references",
   "params": {
     "lang": "rust",
+    "limit": 500,
     "name": "x"
   }
 }

@@ -49,6 +49,8 @@
   },
   "method": "analyze_change",
   "params": {
+    "consumer_limit": 30,
+    "depth": 3,
     "regions": [
       {
         "end_line": 14,

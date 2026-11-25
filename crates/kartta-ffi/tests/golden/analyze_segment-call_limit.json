@@ -152,6 +152,7 @@
   "method": "analyze_segment",
   "params": {
     "call_limit": 0,
+    "depth": 3,
     "end_line": 14,
     "file": "go/close.go",
     "start_line": 5

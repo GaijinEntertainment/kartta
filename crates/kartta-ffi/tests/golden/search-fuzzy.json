@@ -35,6 +35,7 @@
   "method": "search",
   "params": {
     "lang": "go",
+    "limit": 20,
     "query": "hlpr"
   }
 }

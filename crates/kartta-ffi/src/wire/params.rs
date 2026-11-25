@@ -5,36 +5,20 @@ use serde::Deserialize;
 
 use crate::error::{Error, ErrorCode};
 
-pub(crate) const CALLERS_DEPTH: u32 = 3;
-pub(crate) const CALLEES_DEPTH: u32 = 1;
-pub(crate) const WALK_MAX_SYMBOLS: usize = 500;
-pub(crate) const CALL_PATH_DEPTH: u32 = 8;
-pub(crate) const CALL_PATH_MAX_SYMBOLS: usize = 20_000;
-pub(crate) const REFERENCES: usize = 500;
-pub(crate) const DEFINITIONS: usize = 10;
-pub(crate) const SEARCH: usize = 20;
-pub(crate) const IMPLEMENTATIONS_DEPTH: u32 = 3;
-pub(crate) const IMPLEMENTATIONS: usize = 100;
-pub(crate) const DEPENDENTS_DEPTH: u32 = 3;
-pub(crate) const DEPENDENTS: usize = 100;
-pub(crate) const SEGMENT_DEPTH: u32 = 3;
-pub(crate) const SEGMENT_CALLS: usize = 50;
-pub(crate) const CHANGE_CONSUMERS: usize = 30;
-pub(crate) const CHANGE_SEEDS: usize = 300;
-pub(crate) const CHANGE_HOTSPOTS: usize = 300;
-pub(crate) const CANDIDATES: usize = 5;
-pub(crate) const DEAD_CODE: usize = 100;
-pub(crate) const UNBOUND: usize = 20;
-
-fn limits(
-    depth: Option<u32>,
-    min_confidence: u8,
-    max_symbols: Option<usize>,
-    defaults: (u32, usize),
-) -> Limits {
-    Limits::new(depth.unwrap_or(defaults.0))
+const fn limits(depth: u32, min_confidence: u8, max_symbols: usize) -> Limits {
+    Limits::new(depth)
         .with_min_confidence(min_confidence)
-        .with_max_symbols(max_symbols.unwrap_or(defaults.1))
+        .with_max_symbols(max_symbols)
+}
+
+fn selector<'s>(
+    name: &'s str,
+    path_prefix: Option<&'s str>,
+    line: Option<u32>,
+    candidate_limit: Option<usize>,
+) -> Selector<'s> {
+    let selector = Selector::new(name, path_prefix).with_line(line);
+    candidate_limit.map_or(selector, |limit| selector.with_candidate_limit(limit))
 }
 
 fn lines(start_line: Option<u32>, end_line: u32) -> RangeInclusive<u32> {
@@ -52,30 +36,27 @@ pub(crate) struct WalkParams {
     line: Option<u32>,
     #[serde(default)]
     pub(crate) lang: Option<String>,
-    #[serde(default)]
-    depth: Option<u32>,
+    depth: u32,
     #[serde(default)]
     min_confidence: u8,
     #[serde(default)]
-    max_symbols: Option<usize>,
+    max_symbols: usize,
     #[serde(default)]
     candidate_limit: Option<usize>,
 }
 
 impl WalkParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref())
-            .with_line(self.line)
-            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
+        selector(
+            &self.name,
+            self.path_prefix.as_deref(),
+            self.line,
+            self.candidate_limit,
+        )
     }
 
-    pub(crate) fn limits(&self, depth: u32) -> Limits {
-        limits(
-            self.depth,
-            self.min_confidence,
-            self.max_symbols,
-            (depth, WALK_MAX_SYMBOLS),
-        )
+    pub(crate) const fn limits(&self) -> Limits {
+        limits(self.depth, self.min_confidence, self.max_symbols)
     }
 }
 
@@ -94,36 +75,36 @@ pub(crate) struct CallPathParams {
     to_line: Option<u32>,
     #[serde(default)]
     pub(crate) lang: Option<String>,
-    #[serde(default)]
-    depth: Option<u32>,
+    depth: u32,
     #[serde(default)]
     min_confidence: u8,
     #[serde(default)]
-    max_symbols: Option<usize>,
+    max_symbols: usize,
     #[serde(default)]
     candidate_limit: Option<usize>,
 }
 
 impl CallPathParams {
     pub(crate) fn from(&self) -> Selector<'_> {
-        Selector::new(&self.from, self.from_path_prefix.as_deref())
-            .with_line(self.from_line)
-            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
+        selector(
+            &self.from,
+            self.from_path_prefix.as_deref(),
+            self.from_line,
+            self.candidate_limit,
+        )
     }
 
     pub(crate) fn to(&self) -> Selector<'_> {
-        Selector::new(&self.to, self.to_path_prefix.as_deref())
-            .with_line(self.to_line)
-            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
+        selector(
+            &self.to,
+            self.to_path_prefix.as_deref(),
+            self.to_line,
+            self.candidate_limit,
+        )
     }
 
-    pub(crate) fn limits(&self) -> Limits {
-        limits(
-            self.depth,
-            self.min_confidence,
-            self.max_symbols,
-            (CALL_PATH_DEPTH, CALL_PATH_MAX_SYMBOLS),
-        )
+    pub(crate) const fn limits(&self) -> Limits {
+        limits(self.depth, self.min_confidence, self.max_symbols)
     }
 }
 
@@ -141,22 +122,23 @@ pub(crate) struct ReferencesParams {
     pub(crate) min_confidence: u8,
     #[serde(default)]
     access: Option<AccessParam>,
-    #[serde(default)]
-    limit: Option<usize>,
+    limit: usize,
     #[serde(default)]
     candidate_limit: Option<usize>,
 }
 
 impl ReferencesParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref())
-            .with_line(self.line)
-            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
+        selector(
+            &self.name,
+            self.path_prefix.as_deref(),
+            self.line,
+            self.candidate_limit,
+        )
     }
 
-    pub(crate) fn query(&self) -> SiteQuery {
-        let query = SiteQuery::new(self.limit.unwrap_or(REFERENCES))
-            .with_min_confidence(self.min_confidence);
+    pub(crate) const fn query(&self) -> SiteQuery {
+        let query = SiteQuery::new(self.limit).with_min_confidence(self.min_confidence);
         match self.access {
             Some(AccessParam::Read) => query.with_access(Access::Read),
             Some(AccessParam::Write) => query.with_access(Access::Write),
@@ -186,27 +168,20 @@ pub(crate) struct ImplementationsParams {
     line: Option<u32>,
     #[serde(default)]
     pub(crate) lang: Option<String>,
-    #[serde(default)]
-    depth: Option<u32>,
-    #[serde(default)]
-    limit: Option<usize>,
+    pub(crate) depth: u32,
+    pub(crate) limit: usize,
     #[serde(default)]
     candidate_limit: Option<usize>,
 }
 
 impl ImplementationsParams {
     pub(crate) fn selector(&self) -> Selector<'_> {
-        Selector::new(&self.name, self.path_prefix.as_deref())
-            .with_line(self.line)
-            .with_candidate_limit(self.candidate_limit.unwrap_or(CANDIDATES))
-    }
-
-    pub(crate) fn depth(&self) -> u32 {
-        self.depth.unwrap_or(IMPLEMENTATIONS_DEPTH)
-    }
-
-    pub(crate) fn limit(&self) -> usize {
-        self.limit.unwrap_or(IMPLEMENTATIONS)
+        selector(
+            &self.name,
+            self.path_prefix.as_deref(),
+            self.line,
+            self.candidate_limit,
+        )
     }
 }
 
@@ -218,14 +193,7 @@ pub(crate) struct DefinitionsParams {
     pub(crate) lang: Option<String>,
     #[serde(default)]
     pub(crate) from: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-impl DefinitionsParams {
-    pub(crate) fn limit(&self) -> usize {
-        self.limit.unwrap_or(DEFINITIONS)
-    }
+    pub(crate) limit: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -236,18 +204,11 @@ pub(crate) struct SourcesParams {
     pub(crate) lang: Option<String>,
     #[serde(default)]
     pub(crate) from: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
+    pub(crate) limit: usize,
     #[serde(default)]
     pub(crate) max_lines: usize,
     #[serde(default)]
     pub(crate) max_line_bytes: usize,
-}
-
-impl SourcesParams {
-    pub(crate) fn limit(&self) -> usize {
-        self.limit.unwrap_or(DEFINITIONS)
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -256,14 +217,7 @@ pub(crate) struct SearchParams {
     pub(crate) query: String,
     #[serde(default)]
     pub(crate) lang: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-impl SearchParams {
-    pub(crate) fn limit(&self) -> usize {
-        self.limit.unwrap_or(SEARCH)
-    }
+    pub(crate) limit: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -276,20 +230,8 @@ pub(crate) struct OutlineParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct DependentsParams {
     pub(crate) file: String,
-    #[serde(default)]
-    depth: Option<u32>,
-    #[serde(default)]
-    max_files: Option<usize>,
-}
-
-impl DependentsParams {
-    pub(crate) fn depth(&self) -> u32 {
-        self.depth.unwrap_or(DEPENDENTS_DEPTH)
-    }
-
-    pub(crate) fn max_files(&self) -> usize {
-        self.max_files.unwrap_or(DEPENDENTS)
-    }
+    pub(crate) depth: u32,
+    pub(crate) max_files: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -300,12 +242,11 @@ pub(crate) struct SegmentParams {
     start_line: Option<u32>,
     #[serde(default)]
     end_line: u32,
-    #[serde(default)]
-    depth: Option<u32>,
+    depth: u32,
     #[serde(default)]
     min_confidence: u8,
     #[serde(default)]
-    max_symbols: Option<usize>,
+    max_symbols: usize,
     #[serde(default)]
     call_limit: Option<usize>,
 }
@@ -316,13 +257,9 @@ impl SegmentParams {
     }
 
     pub(crate) fn query(&self) -> SegmentQuery {
-        let limits = limits(
-            self.depth,
-            self.min_confidence,
-            self.max_symbols,
-            (SEGMENT_DEPTH, WALK_MAX_SYMBOLS),
-        );
-        SegmentQuery::new(limits).with_call_limit(self.call_limit.unwrap_or(SEGMENT_CALLS))
+        let query = SegmentQuery::new(limits(self.depth, self.min_confidence, self.max_symbols));
+        self.call_limit
+            .map_or(query, |limit| query.with_call_limit(limit))
     }
 }
 
@@ -330,12 +267,11 @@ impl SegmentParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ChangeParams {
     pub(crate) regions: Vec<RegionParams>,
-    #[serde(default)]
-    depth: Option<u32>,
+    depth: u32,
     #[serde(default)]
     min_confidence: u8,
     #[serde(default)]
-    max_symbols: Option<usize>,
+    max_symbols: usize,
     #[serde(default)]
     consumer_limit: Option<usize>,
     #[serde(default)]
@@ -345,17 +281,18 @@ pub(crate) struct ChangeParams {
 }
 
 impl ChangeParams {
-    pub(crate) fn query(&self) -> ChangeQuery {
-        let limits = limits(
-            self.depth,
-            self.min_confidence,
-            self.max_symbols,
-            (SEGMENT_DEPTH, WALK_MAX_SYMBOLS),
-        );
-        ChangeQuery::new(limits)
-            .with_consumer_limit(self.consumer_limit.unwrap_or(CHANGE_CONSUMERS))
-            .with_seed_limit(self.seed_limit.unwrap_or(CHANGE_SEEDS))
-            .with_hotspot_limit(self.hotspot_limit.unwrap_or(CHANGE_HOTSPOTS))
+    pub(crate) const fn query(&self) -> ChangeQuery {
+        let mut query = ChangeQuery::new(limits(self.depth, self.min_confidence, self.max_symbols));
+        if let Some(limit) = self.consumer_limit {
+            query = query.with_consumer_limit(limit);
+        }
+        if let Some(limit) = self.seed_limit {
+            query = query.with_seed_limit(limit);
+        }
+        if let Some(limit) = self.hotspot_limit {
+            query = query.with_hotspot_limit(limit);
+        }
+        query
     }
 }
 
@@ -375,13 +312,16 @@ impl RegionParams {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct DeadCodeParams {
+    #[serde(default)]
     pub(crate) lang: Option<String>,
+    #[serde(default)]
     kinds: Vec<String>,
+    #[serde(default)]
     pub(crate) path_prefix: Option<String>,
-    limit: Option<usize>,
+    pub(crate) limit: usize,
 }
 
 impl DeadCodeParams {
@@ -390,10 +330,6 @@ impl DeadCodeParams {
             .iter()
             .map(|label| kind_labelled(label))
             .collect()
-    }
-
-    pub(crate) fn limit(&self) -> usize {
-        self.limit.unwrap_or(DEAD_CODE)
     }
 }
 
@@ -414,15 +350,10 @@ fn kind_labelled(label: &str) -> Result<SymbolKind, Error> {
         })
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ResolutionParams {
+    #[serde(default)]
     pub(crate) lang: Option<String>,
-    limit: Option<usize>,
-}
-
-impl ResolutionParams {
-    pub(crate) fn limit(&self) -> usize {
-        self.limit.unwrap_or(UNBOUND)
-    }
+    pub(crate) limit: usize,
 }
