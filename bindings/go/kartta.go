@@ -123,6 +123,14 @@ func (k *Kartta) Refresh(ctx context.Context, params wire.RefreshParams) (*wire.
 	})
 }
 
+// Cancel stops the build, the grep or the refresh whose ID params name, or whose BindingID when By says so, or, when
+// params name none, every build in flight, running or waiting its turn, and every grep and refresh in flight. A build
+// it stops answers wire.BuildCancelled, a grep what it covered, Cancelled set, and a refresh still walking
+// wire.RefreshCancelled. It never stops a watch or any other query.
+func (k *Kartta) Cancel(params wire.CancelParams) (*wire.CancelAnswer, error) {
+	return ask[wire.CancelAnswer](k, "cancel", params)
+}
+
 // tracked calls method under a binding ID of its own, sending the params named gives that ID, as callTracked does. A
 // ctx done before the call answers its cause alone.
 func tracked[A any](ctx context.Context, k *Kartta, method string, named func(id uint64) any) (*A, error) {
@@ -212,9 +220,19 @@ func (k *Kartta) Version() (*wire.Version, error) {
 	return ask[wire.Version](k, "version", nil)
 }
 
+// Resolution answers how the call sites of each graph bound, and lists those that bound nothing.
+func (k *Kartta) Resolution(params wire.ResolutionParams) (*wire.Matches[wire.Resolution], error) {
+	return ask[wire.Matches[wire.Resolution]](k, "resolution", params)
+}
+
 // Callers answers the callers of the symbol params name, transitively, in each graph that holds one.
 func (k *Kartta) Callers(params wire.WalkParams) (*wire.Matches[wire.Walk], error) {
 	return ask[wire.Matches[wire.Walk]](k, "callers", params)
+}
+
+// Callees answers the callees of the symbol params name, transitively, in each graph that holds one.
+func (k *Kartta) Callees(params wire.WalkParams) (*wire.Matches[wire.Walk], error) {
+	return ask[wire.Matches[wire.Walk]](k, "callees", params)
 }
 
 // CallPath answers a chain of calls from one symbol to another, in each graph that holds both.
@@ -245,6 +263,11 @@ func (k *Kartta) Search(params wire.SearchParams) (*wire.Matches[wire.Search], e
 // Implementations answers the types that implement or extend the type params name, in each graph that holds one.
 func (k *Kartta) Implementations(params wire.ImplementationsParams) (*wire.Matches[wire.Implementations], error) {
 	return ask[wire.Matches[wire.Implementations]](k, "implementations", params)
+}
+
+// DeadCode answers the definitions of each graph that no call and no use the graph holds reaches.
+func (k *Kartta) DeadCode(params wire.DeadCodeParams) (*wire.Matches[wire.DeadCode], error) {
+	return ask[wire.Matches[wire.DeadCode]](k, "dead_code", params)
 }
 
 // Outline answers the definitions of one file.
@@ -295,7 +318,7 @@ func (k *Kartta) Grep(ctx context.Context, params wire.GrepParams) (*wire.Grep, 
 }
 
 // Call answers method with params, encoded as JSON, decoding the answer into answer, a pointer, or discarding it when
-// answer is nil. A failure the engine answers is a *wire.Error. Call reaches methods this package has no wrapper for.
+// answer is nil. A failure the engine answers is a *wire.Error. Call reaches params the wire types do not hold.
 // A build, a grep or a refresh whose params encode as a JSON object or null runs under a binding ID the handle picks,
 // in place of any they give, and Close stops it as it stops Build's, Grep's and Refresh's. The ID they give passes on
 // as it is: a cancel naming it stops the calls given that ID and none the handle named alone.
