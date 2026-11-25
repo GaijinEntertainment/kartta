@@ -80,7 +80,7 @@
 //! [`Engine::resolution`] how every call site binds, and [`Engine::sources`] the text of definitions with their doc
 //! comments; [`ask_reading`] asks the graphs about a qualified name spelled with another language's owner separator,
 //! and [`unmatched`] what a name that selected no symbol names instead.
-//! The first release with a public surface will be `1.0.0`.
+//! The first release with a public surface will be `0.1.0`.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 

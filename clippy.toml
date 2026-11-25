@@ -11,7 +11,7 @@ max-struct-bools = 3
 single-char-binding-names-threshold = 4
 enum-variant-size-threshold = 128
 
-# Pre-1.0: lints that would otherwise stay silent to avoid breaking a published API still fire.
+# Until the first release: lints that would otherwise stay silent to avoid breaking a published API still fire.
 avoid-breaking-exported-api = false
 
 # The no-panic lints below apply to library code only; a test proving a panic is not a defect.
