@@ -43,8 +43,8 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
 - A bound the public layer takes as an argument is `required`, and a request without it answers `invalid_params`
   naming it. Any other bound left out cuts nothing. A bound of 0 means what its field says.
 - A `min_confidence` left out takes 0, which turns no call or site away.
-- A count left out of an answer reads as 0, except `dropped`, `fuzzy_total`, `matched`, `total_files` and `total_lines`,
-  whose fields say when they are counted: there, absent means not counted.
+- A count left out of an answer reads as 0, except `fuzzy_total`, `matched`, `total_files` and `total_lines`, whose
+  fields say when they are counted: there, absent means not counted.
 - A count holds what the graph records, so 0 does not show that nothing uses a symbol: a language records only some
   uses, and `type_uses_unrecorded` and `data_uses_unrecorded` name where it records none of a kind.
 - `version` needs no build. Every other method but `build` and `cancel` asks what the last finished build made, and
@@ -549,10 +549,9 @@ The failures a build or a refresh collected rather than stopped on.
 - `extracted` (integer, always): The files read, new or changed, whose extraction went into a graph.
 - `resolved_again` (integer, always): The unchanged files read and resolved again, because a question their resolution
   asked of the tree has another answer now, or their family's configuration changed.
-- `dropped` (integer, optional): The files the graphs held and hold no more. Absent when every graph was built again.
+- `dropped` (integer, always): The files the graphs held and hold no more.
 - `reconfigured` (array of string, always): The families whose resolver read another configuration than it read before
   and derived another from it, so that every file of theirs was resolved again.
-- `rebuilt` (boolean, always): Whether every graph was built again from every file.
 - `widened` ([`WidenedView`](#widenedview), optional): Present when the paths came to more parts than a refresh walks
   apart, so it walked the whole tree.
 - `errors` ([`Listed`](#listed), always): The failures the refresh collected; `stats` lists those the tree fails now.

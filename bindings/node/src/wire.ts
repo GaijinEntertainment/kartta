@@ -159,15 +159,13 @@ export type Refresh = {
 	 * answer now, or their family's configuration changed.
 	 */
 	resolved_again: number;
-	/** The files the graphs held and hold no more; absent when every graph was built again. */
-	dropped?: number;
+	/** The files the graphs held and hold no more. */
+	dropped: number;
 	/**
 	 * The language families whose resolver read another configuration than it read before and derived another from
 	 * it, such as jsts for TypeScript and JavaScript, so that every file of theirs was resolved again.
 	 */
 	reconfigured: string[];
-	/** Whether every graph was built again from every file. */
-	rebuilt: boolean;
 	/** Present when the paths came to more parts than a refresh walks apart, so it walked the whole tree. */
 	widened?: Widened;
 	/** The failures the refresh collected; `stats` lists those the tree fails now. */
