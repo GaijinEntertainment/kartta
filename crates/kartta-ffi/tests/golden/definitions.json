@@ -43,6 +43,7 @@
   "method": "definitions",
   "params": {
     "from": "cpp/circle.cpp",
+    "limit": 10,
     "name": "Circle.area"
   }
 }

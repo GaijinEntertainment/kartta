@@ -67,6 +67,7 @@
   "params": {
     "access": "type",
     "lang": "go",
+    "limit": 500,
     "name": "file"
   }
 }

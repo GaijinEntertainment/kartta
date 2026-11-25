@@ -208,7 +208,7 @@ export class Kartta {
 	}
 
 	/** Answers how the call sites of each graph bound, and lists those that bound nothing. */
-	async resolution(params: ResolutionParams = {}): Promise<Matches<Resolution>> {
+	async resolution(params: ResolutionParams): Promise<Matches<Resolution>> {
 		return this.#ask('resolution', params);
 	}
 
@@ -253,7 +253,7 @@ export class Kartta {
 	}
 
 	/** Answers the definitions of each graph that nothing the graph sees uses. */
-	async deadCode(params: DeadCodeParams = {}): Promise<Matches<DeadCode>> {
+	async deadCode(params: DeadCodeParams): Promise<Matches<DeadCode>> {
 		return this.#ask('dead_code', params);
 	}
 

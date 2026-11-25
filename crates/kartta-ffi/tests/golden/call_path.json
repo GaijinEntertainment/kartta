@@ -79,6 +79,7 @@
   },
   "method": "call_path",
   "params": {
+    "depth": 8,
     "from": "main::main",
     "lang": "go",
     "to": "main::helper"

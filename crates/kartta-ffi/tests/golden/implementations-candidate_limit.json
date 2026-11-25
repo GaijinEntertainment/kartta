@@ -26,6 +26,7 @@
     "candidate_limit": 0,
     "depth": 1,
     "lang": "go",
+    "limit": 100,
     "name": "closer"
   }
 }

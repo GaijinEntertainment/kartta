@@ -68,6 +68,7 @@
   "params": {
     "candidate_limit": 1,
     "lang": "go",
+    "limit": 500,
     "name": "close"
   }
 }

@@ -9,7 +9,7 @@ import {Kartta} from 'kartta';
 const kartta = Kartta.open('/path/to/repo');
 try {
 	await kartta.build({content_index: {storage: 'memory'}}, {signal: AbortSignal.timeout(60_000)});
-	const {matches} = await kartta.callers({name: 'main'});
+	const {matches} = await kartta.callers({name: 'main', depth: 3});
 	const {files, total_lines} = await kartta.grep({patterns: ['TODO'], count_all: true});
 } finally {
 	kartta.close();

@@ -34,6 +34,7 @@
   },
   "method": "callers",
   "params": {
+    "depth": 3,
     "max_symbols": 100,
     "min_confidence": 1,
     "name": "begin_area"

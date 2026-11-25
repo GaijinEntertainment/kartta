@@ -8,6 +8,8 @@
   },
   "method": "dependents",
   "params": {
-    "file": "go/gone.go"
+    "depth": 3,
+    "file": "go/gone.go",
+    "max_files": 100
   }
 }

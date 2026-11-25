@@ -63,6 +63,7 @@
   "method": "callers",
   "params": {
     "candidate_limit": 1,
+    "depth": 3,
     "lang": "go",
     "name": "close"
   }

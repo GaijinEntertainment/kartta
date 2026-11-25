@@ -40,7 +40,8 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
 - A path is relative to the root and uses `/`, except the `path` of a [`StoredError`](#storederror), which is the path
   as the system spells it, and `content_cache` and the `dir` of a [`ContentIndex`](#contentindex), which reach the
   system as the caller wrote them.
-- A bound left out takes the default of [Bounds](#bounds) its field names. A bound of 0 means what its field says.
+- A bound the public layer takes as an argument is `required`, and a request without it answers `invalid_params`
+  naming it. Any other bound left out cuts nothing. A bound of 0 means what its field says.
 - A `min_confidence` left out takes 0, which turns no call or site away.
 - A count left out of an answer reads as 0, except `dropped`, `fuzzy_total`, `matched`, `total_files` and `total_lines`,
   whose fields say when they are counted: there, absent means not counted.
@@ -69,10 +70,9 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
   its engine.
 - `call_path`: params [`CallPathParams`](#callpathparams), answer [`Matches`](#matches) of [`CallPath`](#callpath). A
   chain of calls between two symbols.
-- `callees`: params [`WalkParams`](#walkparams), answer [`Matches`](#matches) of [`Walk`](#walk). What a symbol calls,
-  `CALLEES_DEPTH` calls deep by default.
+- `callees`: params [`WalkParams`](#walkparams), answer [`Matches`](#matches) of [`Walk`](#walk). What a symbol calls.
 - `callers`: params [`WalkParams`](#walkparams), answer [`Matches`](#matches) of [`CallersView`](#callersview). What
-  calls a symbol, `CALLERS_DEPTH` calls deep by default.
+  calls a symbol.
 - `cancel`: params [`CancelParams`](#cancelparams), answer [`CancelAnswer`](#cancelanswer). Stops a build, a grep or a
   refresh, and never a watch or any other query.
 - `dead_code`: params [`DeadCodeParams`](#deadcodeparams), answer [`Matches`](#matches) of [`DeadCode`](#deadcode). The
@@ -129,38 +129,10 @@ its family, and a family names one graph.
 ### Bounds
 
 - `ABI_VERSION`: 1. What `kartta_abi_version` returns, and `abi` of [`About`](#about).
-- `CALLEES_DEPTH`: 1. How many calls deep `callees` goes.
-- `CALLERS_DEPTH`: 3. How many calls deep `callers` goes.
-- `CALL_PATH_DEPTH`: 8. How many calls long a path of `call_path` may be.
-- `CALL_PATH_MAX_SYMBOLS`: 20,000. The symbols the search of `call_path` reaches.
 - `CANCELLED_AHEAD_LIMIT`: 1,024. The named cancels that stopped nothing a handle remembers, per kind of call and per
   name, for a call that has not entered yet; a further one forgets the oldest.
-- `CANDIDATES`: 5. The `candidates` `callers`, `callees`, `references` and `implementations` list, and `call_path` for
-  each end, of the symbols the name selects that the answer passed over.
-- `CHANGE_CONSUMERS`: 30. The direct callers or users `analyze_change` lists of a changed symbol before it counts them
-  by directory.
-- `CHANGE_HOTSPOTS`: 300. The hotspots `analyze_change` lists.
-- `CHANGE_SEEDS`: 300. The changed symbols `analyze_change` lists.
-- `DEAD_CODE`: 100. The definitions `dead_code` answers.
-- `DEFINITIONS`: 10. The definitions `definitions` and `sources` answer.
-- `DEPENDENTS`: 100. The files `dependents` answers.
-- `DEPENDENTS_DEPTH`: 3. How many includes away `dependents` goes.
 - `ERRORS_LISTED`: 20. The failures a [`Listed`](#listed) lists.
-- `FUZZY_LIMIT`: 50. The matches `fuzzy` answers.
-- `GREP_LIMIT`: 100. The matching lines `grep` answers.
-- `GREP_MAX_FILE_BYTES`: 4,194,304. The size past which `grep` does not search a file.
-- `GREP_MAX_LINE_BYTES`: 1,024. The bytes of each line `grep` answers.
-- `IMPLEMENTATIONS`: 100. The implementors `implementations` answers.
-- `IMPLEMENTATIONS_DEPTH`: 3. How many levels below the root `implementations` goes.
-- `LIST_DEPTH`: 1. How many levels `list` descends.
-- `LIST_LIMIT`: 1,000. The entries `list` answers.
-- `REFERENCES`: 500. The sites `references` answers.
-- `SEARCH`: 20. The hits `search` answers.
-- `SEGMENT_CALLS`: 50. The direct callers, callees or users `analyze_segment` lists of each symbol, per side.
-- `SEGMENT_DEPTH`: 3. How many calls deep each walk of `analyze_segment` and `analyze_change` goes.
-- `UNBOUND`: 20. The unbound call sites `resolution` lists per graph.
 - `UNMATCHED_LISTED`: 5. The definitions an [`Unmatched`](#unmatched) lists.
-- `WALK_MAX_SYMBOLS`: 500. The symbols a walk reaches, its root included.
 
 ## The envelope
 
@@ -304,13 +276,11 @@ Left empty, a refresh walks the whole tree again.
 - `line` (integer, optional): Keeps only the symbols that start on this one-based line. Absent looks at every line, and
   0 selects none.
 - `lang` (string, optional): Names the graph to ask, by a language or its family. Absent asks every graph.
-- `depth` (integer, optional): How many calls away the walk goes, `CALLERS_DEPTH` for `callers` and `CALLEES_DEPTH` for
-  `callees` by default. 0 follows no call.
+- `depth` (integer, required): How many calls away the walk goes. 0 follows no call.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a call needs to be taken.
-- `max_symbols` (integer, optional): Caps the symbols the walk reaches, its root included, `WALK_MAX_SYMBOLS` by
-  default, and 0 sets no cap.
-- `candidate_limit` (integer, optional): Caps the `candidates` answered of the other symbols the name selects,
-  `CANDIDATES` by default, and 0 answers `passed_over` alone.
+- `max_symbols` (integer, optional): Caps the symbols the walk reaches, its root included. Absent or 0 sets no cap.
+- `candidate_limit` (integer, optional): Caps the `candidates` answered of the other symbols the name selects. Absent
+  answers them all, and 0 answers `passed_over` alone.
 
 ### CallPathParams
 
@@ -321,10 +291,9 @@ Left empty, a refresh walks the whole tree again.
 - `to_path_prefix` (string, optional): As `path_prefix` of [`WalkParams`](#walkparams), for `to`.
 - `to_line` (integer, optional): As `line` of [`WalkParams`](#walkparams), for `to`.
 - `lang` (string, optional): Names the graph to ask. Absent asks every graph.
-- `depth` (integer, optional): How many calls long a path may be, `CALL_PATH_DEPTH` by default. 0 follows no call.
+- `depth` (integer, required): How many calls long a path may be. 0 follows no call.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a call needs to be taken.
-- `max_symbols` (integer, optional): Caps the symbols the search reaches, `CALL_PATH_MAX_SYMBOLS` by default, and 0 sets
-  no cap.
+- `max_symbols` (integer, optional): Caps the symbols the search reaches. Absent or 0 sets no cap.
 - `candidate_limit` (integer, optional): As in [`WalkParams`](#walkparams), for each end.
 
 ### ReferencesParams
@@ -336,7 +305,7 @@ Left empty, a refresh walks the whole tree again.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a site needs to be taken.
 - `access` ([`AccessParam`](#accessparam), optional): Keeps the uses of one access and drops the calls: `read` also
   keeps the updates and the uses as a type, and `write` the updates.
-- `limit` (integer, optional): Caps the sites answered, `REFERENCES` by default, and 0 answers the counts alone.
+- `limit` (integer, required): Caps the sites answered, and 0 answers the counts alone.
 - `candidate_limit` (integer, optional): As in [`WalkParams`](#walkparams).
 
 ### AccessParam
@@ -354,10 +323,8 @@ How a site touches a symbol. A call reads it.
 - `path_prefix` (string, optional): As in [`WalkParams`](#walkparams).
 - `line` (integer, optional): As in [`WalkParams`](#walkparams).
 - `lang` (string, optional): Names the graph to ask. Absent asks every graph.
-- `depth` (integer, optional): How many levels below the root the search goes, `IMPLEMENTATIONS_DEPTH` by default. 0
-  finds none.
-- `limit` (integer, optional): Caps the implementors answered, `IMPLEMENTATIONS` by default, and 0 answers the total
-  alone.
+- `depth` (integer, required): How many levels below the root the search goes. 0 finds none.
+- `limit` (integer, required): Caps the implementors answered, and 0 answers the total alone.
 - `candidate_limit` (integer, optional): As in [`WalkParams`](#walkparams).
 
 ### DefinitionsParams
@@ -365,14 +332,14 @@ How a site touches a symbol. A call reads it.
 - `name` (string, required): The name to look up.
 - `lang` (string, optional): Names the graph to ask. Absent asks every graph.
 - `from` (string, optional): The file the lookup asks from: definitions in its directory rank first.
-- `limit` (integer, optional): Caps the definitions answered, `DEFINITIONS` by default, and 0 answers the total alone.
+- `limit` (integer, required): Caps the definitions answered, and 0 answers the total alone.
 
 ### SourcesParams
 
 - `name` (string, required): The name to look up.
 - `lang` (string, optional): Names the graph to ask. Absent asks every graph.
 - `from` (string, optional): The file the lookup asks from: definitions in its directory rank first.
-- `limit` (integer, optional): Caps the definitions answered, `DEFINITIONS` by default, and 0 answers the total alone.
+- `limit` (integer, required): Caps the definitions answered, and 0 answers the total alone.
 - `max_lines` (integer, optional): Caps the lines of each definition, its doc comment included. 0 answers every line.
 - `max_line_bytes` (integer, optional): Caps the bytes of each line. 0 answers lines whole.
 
@@ -380,7 +347,7 @@ How a site touches a symbol. A call reads it.
 
 - `query` (string, required): The words to look for.
 - `lang` (string, optional): Names the graph to ask. Absent asks every graph.
-- `limit` (integer, optional): Caps the hits answered, `SEARCH` by default, and 0 answers the counts alone.
+- `limit` (integer, required): Caps the hits answered, and 0 answers the counts alone.
 
 ### OutlineParams
 
@@ -389,35 +356,31 @@ How a site touches a symbol. A call reads it.
 ### DependentsParams
 
 - `file` (string, required): The root-relative path of the file.
-- `depth` (integer, optional): How many includes away the search goes, `DEPENDENTS_DEPTH` by default. 0 finds none.
-- `max_files` (integer, optional): Caps the files answered, `DEPENDENTS` by default, and 0 sets no cap.
+- `depth` (integer, required): How many includes away the search goes. 0 finds none.
+- `max_files` (integer, required): Caps the files answered, and 0 sets no cap.
 
 ### SegmentParams
 
 - `file` (string, required): The root-relative path of the file.
 - `start_line` (integer, optional): The first line of the segment. Absent or 0 takes the file's first line.
 - `end_line` (integer, optional): The last line of the segment. Absent or 0 takes the file's last line.
-- `depth` (integer, optional): How many calls away each symbol's blast goes, `SEGMENT_DEPTH` by default. 0 follows no
-  call.
+- `depth` (integer, required): How many calls away each symbol's blast goes. 0 follows no call.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a call needs to be taken.
-- `max_symbols` (integer, optional): Caps the symbols each blast reaches, `WALK_MAX_SYMBOLS` by default, and 0 sets no
-  cap.
+- `max_symbols` (integer, optional): Caps the symbols each blast reaches. Absent or 0 sets no cap.
 - `call_limit` (integer, optional): Caps the direct callers, callees and users answered of each symbol, each side on
-  its own, `SEGMENT_CALLS` by default, and 0 answers each side's `total` alone.
+  its own. Absent answers them all, and 0 answers each side's `total` alone.
 
 ### ChangeParams
 
 - `regions` (array of [`RegionParams`](#regionparams), required): The changed ranges.
-- `depth` (integer, optional): How many calls away each changed symbol's walk goes, `SEGMENT_DEPTH` by default. 0
-  follows no call.
+- `depth` (integer, required): How many calls away each changed symbol's walk goes. 0 follows no call.
 - `min_confidence` (integer, optional): The least confidence, 0 to 100, a call needs to be taken.
-- `max_symbols` (integer, optional): Caps the symbols each walk reaches, `WALK_MAX_SYMBOLS` by default, and 0 sets no
-  cap.
-- `consumer_limit` (integer, optional): The most direct callers or users a changed symbol lists, `CHANGE_CONSUMERS` by
-  default; past it the symbol counts them by directory.
-- `seed_limit` (integer, optional): Caps the changed symbols answered, `CHANGE_SEEDS` by default, and 0 answers
+- `max_symbols` (integer, optional): Caps the symbols each walk reaches. Absent or 0 sets no cap.
+- `consumer_limit` (integer, optional): The most direct callers or users a changed symbol lists; past it the symbol
+  counts them by directory. Absent lists them all.
+- `seed_limit` (integer, optional): Caps the changed symbols answered. Absent answers them all, and 0 answers
   `changed_symbols` alone.
-- `hotspot_limit` (integer, optional): Caps the hotspots answered, `CHANGE_HOTSPOTS` by default, and 0 answers
+- `hotspot_limit` (integer, optional): Caps the hotspots answered. Absent answers them all, and 0 answers
   `total_hotspots` alone.
 
 ### RegionParams
@@ -431,19 +394,18 @@ How a site touches a symbol. A call reads it.
 - `lang` (string, optional): Names the graph to ask. Absent asks every graph.
 - `kinds` (array of [`SymbolKind`](#symbolkind), optional): The kinds to judge. Every kind when absent or empty.
 - `path_prefix` (string, optional): Judges only the definitions in files under this path.
-- `limit` (integer, optional): Caps the definitions answered, `DEAD_CODE` by default, and 0 answers the counts alone.
+- `limit` (integer, required): Caps the definitions answered, and 0 answers the counts alone.
 
 ### ResolutionParams
 
 - `lang` (string, optional): Names the graph to ask. Absent asks every graph.
-- `limit` (integer, optional): How many unbound call sites of each graph to list, `UNBOUND` by default, and 0 answers
-  the counts alone.
+- `limit` (integer, required): How many unbound call sites of each graph to list, and 0 answers the counts alone.
 
 ### ListParams
 
 - `path` (string, optional): The directory to list. Absent lists the root.
-- `depth` (integer, optional): How many levels to descend, `LIST_DEPTH` when absent, and 0 is the whole subtree.
-- `limit` (integer, optional): Caps the entries answered, `LIST_LIMIT` when absent, and 0 sets no cap.
+- `depth` (integer, optional): How many levels to descend. Absent or 0 is the whole subtree.
+- `limit` (integer, optional): Caps the entries answered. Absent or 0 sets no cap.
 - `collapse` (array of string, optional): Globs naming the directories listed without their entries.
 - `exclude` (array of string, optional): Globs naming the entries left out.
 
@@ -458,7 +420,7 @@ How a site touches a symbol. A call reads it.
 - `query` (string, required): The text to rank paths by.
 - `globs` (array of string, optional): Keep the paths they match. Absent keeps every path.
 - `exclude` (array of string, optional): Globs naming the paths left out, a directory with everything beneath it.
-- `limit` (integer, optional): Caps the matches answered, `FUZZY_LIMIT` by default, and 0 sets no cap.
+- `limit` (integer, optional): Caps the matches answered. Absent or 0 sets no cap.
 
 ### GrepParams
 
@@ -467,13 +429,11 @@ How a site touches a symbol. A call reads it.
 - `globs` (array of string, optional): Keep the files they match. Absent keeps every file.
 - `exclude` (array of string, optional): Globs naming the files left out.
 - `context` (integer, optional): How many lines around each match to answer.
-- `limit` (integer, optional): Caps the matching lines answered, `GREP_LIMIT` when absent, and 0 sets no cap.
+- `limit` (integer, optional): Caps the matching lines answered. Absent or 0 sets no cap.
 - `count_all` (boolean, optional): Counts every matching line and file past the limit, into `total_lines` and
   `total_files`, which reads the rest of the tree.
-- `max_line_bytes` (integer, optional): Caps the bytes of each line answered, `GREP_MAX_LINE_BYTES` by default, and 0
-  answers lines whole.
-- `max_file_bytes` (integer, optional): The size past which a file is not searched, `GREP_MAX_FILE_BYTES` by default,
-  and 0 searches every size.
+- `max_line_bytes` (integer, optional): Caps the bytes of each line answered. Absent or 0 answers lines whole.
+- `max_file_bytes` (integer, optional): The size past which a file is not searched. Absent or 0 searches every size.
 - `id` (integer, optional): Names the grep for a cancel.
 - `binding_id` (integer, optional): Names the grep for a cancel `by` `binding_id`, apart from `id`.
 

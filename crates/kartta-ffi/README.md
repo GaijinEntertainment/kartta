@@ -17,7 +17,7 @@ KarttaString error;
 KarttaHandle *handle = kartta_open((const uint8_t *)"{\"root\":\".\"}", 12, &error);
 KarttaString built = kartta_call(handle, "build", NULL, 0);
 kartta_string_free(built);
-KarttaString callers = kartta_call(handle, "callers", (const uint8_t *)"{\"name\":\"main\"}", 15);
+KarttaString callers = kartta_call(handle, "callers", (const uint8_t *)"{\"name\":\"main\",\"depth\":3}", 25);
 kartta_string_free(callers);
 kartta_free(handle);
 ```
