@@ -3,6 +3,33 @@
 An MCP server over the kartta engine: the file index and code graph of each repository root it indexes, answered to an
 agent as tools over stdio.
 
+## Install
+
+```sh
+cargo install --locked kartta-mcp
+```
+
+The build needs Rust 1.92 or newer, and a C compiler for the grammars.
+
+## Connect a client
+
+Claude Code, for every project of the user:
+
+```sh
+claude mcp add --scope user kartta -- kartta-mcp
+```
+
+Any other client launches the server from this command and these arguments:
+
+```json
+{ "command": "kartta-mcp", "args": [] }
+```
+
+Neither line passes a root: the agent names the root in each call but an `index_stats` listing, and `index_root` builds
+the index of a root the server does not hold.
+
+## Run
+
 ```sh
 kartta-mcp [ROOT]
 ```
