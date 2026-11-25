@@ -20,7 +20,7 @@ use crate::pruned::PrunedNames;
 use crate::rules::{DOT_GIT, GITIGNORE, Rules};
 use crate::stamp::{Seen, Stamp, Stamping, UNTRUSTED};
 use crate::trigram::{self, Trigram, Trigrams};
-use crate::worktree::{common_dir, linked_common_dir};
+use crate::worktree::{enclosing_common_dir, linked_common_dir};
 use crate::{into_inner, lock};
 
 #[derive(Debug)]
@@ -202,14 +202,15 @@ impl<'a> Indexing<'a> {
         root: &Path,
         reading: Option<Reading<'a>>,
     ) -> Self {
+        let canonical_root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         let repository = (ignore_sources != IgnoreSources::None)
-            .then(|| common_dir(&root.join(DOT_GIT)))
+            .then(|| enclosing_common_dir(&canonical_root))
             .flatten();
 
         Self {
             ignore_sources,
             pruned_names,
-            canonical_root: fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()),
+            canonical_root,
             repository,
             worktrees: Mutex::new(Vec::new()),
             errors: Mutex::new(Vec::new()),

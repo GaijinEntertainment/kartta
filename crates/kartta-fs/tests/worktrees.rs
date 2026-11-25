@@ -233,6 +233,78 @@ fn a_root_with_no_repository_of_its_own_indexes_a_worktree_inside_it() {
     assert_eq!(pruned(&index), NONE);
 }
 
+/// A repository whose top holds `sub`, and a linked worktree of it at `sub/wt` that checks out `sub/a.rs` again.
+fn worktree_below_the_top() -> tempfile::TempDir {
+    let dir = tree(&[("sub/a.rs", ""), ("sub/wt/sub/a.rs", "")]);
+    init(dir.path());
+    let common = dir.path().join(".git");
+    link_worktree(
+        &common,
+        "wt",
+        &dir.path().join("sub/wt"),
+        &common.join("worktrees/wt").display().to_string(),
+    );
+    dir
+}
+
+#[test]
+fn a_root_below_the_repository_top_holds_a_worktree_of_that_repository_empty() {
+    let dir = worktree_below_the_top();
+
+    let index = build(&dir.path().join("sub"), &BuildOptions::default());
+
+    assert_eq!(paths(&index), ["a.rs", "wt"]);
+    assert_eq!(pruned(&index), ["wt"]);
+}
+
+#[test]
+fn a_refresh_of_a_root_below_the_repository_top_keeps_its_worktree_empty() {
+    let dir = worktree_below_the_top();
+    let root = dir.path().join("sub");
+    let mut index = build(&root, &BuildOptions::default());
+
+    write(&root, "wt/sub/new.rs", "");
+    index
+        .refresh_paths(["wt/sub/new.rs"], None, None)
+        .expect("refresh the new file");
+    assert_eq!(paths(&index), ["a.rs", "wt"]);
+    assert_eq!(pruned(&index), ["wt"]);
+
+    index.refresh(None, None).expect("refresh");
+    assert_eq!(paths(&index), ["a.rs", "wt"]);
+    assert_eq!(pruned(&index), ["wt"]);
+}
+
+#[test]
+fn a_root_below_a_nested_repository_takes_that_repository_and_not_the_outer_one() {
+    let dir = tree(&[
+        ("inner/sub/a.rs", ""),
+        ("inner/sub/inner-wt/a.rs", ""),
+        ("inner/sub/outer-wt/a.rs", ""),
+    ]);
+    init(dir.path());
+    init(&dir.path().join("inner"));
+    for (common, id) in [
+        (dir.path().join(".git"), "outer-wt"),
+        (dir.path().join("inner/.git"), "inner-wt"),
+    ] {
+        link_worktree(
+            &common,
+            id,
+            &dir.path().join("inner/sub").join(id),
+            &common.join("worktrees").join(id).display().to_string(),
+        );
+    }
+
+    let index = build(&dir.path().join("inner/sub"), &BuildOptions::default());
+
+    assert_eq!(
+        paths(&index),
+        ["a.rs", "inner-wt", "outer-wt", "outer-wt/a.rs"]
+    );
+    assert_eq!(pruned(&index), ["inner-wt"]);
+}
+
 #[test]
 fn without_ignore_rules_a_nested_worktree_is_indexed() {
     let dir = clone_with_nested_worktree();
