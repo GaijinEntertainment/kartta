@@ -117,7 +117,7 @@ pub(crate) enum Graphless<'e> {
     Special,
     /// No language kartta ships claims the file or declines it.
     Unclaimed,
-    /// `index_repo`'s `languages` filter left out of the build the language, one kartta ships, that claims the file.
+    /// `index_root`'s `languages` filter left out of the build the language, one kartta ships, that claims the file.
     Unbuilt(&'static str),
     /// `language` leaves the file, one of its kind, out of its graph for `reason`.
     Declined { language: &'e str, reason: &'e str },
@@ -171,8 +171,8 @@ impl<'e> Graphless<'e> {
             }
             Self::Unbuilt(language) => {
                 return format!(
-                    "the {language} language claims this file, and index_repo's languages filter left it out of \
-                     this index, so no code graph holds it - read or grep it, or index_repo with {language} in \
+                    "the {language} language claims this file, and index_root's languages filter left it out of \
+                     this index, so no code graph holds it - read or grep it, or index_root with {language} in \
                      languages"
                 );
             }
@@ -524,7 +524,7 @@ fn did_you_mean(element: Element, suggestions: impl Iterator<Item = String>) -> 
     )
 }
 
-/// The `index_repo` and `index_stats` answer: the index's shape, one `<language/>` per graph that holds a file, how
+/// The `index_root` and `index_stats` answer: the index's shape, one `<language/>` per graph that holds a file, how
 /// the calls of each of those graphs bind when `coverage` holds its resolution, and the failures the build collected.
 pub(crate) fn index(indexed: &Indexed, coverage: &[(&str, Resolution<'_>)]) -> String {
     let graphs = indexed.graphs();
@@ -706,7 +706,7 @@ pub(crate) fn unready(unready: &Unready) -> String {
     let element = Element::new("index");
     match unready {
         Unready::Empty => element.attr("status", "empty").inline(
-            "nothing is indexed - call index_repo with the repository's absolute root",
+            "nothing is indexed - call index_root with the repository's absolute root",
         ),
         Unready::Building { root, elapsed } => element
             .attr("root", root)
@@ -714,12 +714,12 @@ pub(crate) fn unready(unready: &Unready) -> String {
             .attr("elapsed_secs", elapsed.as_secs())
             .inline(&format!(
                 "still building - call index_stats until it answers the index; every other tool answers once it \
-                 is ready, and index_repo with this root, languages and index_ignored waits for it, up to {}s",
+                 is ready, and index_root with this root, languages and index_ignored waits for it, up to {}s",
                 crate::state::INDEX_WAIT.as_secs()
             )),
         Unready::Failed { root, error } => element
             .attr("root", root)
             .attr("status", "failed")
-            .inline(&format!("{error} - call index_repo again")),
+            .inline(&format!("{error} - call index_root again")),
     }
 }

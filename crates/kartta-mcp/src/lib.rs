@@ -1,6 +1,6 @@
 //! An MCP server over the kartta engine: one repository's file index and code graph, answered to an agent as tools.
 //!
-//! The server speaks MCP over stdio and offers tools alone, no resources and no prompts. `index_repo` builds the
+//! The server speaks MCP over stdio and offers tools alone, no resources and no prompts. `index_root` builds the
 //! engine over a repository root, and every other tool answers from it: the file tools search paths, list directories
 //! and grep content, and the graph tools find definitions, callers, references, call paths, implementors, importers
 //! and what an edit reaches. One repository is indexed per process, and indexing another replaces it. A built index
@@ -15,7 +15,7 @@
 //!
 //! [`Server::with_config`] takes the build's options from a [`Config`], and [`Config::from_env`] reads them from the
 //! environment the `kartta-mcp` binary runs in. [`Server::index_at_launch`] starts a build without waiting for an
-//! `index_repo` call, and until it finishes every query answers that the index is still building.
+//! `index_root` call, and until it finishes every query answers that the index is still building.
 #![expect(
     clippy::multiple_crate_versions,
     reason = "the MCP SDK's macros build on syn 3 while serde's derive and the grammars' builds are on syn 2"

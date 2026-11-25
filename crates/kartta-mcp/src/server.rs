@@ -27,7 +27,7 @@ use crate::params::{
     CallerRole, FileOutlineParams, FindCallPathParams, FindCalleesParams, FindCallersParams,
     FindFilesParams, FindImplementationsParams, FindImportersParams, FindReferencesParams,
     FindSymbolsParams, FindUnusedParams, GlobFilesParams, GrepParams, ImpactOfChangeParams,
-    ImpactOfEditParams, IndexRepoParams, IndexStatsParams, ListDirParams, Parameters,
+    ImpactOfEditParams, IndexRootParams, IndexStatsParams, ListDirParams, Parameters,
     ReadDefinitionsParams, RefreshParams,
 };
 use crate::paths::{self, GLOB_CHARACTERS, Wanted, held_file, held_prefix, relative};
@@ -135,7 +135,7 @@ const CALLEE_HOPS: u32 = 1;
 pub struct Server {
     slot: Arc<Slot>,
     config: Arc<Config>,
-    /// How long `index_repo` waits for its build before it answers that the build is still running.
+    /// How long `index_root` waits for its build before it answers that the build is still running.
     index_wait: Duration,
     tool_router: ToolRouter<Self>,
 }
@@ -163,9 +163,9 @@ impl Server {
         }
     }
 
-    /// Starts building the index of `root` with every language, as `index_repo` with no other argument does, and
+    /// Starts building the index of `root` with every language, as `index_root` with no other argument does, and
     /// returns without waiting for it. Until the build finishes, `index_stats` answers that it is building and every
-    /// other query answers an error saying so; an `index_repo` of the same root joins it, and answers that it is still
+    /// other query answers an error saying so; an `index_root` of the same root joins it, and answers that it is still
     /// building once it has waited 30 s for it.
     ///
     /// The future it returns resolves once the build ends, to why it built no index, or `None` when it built one. The
@@ -355,15 +355,15 @@ impl Server {
                        name that matches nothing repeats them as index_languages=), its gitignore= naming the \
                        ignore files that applied as index_stats describes, its grep_index= present only when the \
                        configured trigram index could not be kept, saying why (grep then opens every candidate, and a \
-                       new index_repo tries again), with one <language/> record \
+                       new index_root tries again), with one <language/> record \
                        per built graph (files, symbols, calls, uses and includes, plus 'files_without_symbols' when a \
                        language's files did not all yield symbols and 'unheld' when some files it claims are binary or \
                        unreadable), and an <errors> block listing what the walk could not read - those language names \
                        are the valid values for the 'languages' filter of the symbol tools."
     )]
-    async fn index_repo(
+    async fn index_root(
         &self,
-        Parameters(p): Parameters<IndexRepoParams>,
+        Parameters(p): Parameters<IndexRootParams>,
     ) -> Result<String, String> {
         CATALOG.check(p.languages.as_deref())?;
         let root = PathBuf::from(&p.root);
@@ -428,7 +428,7 @@ impl Server {
                        linked worktrees of the root's repository inside the root, each listed as an empty directory: \
                        nothing below one is indexed. While a build runs it answers status=\"building\" \
                        with the seconds so far, before any build status=\"empty\", and after a build that failed \
-                       status=\"failed\" with its root and error; otherwise the <index> envelope index_repo produced. \
+                       status=\"failed\" with its root and error; otherwise the <index> envelope index_root produced. \
                        With coverage=true it adds one <coverage/> record per language, to tell \"no callers\" from a \
                        language whose calls the graph binds poorly: sites, bound (split into certain / likely / \
                        guess), edges (caller-callee pairs), and why the other sites bound no definition, each only \
@@ -484,7 +484,7 @@ impl Server {
         })
         .await
         .map_err(|error| {
-            format!("the refresh stopped before it answered: {error} - call index_repo to build the index again")
+            format!("the refresh stopped before it answered: {error} - call index_root to build the index again")
         })?
     }
 
@@ -596,7 +596,7 @@ impl Server {
                        truncated=\"true\" means a match past the cap was seen, so more exist; unsearched= counts the \
                        files the answer does not cover once that match was found or a cancel stopped the search, \
                        excluded= the files the excludes dropped, ruled_out= the files the content index, built from \
-                       their content as index_repo read it, shows hold no match, and symlinks= the links selected, \
+                       their content as index_root read it, shows hold no match, and symlinks= the links selected, \
                        which are never read through. An answer with no truncated, unsearched= or <failures> holds \
                        every match in the files it did not skip as binary or oversized. The answer reads each file as \
                        it is now, but the set of files is the tree as the index last read it: a file added since is \
@@ -1354,7 +1354,7 @@ impl Server {
                        hold, symlink_regions= in a symlink, special_regions= in a socket, a fifo or a device node, and \
                        unclaimed_regions= in a held file no language claims or declines, with a <declined language= \
                        regions=> per language that leaves such files out of its graph and an <unbuilt language= \
-                       regions=> per language index_repo's 'languages' left out; regions_outside_symbols= those \
+                       regions=> per language index_root's 'languages' left out; regions_outside_symbols= those \
                        overlapping no symbol; stopped_walks= the changed symbols whose walk the 500-symbol cap stopped \
                        (turned_away= on the seed); and on a seed unexpanded= the callers whose own callers its walk \
                        did not follow, and ambiguous= the calls of its name that bound no definition because several \
@@ -1574,8 +1574,8 @@ impl ServerHandler for Server {
             "kartta answers structural questions about a code repository: where symbols are defined, who calls \
              them and what they call, where they are used, what implements an interface, which files import a file, \
              and what an edit would break. Every tool answers from one index, of one repository. index_stats tells \
-             whether that index is built or building, and for which root. Call index_repo with the repository's \
-             absolute root when index_stats shows no index of it. An index_repo whose build runs past 30 s answers \
+             whether that index is built or building, and for which root. Call index_root with the repository's \
+             absolute root when index_stats shows no index of it. An index_root whose build runs past 30 s answers \
              status=\"building\": call index_stats until it answers the index. Each language has its own code \
              graph, and no tool follows a link from one language into another, such as a call through FFI. A path or \
              a path_prefix the index does not hold is a tool error that names what is wrong with it and the nearest \
@@ -1766,7 +1766,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_index_repo_whose_build_outlasts_the_wait_answers_building_and_the_build_runs_on() {
+    async fn an_index_root_whose_build_outlasts_the_wait_answers_building_and_the_build_runs_on() {
         let first = tempfile::tempdir().unwrap();
         std::fs::write(first.path().join("a.go"), "package a\n\nfunc A() {}\n").unwrap();
         let second = tempfile::tempdir().unwrap();
@@ -1777,7 +1777,7 @@ mod tests {
         server.index_wait = Duration::from_millis(50);
         assert_eq!(server.index_at_launch(first.path().to_owned()).await, None);
         let held = server.slot.current().unwrap();
-        let params = IndexRepoParams {
+        let params = IndexRootParams {
             root: second.path().display().to_string(),
             languages: None,
             index_ignored: None,
@@ -1785,10 +1785,10 @@ mod tests {
 
         let answer = tokio::time::timeout(
             Duration::from_secs(10),
-            server.index_repo(Parameters(params)),
+            server.index_root(Parameters(params)),
         )
         .await
-        .expect("index_repo held the request for the whole build")
+        .expect("index_root held the request for the whole build")
         .unwrap();
         drop(held);
 

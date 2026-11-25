@@ -866,8 +866,8 @@ pub(crate) fn change(
             .attr("language", language)
             .attr("regions", regions)
             .inline(&format!(
-                "the {language} language claims these regions' files, and index_repo's languages filter left it \
-                 out of this index - read or grep them, or index_repo with {language} in languages"
+                "the {language} language claims these regions' files, and index_root's languages filter left it \
+                 out of this index - read or grep them, or index_root with {language} in languages"
             ))
     });
     let reasons = declined.chain(left_out);
