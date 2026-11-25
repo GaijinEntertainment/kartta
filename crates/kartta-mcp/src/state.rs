@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
@@ -151,6 +152,11 @@ pub(crate) struct Served {
 }
 
 impl Served {
+    /// The root this index was built from.
+    pub(crate) fn root(&self) -> &Path {
+        &self.request.root
+    }
+
     /// The index to answer from, or the error that names the fix when a refresh panicked partway through it.
     pub(crate) fn read(&self) -> Result<RwLockReadGuard<'_, Indexed>, String> {
         self.indexed
@@ -188,7 +194,7 @@ impl Served {
         let refreshed = refresh(&mut indexed.engine);
         let (refresh, walked) = refreshed.map_err(|error| match error {
             BuildError::Cancelled => {
-                "a later index_root replaced this index before the refresh finished".to_owned()
+                "a later index_root replaced or dropped this index before the refresh finished".to_owned()
             }
             BuildError::Misspelled { path, fault } => format!(
                 "{path:?} {fault} - pass paths relative to the repository root, with / between names, as \
@@ -245,6 +251,17 @@ impl Followed for Served {
     }
 }
 
+#[cfg(test)]
+impl Served {
+    /// Poisons the index's lock, as a refresh that panics while it writes the index does.
+    pub(crate) fn poison(&self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _written = self.indexed.write();
+            panic!("a refresh panicked");
+        }));
+    }
+}
+
 /// The error a query answers once a refresh panicked while it held the index.
 fn broken(indexed: &Indexed) -> String {
     format!(
@@ -268,39 +285,61 @@ pub(crate) struct GraphRow {
 
 pub(crate) type Outcome = Result<Arc<Served>, String>;
 
-/// Where the server keeps its one repository: nothing yet, a build under way, the engine it built, or why it failed.
+/// Where the server keeps the roots it indexes, at most `bound` of them: for each, a build under way, the engine it
+/// built, or why its build failed.
 #[derive(Debug)]
-pub(crate) struct Slot {
-    state: Mutex<State>,
+pub(crate) struct Roots {
+    table: Mutex<Table>,
     builds: AtomicU64,
+    /// Held for the length of each build, so builds run one at a time.
+    building: Mutex<()>,
     watch: bool,
+    bound: NonZeroUsize,
 }
 
+/// The roots, in the order each was first asked to be built.
 #[derive(Debug, Default)]
+struct Table {
+    roots: Vec<Root>,
+    /// How many times a call named a held root, which stamps each root with its latest ask.
+    asks: u64,
+}
+
+#[derive(Debug)]
+struct Root {
+    /// The root as `index_root` or the launch named it.
+    path: PathBuf,
+    state: State,
+    /// The stamp of the latest call that named this root.
+    asked: u64,
+}
+
+#[derive(Debug)]
 enum State {
-    #[default]
-    Empty,
     Building(Build),
     Ready(Arc<Served>),
+    Failed(String),
+}
+
+/// What a call finds in place of an index to answer from.
+#[derive(Debug)]
+pub(crate) enum Unready {
+    Building {
+        root: String,
+        elapsed: Duration,
+    },
     Failed {
         root: String,
         error: String,
     },
+    /// The server holds no index of the root the call named; the miss says which roots it holds.
+    Unheld(String),
 }
 
-/// What a slot that holds no index to answer from holds instead.
-#[derive(Debug)]
-pub(crate) enum Unready {
-    Empty,
-    Building { root: String, elapsed: Duration },
-    Failed { root: String, error: String },
-}
-
-/// The error a query answers while the slot is unready.
+/// The error a query answers in place of an index.
 impl fmt::Display for Unready {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Empty => formatter.write_str("no repository indexed: call index_root first"),
             Self::Building { root, elapsed } => write!(
                 formatter,
                 "the index of {root} is still building ({}s so far) - index_stats answers once it is ready, and \
@@ -312,6 +351,7 @@ impl fmt::Display for Unready {
                 formatter,
                 "indexing {root} failed: {error} - call index_root again"
             ),
+            Self::Unheld(miss) => formatter.write_str(miss),
         }
     }
 }
@@ -334,75 +374,87 @@ impl Build {
     }
 }
 
-impl Slot {
-    /// A slot with nothing indexed, whose every built index follows its tree when `watch` is set.
-    pub(crate) fn new(watch: bool) -> Self {
+impl Roots {
+    /// No root yet, room for `bound` of them, and every built index following its tree when `watch` is set.
+    pub(crate) fn new(watch: bool, bound: NonZeroUsize) -> Self {
         Self {
-            state: Mutex::default(),
+            table: Mutex::default(),
             builds: AtomicU64::default(),
+            building: Mutex::new(()),
             watch,
+            bound,
         }
     }
 
-    /// Starts building `request` on a blocking thread and returns where its outcome arrives.
+    /// Starts building `request` on a blocking thread and returns where its outcome arrives, or the error that says
+    /// why the server takes no other root.
     ///
     /// A build of the same request already under way is joined rather than started again, and the index the same
     /// request built is answered as it is held, brought up to its tree first when it does not follow the tree, unless
-    /// a refresh broke it. A build of another one is cancelled, and so is a refresh of the engine this one replaces.
-    /// The new build starts once the engine it replaces is gone, the cancelled build's included, and once every query
-    /// that was answering from it has answered, so a rebuild never holds two engines.
+    /// a refresh broke it. A build of another request for the same root is cancelled, and so is a refresh of the engine
+    /// this one replaces. A root past the bound drops a root that holds no build, one that failed first and else the
+    /// least recently asked, cancelled the same way; when every root builds, no root is dropped and the request is
+    /// refused. The new build starts once every other build has ended, and once the engine it replaces or drops is
+    /// gone, a cancelled build's included, and every query that was answering from it has answered, so the server
+    /// never holds more engines than its bound.
     pub(crate) fn start(
         self: &Arc<Self>,
         request: Request,
         options: BuildOptions,
-    ) -> watch::Receiver<Option<Outcome>> {
-        let mut state = self.lock();
-        match &*state {
-            State::Building(build) if build.request == request => return build.outcome.clone(),
-            State::Building(build) => build.cancel.cancel(),
-            State::Ready(served) if served.request == request && !served.indexed.is_poisoned() => {
-                return held(Arc::clone(served));
+    ) -> Result<watch::Receiver<Option<Outcome>>, String> {
+        let mut table = self.lock();
+        let at = table.position(&request.root);
+        if let Some(at) = at {
+            match &table.ask(at).state {
+                State::Building(build) if build.request == request => {
+                    return Ok(build.outcome.clone());
+                }
+                State::Ready(served)
+                    if served.request == request && !served.indexed.is_poisoned() =>
+                {
+                    return Ok(held(Arc::clone(served)));
+                }
+                State::Building(_) | State::Ready(_) | State::Failed(_) => {}
             }
-            State::Empty | State::Ready(_) | State::Failed { .. } => {}
         }
+        let dropped = match at {
+            Some(_) => None,
+            None => table.room(self.bound)?,
+        };
         let id = self.builds.fetch_add(1, Ordering::Relaxed);
         let (sender, outcome) = watch::channel(None);
         let cancel = CancelToken::new();
-        let replaced = std::mem::replace(
-            &mut *state,
-            State::Building(Build {
-                id,
-                request: request.clone(),
-                started: Instant::now(),
-                cancel: cancel.clone(),
-                outcome: outcome.clone(),
-            }),
-        );
-        drop(state);
-        if let State::Ready(served) = &replaced {
-            served.cancel.cancel();
+        let starting = State::Building(Build {
+            id,
+            request: request.clone(),
+            started: Instant::now(),
+            cancel: cancel.clone(),
+            outcome: outcome.clone(),
+        });
+        let replaced = table.take(&request.root, at, starting).or(dropped);
+        drop(table);
+        if let Some(replaced) = &replaced {
+            replaced.cancel();
         }
 
-        let slot = Arc::clone(self);
+        let roots = Arc::clone(self);
         let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
-            let replaced = match replaced {
-                State::Building(mut build) => runtime
-                    .block_on(build.outcome.wait_for(Option::is_some))
-                    .ok()
-                    .and_then(|outcome| outcome.clone())
-                    .and_then(Result::ok),
-                State::Ready(served) => Some(served),
-                State::Empty | State::Failed { .. } => None,
-            };
-            if let Some(replaced) = replaced {
-                release(replaced);
+            if let Some(engine) = replaced.and_then(|replaced| replaced.into_engine(&runtime)) {
+                release(engine);
             }
-            let (built, follower) = match build(&request, &options, &cancel, slot.watch) {
+            let built = {
+                let _alone = roots
+                    .building
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                build(&request, &options, &cancel, roots.watch)
+            };
+            let (built, follower) = match built {
                 Ok((served, follower)) => (Ok(Arc::new(served)), follower),
                 Err(error) => (Err(error), None),
             };
-            let ready = slot.finish(id, &request, &built);
+            let ready = roots.lock().finish(id, &built);
             match (&built, follower) {
                 (Ok(served), _) if !ready => {
                     served.unwatch("a later index_root replaced this index".to_owned());
@@ -412,53 +464,189 @@ impl Slot {
             }
             sender.send_replace(Some(built));
         });
-        outcome
+        Ok(outcome)
     }
 
-    /// The engine to answer a query from, or the error that says why there is none.
-    pub(crate) fn current(&self) -> Result<Arc<Served>, String> {
-        self.served().map_err(|unready| unready.to_string())
+    /// The engine to answer a query about `root` from, or the error that says why there is none.
+    pub(crate) fn current(&self, root: &str) -> Result<Arc<Served>, String> {
+        self.served(root).map_err(|unready| unready.to_string())
     }
 
-    /// The engine to answer a query from, or what the slot holds instead.
-    pub(crate) fn served(&self) -> Result<Arc<Served>, Unready> {
-        match &*self.lock() {
-            State::Ready(served) => Ok(Arc::clone(served)),
-            State::Empty => Err(Unready::Empty),
-            State::Building(build) => Err(build.unready()),
-            State::Failed { root, error } => Err(Unready::Failed {
-                root: root.clone(),
-                error: error.clone(),
-            }),
-        }
+    /// The engine to answer a query about `root` from, or what the server holds in its place, the root stamped as
+    /// asked now.
+    pub(crate) fn served(&self, root: &str) -> Result<Arc<Served>, Unready> {
+        let mut table = self.lock();
+        let Some(at) = table.position(Path::new(root)) else {
+            return Err(Unready::Unheld(table.missed(root)));
+        };
+        table.ask(at).served()
     }
 
-    /// What the slot answers while it builds `request`, or `None` once it holds anything else.
+    /// What each root holds, in the order the server was first asked to build them, none of them stamped as asked.
+    pub(crate) fn listed(&self) -> Vec<Result<Arc<Served>, Unready>> {
+        self.lock().roots.iter().map(Root::served).collect()
+    }
+
+    /// What the server answers while it builds `request`, or `None` once its root holds anything else.
     pub(crate) fn building(&self, request: &Request) -> Option<Unready> {
-        match &*self.lock() {
+        let table = self.lock();
+        let at = table.position(&request.root)?;
+        match &table.roots.get(at)?.state {
             State::Building(build) if build.request == *request => Some(build.unready()),
-            State::Empty | State::Building(_) | State::Ready(_) | State::Failed { .. } => None,
+            State::Building(_) | State::Ready(_) | State::Failed(_) => None,
         }
     }
 
-    /// Settles the slot on the outcome of build `id`, unless a later build replaced it, and answers whether it did.
-    fn finish(&self, id: u64, request: &Request, outcome: &Outcome) -> bool {
-        let mut state = self.lock();
-        if !matches!(&*state, State::Building(running) if running.id == id) {
-            return false;
+    fn lock(&self) -> MutexGuard<'_, Table> {
+        self.table.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Table {
+    fn position(&self, root: &Path) -> Option<usize> {
+        self.roots.iter().position(|held| held.path == root)
+    }
+
+    /// Stamps the root at `at` with a new ask, and returns it.
+    fn ask(&mut self, at: usize) -> &Root {
+        self.asks += 1;
+        let root = &mut self.roots[at];
+        root.asked = self.asks;
+        root
+    }
+
+    /// Puts `state` in the root at `at`, or in a new root at `path` when there is none, stamped as asked now, and
+    /// answers the state it replaced.
+    fn take(&mut self, path: &Path, at: Option<usize>, state: State) -> Option<State> {
+        if let Some(at) = at {
+            return Some(std::mem::replace(&mut self.roots[at].state, state));
         }
-        *state = match outcome {
+        self.roots.push(Root {
+            path: path.to_owned(),
+            state,
+            asked: 0,
+        });
+        self.ask(self.roots.len() - 1);
+        None
+    }
+
+    /// Makes room for one more root under `bound`: drops a root that holds no build, one that failed before one that
+    /// is ready and else the least recently asked, and answers its state; or the error that names the roots when every
+    /// one of them builds.
+    fn room(&mut self, bound: NonZeroUsize) -> Result<Option<State>, String> {
+        if self.roots.len() < bound.get() {
+            return Ok(None);
+        }
+        let Some(at) = (0..self.roots.len())
+            .filter(|&at| !matches!(self.roots[at].state, State::Building(_)))
+            .min_by_key(|&at| {
+                let root = &self.roots[at];
+                (matches!(root.state, State::Ready(_)), root.asked)
+            })
+        else {
+            return Err(format!(
+                "this server holds KARTTA_MAX_ROOTS={bound} roots, each still building: {} - call index_root again \
+                 once index_stats shows one built",
+                self.listing()
+            ));
+        };
+        Ok(Some(self.roots.remove(at).state))
+    }
+
+    /// Settles the root of build `id` on its outcome, unless a later build replaced it or the bound dropped its root,
+    /// and answers whether it did.
+    fn finish(&mut self, id: u64, outcome: &Outcome) -> bool {
+        let Some(root) = self
+            .roots
+            .iter_mut()
+            .find(|root| matches!(&root.state, State::Building(running) if running.id == id))
+        else {
+            return false;
+        };
+        root.state = match outcome {
             Ok(served) => State::Ready(Arc::clone(served)),
-            Err(error) => State::Failed {
-                root: request.root.display().to_string(),
-                error: error.clone(),
-            },
+            Err(error) => State::Failed(error.clone()),
         };
         true
     }
 
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Why no index answers a call that named `asked`: it lies inside a held root, named as [`Root::listed`] names
+    /// it, or the server holds the roots listed, or none.
+    fn missed(&self, asked: &str) -> String {
+        if let Some(within) = self
+            .roots
+            .iter()
+            .find(|root| Path::new(asked).starts_with(&root.path))
+        {
+            return format!(
+                "{asked:?} is inside the root {} this server holds - pass root {:?} with paths relative to it, or \
+                 call index_root with root {asked:?} to index it apart",
+                within.listed(),
+                within.path.display().to_string()
+            );
+        }
+        let holds = if self.roots.is_empty() {
+            "holds no root".to_owned()
+        } else {
+            format!("holds {}", self.listing())
+        };
+        format!(
+            "this server has not indexed {asked:?} - it {holds}; call index_root with root {asked:?} to index it"
+        )
+    }
+
+    /// The roots as a miss lists them, each as [`Root::listed`] names it.
+    fn listing(&self) -> String {
+        let listed: Vec<String> = self.roots.iter().map(Root::listed).collect();
+        listed.join(", ")
+    }
+}
+
+impl Root {
+    /// The root as a miss names it: quoted, and marked as building or failed when it is.
+    fn listed(&self) -> String {
+        let path = self.path.display().to_string();
+        match self.state {
+            State::Building(_) => format!("{path:?} (building)"),
+            State::Failed(_) => format!("{path:?} (failed)"),
+            State::Ready(_) => format!("{path:?}"),
+        }
+    }
+
+    /// The engine this root holds, or what it holds in its place.
+    fn served(&self) -> Result<Arc<Served>, Unready> {
+        match &self.state {
+            State::Ready(served) => Ok(Arc::clone(served)),
+            State::Building(build) => Err(build.unready()),
+            State::Failed(error) => Err(Unready::Failed {
+                root: self.path.display().to_string(),
+                error: error.clone(),
+            }),
+        }
+    }
+}
+
+impl State {
+    /// Stops what this state runs: its build, or its engine's refreshes and follow.
+    fn cancel(&self) {
+        match self {
+            Self::Building(build) => build.cancel.cancel(),
+            Self::Ready(served) => served.cancel.cancel(),
+            Self::Failed(_) => {}
+        }
+    }
+
+    /// The engine this state holds, a build's once it has ended, or `None` when it holds none.
+    fn into_engine(self, runtime: &tokio::runtime::Handle) -> Option<Arc<Served>> {
+        match self {
+            Self::Building(mut build) => runtime
+                .block_on(build.outcome.wait_for(Option::is_some))
+                .ok()
+                .and_then(|outcome| outcome.clone())
+                .and_then(Result::ok),
+            Self::Ready(served) => Some(served),
+            Self::Failed(_) => None,
+        }
     }
 }
 
@@ -563,7 +751,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_building_slot_names_every_field_a_waiting_index_root_matches() {
+    fn a_building_root_names_every_field_a_waiting_index_root_matches() {
         let building = Unready::Building {
             root: "/repo".into(),
             elapsed: Duration::from_secs(3),
@@ -586,7 +774,7 @@ mod tests {
             .build()
             .unwrap();
         let _entered = runtime.enter();
-        let slot = Arc::new(Slot::new(true));
+        let roots = Arc::new(Roots::new(true, NonZeroUsize::MIN));
         let options = crate::Config::default().build_options(false);
         let request = |root: &Path| Request {
             root: root.to_owned(),
@@ -594,7 +782,7 @@ mod tests {
             index_ignored: false,
         };
 
-        let mut built = slot.start(request(first.path()), options.clone());
+        let mut built = roots.start(request(first.path()), options.clone()).unwrap();
         let watched = Arc::downgrade(
             &runtime
                 .block_on(built.wait_for(Option::is_some))
@@ -605,7 +793,7 @@ mod tests {
         );
         drop(built);
         std::fs::write(first.path().join("b.go"), "package a\n\nfunc B() {}\n").unwrap();
-        let mut rebuilt = slot.start(request(second.path()), options);
+        let mut rebuilt = roots.start(request(second.path()), options).unwrap();
         drop(runtime.block_on(rebuilt.wait_for(Option::is_some)).unwrap());
 
         assert!(
@@ -626,7 +814,7 @@ mod tests {
             .unwrap()
     }
 
-    /// A Go file's tree, a runtime entered for the slot's blocking work, and the request of that tree.
+    /// A Go file's tree, a runtime entered for the roots' blocking work, and the request of that tree.
     fn go_tree() -> (tempfile::TempDir, tokio::runtime::Runtime, Request) {
         let tree = tempfile::tempdir().unwrap();
         std::fs::write(tree.path().join("a.go"), "package a\n\nfunc A() {}\n").unwrap();
@@ -645,13 +833,17 @@ mod tests {
     fn a_repeat_of_the_request_held_answers_the_followed_index() {
         let (_tree, runtime, request) = go_tree();
         let _entered = runtime.enter();
-        let slot = Arc::new(Slot::new(true));
+        let roots = Arc::new(Roots::new(true, NonZeroUsize::MIN));
         let options = crate::Config::default().build_options(false);
 
         let first = Arc::downgrade(
-            &settled(&runtime, slot.start(request.clone(), options.clone())).unwrap(),
+            &settled(
+                &runtime,
+                roots.start(request.clone(), options.clone()).unwrap(),
+            )
+            .unwrap(),
         );
-        let again = settled(&runtime, slot.start(request, options)).unwrap();
+        let again = settled(&runtime, roots.start(request, options).unwrap()).unwrap();
 
         assert!(
             first
@@ -665,14 +857,18 @@ mod tests {
     fn a_repeat_of_the_request_held_refreshes_the_unwatched_index() {
         let (tree, runtime, request) = go_tree();
         let _entered = runtime.enter();
-        let slot = Arc::new(Slot::new(false));
+        let roots = Arc::new(Roots::new(false, NonZeroUsize::MIN));
         let options = crate::Config::default().build_options(false);
 
         let first = Arc::downgrade(
-            &settled(&runtime, slot.start(request.clone(), options.clone())).unwrap(),
+            &settled(
+                &runtime,
+                roots.start(request.clone(), options.clone()).unwrap(),
+            )
+            .unwrap(),
         );
         std::fs::write(tree.path().join("b.go"), "package a\n\nfunc B() {}\n").unwrap();
-        let again = settled(&runtime, slot.start(request, options)).unwrap();
+        let again = settled(&runtime, roots.start(request, options).unwrap()).unwrap();
 
         assert!(
             first
@@ -687,9 +883,13 @@ mod tests {
     fn a_repeat_of_the_request_held_rebuilds_a_broken_index() {
         let (_tree, runtime, request) = go_tree();
         let _entered = runtime.enter();
-        let slot = Arc::new(Slot::new(false));
+        let roots = Arc::new(Roots::new(false, NonZeroUsize::MIN));
         let options = crate::Config::default().build_options(false);
-        let broken = settled(&runtime, slot.start(request.clone(), options.clone())).unwrap();
+        let broken = settled(
+            &runtime,
+            roots.start(request.clone(), options.clone()).unwrap(),
+        )
+        .unwrap();
         let first = Arc::downgrade(&broken);
         std::thread::spawn(move || {
             let _held = broken.indexed.write().unwrap();
@@ -698,13 +898,197 @@ mod tests {
         .join()
         .unwrap_err();
 
-        let again = settled(&runtime, slot.start(request, options)).unwrap();
+        let again = settled(&runtime, roots.start(request, options).unwrap()).unwrap();
 
         assert!(
             first.upgrade().is_none(),
             "the broken index outlived the rebuild"
         );
         assert_eq!(again.read().unwrap().files(), 1);
+    }
+
+    /// A request for every file of `root` in Go.
+    fn request(root: &Path) -> Request {
+        Request {
+            root: root.to_owned(),
+            languages: vec!["go"],
+            index_ignored: false,
+        }
+    }
+
+    /// Builds `root` and waits for its engine.
+    fn built(roots: &Arc<Roots>, runtime: &tokio::runtime::Runtime, root: &Path) -> Arc<Served> {
+        let options = crate::Config::default().build_options(false);
+        settled(runtime, roots.start(request(root), options).unwrap()).unwrap()
+    }
+
+    /// The engine `roots` answers a call naming `root` from.
+    fn asked(roots: &Roots, root: &Path) -> Result<Arc<Served>, String> {
+        roots.current(&root.display().to_string())
+    }
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_second_root_leaves_the_first_served() {
+        let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let runtime = runtime();
+        let _entered = runtime.enter();
+        let roots = Arc::new(Roots::new(false, NonZeroUsize::new(2).unwrap()));
+
+        let served = Arc::downgrade(&built(&roots, &runtime, first.path()));
+        let other = built(&roots, &runtime, second.path());
+
+        assert!(
+            served
+                .upgrade()
+                .is_some_and(|served| Arc::ptr_eq(&asked(&roots, first.path()).unwrap(), &served)),
+            "the first index was dropped or built again"
+        );
+        assert!(Arc::ptr_eq(&asked(&roots, second.path()).unwrap(), &other));
+    }
+
+    #[test]
+    fn a_root_past_the_bound_drops_the_least_recently_asked_other() {
+        let trees = [(); 3].map(|()| tempfile::tempdir().unwrap());
+        let [first, second, third] = trees.each_ref().map(tempfile::TempDir::path);
+        let runtime = runtime();
+        let _entered = runtime.enter();
+        let roots = Arc::new(Roots::new(false, NonZeroUsize::new(2).unwrap()));
+
+        drop(built(&roots, &runtime, first));
+        let dropped = Arc::downgrade(&built(&roots, &runtime, second));
+        drop(asked(&roots, first).unwrap());
+        drop(built(&roots, &runtime, third));
+
+        assert!(dropped.upgrade().is_none(), "the dropped index outlived it");
+        assert_eq!(
+            asked(&roots, second).unwrap_err(),
+            format!(
+                "this server has not indexed {second:?} - it holds {first:?}, {third:?}; call index_root with root \
+                 {second:?} to index it",
+                second = second.display().to_string(),
+                first = first.display().to_string(),
+                third = third.display().to_string(),
+            )
+        );
+        assert!(asked(&roots, first).is_ok());
+    }
+
+    #[test]
+    fn a_root_past_the_bound_drops_a_failed_root_before_a_built_one() {
+        let (built_tree, third) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let gone = tempfile::tempdir().unwrap();
+        let missing = gone.path().join("missing");
+        let runtime = runtime();
+        let _entered = runtime.enter();
+        let roots = Arc::new(Roots::new(false, NonZeroUsize::new(2).unwrap()));
+        let options = crate::Config::default().build_options(false);
+
+        let kept = Arc::downgrade(&built(&roots, &runtime, built_tree.path()));
+        assert!(settled(&runtime, roots.start(request(&missing), options).unwrap()).is_err());
+        drop(built(&roots, &runtime, third.path()));
+
+        assert!(
+            kept.upgrade()
+                .is_some_and(|kept| Arc::ptr_eq(&asked(&roots, built_tree.path()).unwrap(), &kept)),
+            "the built root was dropped before the failed one"
+        );
+        assert!(
+            asked(&roots, &missing)
+                .unwrap_err()
+                .starts_with("this server has not indexed")
+        );
+    }
+
+    #[test]
+    fn a_build_waits_for_the_build_under_way() {
+        let tree = tempfile::tempdir().unwrap();
+        let runtime = runtime();
+        let _entered = runtime.enter();
+        let roots = Arc::new(Roots::new(false, NonZeroUsize::MIN));
+        let options = crate::Config::default().build_options(false);
+        let alone = roots.building.lock().unwrap();
+
+        let building = roots.start(request(tree.path()), options).unwrap();
+        let waited = (0..200).all(|_| {
+            std::thread::sleep(Duration::from_millis(10));
+            roots.building(&request(tree.path())).is_some()
+        });
+        drop(alone);
+
+        assert!(waited, "the build ran beside the one under way");
+        assert!(settled(&runtime, building).is_ok());
+    }
+
+    #[test]
+    fn a_root_past_a_bound_of_building_roots_is_refused_and_drops_none() {
+        let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let runtime = runtime();
+        let _entered = runtime.enter();
+        let roots = Arc::new(Roots::new(false, NonZeroUsize::MIN));
+        let options = crate::Config::default().build_options(false);
+        let alone = roots.building.lock().unwrap();
+
+        let building = roots.start(request(first.path()), options.clone()).unwrap();
+        let refused = roots.start(request(second.path()), options).unwrap_err();
+        drop(alone);
+
+        assert_eq!(
+            refused,
+            format!(
+                "this server holds KARTTA_MAX_ROOTS=1 roots, each still building: {:?} (building) - call \
+                 index_root again once index_stats shows one built",
+                first.path().display().to_string()
+            )
+        );
+        assert!(settled(&runtime, building).is_ok());
+        assert!(asked(&roots, first.path()).is_ok());
+    }
+
+    #[test]
+    fn a_root_inside_a_held_root_is_named_with_the_root_that_holds_it() {
+        let tree = tempfile::tempdir().unwrap();
+        let runtime = runtime();
+        let _entered = runtime.enter();
+        let roots = Arc::new(Roots::new(false, NonZeroUsize::MIN));
+        drop(built(&roots, &runtime, tree.path()));
+
+        let inner = tree.path().join("pkg");
+        let error = asked(&roots, &inner).unwrap_err();
+
+        assert!(
+            error.starts_with(&format!(
+                "{:?} is inside the root {:?} this server holds - pass root",
+                inner.display().to_string(),
+                tree.path().display().to_string()
+            )),
+            "{error}"
+        );
+        let failed = Arc::new(Roots::new(false, NonZeroUsize::MIN));
+        let missing = tree.path().join("missing");
+        let options = crate::Config::default().build_options(false);
+        assert!(settled(&runtime, failed.start(request(&missing), options).unwrap()).is_err());
+        assert!(
+            asked(&failed, &missing.join("pkg"))
+                .unwrap_err()
+                .contains(&format!(
+                    "is inside the root {:?} (failed) this server holds",
+                    missing.display().to_string()
+                )),
+            "a failed root reads as indexed"
+        );
+        assert_eq!(
+            asked(&Roots::new(false, NonZeroUsize::MIN), &inner).unwrap_err(),
+            format!(
+                "this server has not indexed {0:?} - it holds no root; call index_root with root {0:?} to index it",
+                inner.display().to_string()
+            )
+        );
     }
 
     #[test]

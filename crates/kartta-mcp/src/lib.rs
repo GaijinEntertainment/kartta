@@ -1,9 +1,12 @@
-//! An MCP server over the kartta engine: one repository's file index and code graph, answered to an agent as tools.
+//! An MCP server over the kartta engine: the file index and code graph of each repository root it indexes, answered
+//! to an agent as tools.
 //!
 //! The server speaks MCP over stdio and offers tools alone, no resources and no prompts. `index_root` builds the
-//! engine over a repository root, and every other tool answers from it: the file tools search paths, list directories
-//! and grep content, and the graph tools find definitions, callers, references, call paths, implementors, importers
-//! and what an edit reaches. One repository is indexed per process, and indexing another replaces it. A built index
+//! engine over a repository root, and every other tool answers from the root it names: the file tools search paths,
+//! list directories and grep content, and the graph tools find definitions, callers, references, call paths,
+//! implementors, importers and what an edit reaches. The process holds the engines of up to [`Config::max_roots`]
+//! roots and builds one at a time: an `index_root` of another root keeps the others, and past that bound drops a
+//! root whose build failed, else the least recently asked root that is not building. A built index
 //! follows its tree through the operating system's change notifications and refreshes itself from each change, unless
 //! [`Config::watch`] is off; the `refresh` tool takes in a change the notifications do not report.
 //!

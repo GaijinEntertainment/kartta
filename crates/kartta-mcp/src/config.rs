@@ -5,12 +5,13 @@ use std::time::Duration;
 use kartta::BuildOptions;
 use kartta_fs::{ContentIndexStorage, IgnoreSources};
 
-/// What every build the server runs takes besides its root and its languages, and whether the server follows the tree
-/// it built.
+/// What every build the server runs takes besides its root and its languages, whether the server follows the tree it
+/// built, and how many roots it holds at once.
 ///
 /// Each build field defaults to the engine's own default: no shared cache, no content index, and the ambient thread
-/// pool. [`Config::watch`] defaults to following the tree. [`Config::from_env`] takes the server's defaults instead,
-/// which add a shared cache under the user's cache directory and a mapped content index.
+/// pool. [`Config::watch`] defaults to following the tree, and [`Config::max_roots`] to [`Config::MAX_ROOTS`].
+/// [`Config::from_env`] takes the server's defaults instead, which add a shared cache under the user's cache directory
+/// and a mapped content index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Config {
@@ -29,6 +30,10 @@ pub struct Config {
     /// [`kartta::Watcher`] started before the build walks the tree reports them, and refreshes itself from each change.
     /// Without it, the `refresh` tool alone takes a change in.
     pub watch: bool,
+    /// How many roots the server holds an index of at once. An `index_root` of a root past it drops a root whose build
+    /// failed, else the least recently asked root that is not building, so 1 holds one repository, which an
+    /// `index_root` of another replaces.
+    pub max_roots: NonZeroUsize,
 }
 
 impl Default for Config {
@@ -39,11 +44,15 @@ impl Default for Config {
             content_index: None,
             threads: None,
             watch: true,
+            max_roots: Self::MAX_ROOTS,
         }
     }
 }
 
 impl Config {
+    /// How many roots the server holds at once by default.
+    pub const MAX_ROOTS: NonZeroUsize = NonZeroUsize::new(4).expect("four is not zero");
+
     /// Reads the configuration from the process environment, and a warning for each variable whose value it could not
     /// read, which leaves that field at its default.
     ///
@@ -55,6 +64,7 @@ impl Config {
     /// | `KARTTA_GREP_INDEX_DIR` | where a `file` or `mmap` index lives; empty or unset is the temporary directory |
     /// | `KARTTA_THREADS` | [`Config::threads`]: a positive count |
     /// | `KARTTA_WATCH` | [`Config::watch`]: `off`, `0`, `false` or `no` turns it off |
+    /// | `KARTTA_MAX_ROOTS` | [`Config::max_roots`]: a positive count |
     ///
     /// The words of `KARTTA_GREP_INDEX` and `KARTTA_WATCH` read in any case.
     #[must_use]
@@ -88,15 +98,16 @@ impl Config {
                 Some(ContentIndexStorage::Mapped { dir: index_dir() })
             }
         };
-        let threads = var("KARTTA_THREADS").and_then(|raw| {
-            let count = raw.trim().parse::<NonZeroUsize>().ok();
-            if count.is_none() {
-                warnings.push(format!(
-                    "KARTTA_THREADS={raw:?} is not a positive count; running on every core"
-                ));
-            }
-            count
+        let threads = count(var("KARTTA_THREADS"), &mut warnings, |raw| {
+            format!("KARTTA_THREADS={raw:?} is not a positive count; running on every core")
         });
+        let max_roots = count(var("KARTTA_MAX_ROOTS"), &mut warnings, |raw| {
+            format!(
+                "KARTTA_MAX_ROOTS={raw:?} is not a positive count; holding up to {} roots",
+                Self::MAX_ROOTS
+            )
+        })
+        .unwrap_or(Self::MAX_ROOTS);
         let watch = var("KARTTA_WATCH").is_none_or(|raw| {
             match raw.trim().to_ascii_lowercase().as_str() {
                 "off" | "0" | "false" | "no" => false,
@@ -115,6 +126,7 @@ impl Config {
             content_index,
             threads,
             watch,
+            max_roots,
         };
         (config, warnings)
     }
@@ -162,6 +174,20 @@ fn user_cache_dir(
         ));
     }
     base.map(|base| base.join("kartta"))
+}
+
+/// The positive count `raw` holds, or `None` with the warning `unread` writes when it holds none.
+fn count(
+    raw: Option<String>,
+    warnings: &mut Vec<String>,
+    unread: impl FnOnce(&str) -> String,
+) -> Option<NonZeroUsize> {
+    let raw = raw?;
+    let count = raw.trim().parse().ok();
+    if count.is_none() {
+        warnings.push(unread(&raw));
+    }
+    count
 }
 
 fn cache_ttl(raw: Option<String>, warnings: &mut Vec<String>) -> Duration {
@@ -270,9 +296,11 @@ mod tests {
             ("KARTTA_GREP_INDEX", " MMAP "),
             ("KARTTA_GREP_INDEX_DIR", "/scratch"),
             ("KARTTA_THREADS", "4"),
+            ("KARTTA_MAX_ROOTS", " 1 "),
         ]);
 
         assert_eq!(warnings, Vec::<String>::new());
+        assert_eq!(config.max_roots, NonZeroUsize::MIN);
         assert_eq!(config.content_cache, Some(PathBuf::from("/cache")));
         assert_eq!(config.content_cache_ttl, Duration::from_hours(1));
         assert_eq!(
@@ -295,6 +323,7 @@ mod tests {
             ("KARTTA_THREADS", "0"),
             ("KARTTA_CACHE_DIR", ""),
             ("KARTTA_CACHE_ENTRY_TTL_SECS", "a week"),
+            ("KARTTA_MAX_ROOTS", "0"),
         ]);
 
         assert_eq!(
@@ -306,10 +335,14 @@ mod tests {
                 ..Config::default()
             }
         );
-        assert_eq!(warnings.len(), 3, "{warnings:?}");
+        assert_eq!(warnings.len(), 4, "{warnings:?}");
         assert!(warnings[0].contains("KARTTA_CACHE_ENTRY_TTL_SECS=\"a week\""));
         assert!(warnings[1].contains("KARTTA_GREP_INDEX=\"disk\""));
         assert!(warnings[2].contains("KARTTA_THREADS=\"0\""));
+        assert_eq!(
+            warnings[3],
+            "KARTTA_MAX_ROOTS=\"0\" is not a positive count; holding up to 4 roots"
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@
 
 mod common;
 
+use std::path::Path;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -182,9 +183,8 @@ fn the_instructions_send_an_agent_to_index_stats_before_it_builds() {
 
     assert!(
         client.instructions.contains(
-            "Every tool answers from one index, of one repository. index_stats tells whether that index is built or \
-             building, and for which root. Call index_root with the repository's absolute root when index_stats shows \
-             no index of it."
+            "index_stats without a root shows each root held, built, building or failed. Call index_root with the \
+             repository's absolute root when index_stats shows no index of it."
         ),
         "{}",
         client.instructions
@@ -287,8 +287,8 @@ fn every_optional_argument_reads_null_as_omitted() {
             }
         }
 
-        let without = client.call(name, &Value::Object(omitted));
-        let with = client.call(name, &Value::Object(nulled));
+        let without = client.call_as_sent(name, &Value::Object(omitted));
+        let with = client.call_as_sent(name, &Value::Object(nulled));
 
         assert!(
             !with.text.starts_with("failed to deserialize"),
@@ -365,7 +365,12 @@ fn a_wrong_argument_names_its_parameter_and_its_path_inside_the_arguments() {
             json!({"regions": [{"file": "a.go", "line": 3}]}),
             "regions[0].line: unknown field `line`, expected one of `file`, `start_line`, `end_line`",
         ),
-        ("find_callers", json!({"hops": 2}), "missing field `name`"),
+        (
+            "find_callers",
+            json!({"root": "/r", "hops": 2}),
+            "missing field `name`",
+        ),
+        ("find_callers", json!({"name": "B"}), "missing field `root`"),
     ] {
         let answer = client.call(tool, &arguments);
 
@@ -1004,10 +1009,13 @@ fn grep_says_when_its_globs_selected_symlinks_alone() {
 fn a_query_before_index_root_names_the_fix() {
     let mut client = Client::start(&[]);
 
-    let answer = client.call("find_files", &json!({"pattern": "main"}));
+    let answer = client.call("find_files", &json!({"root": "/repo", "pattern": "main"}));
 
     assert!(answer.is_error);
-    assert_eq!(answer.text, "no repository indexed: call index_root first");
+    assert_eq!(
+        answer.text,
+        "this server has not indexed \"/repo\" - it holds no root; call index_root with root \"/repo\" to index it"
+    );
 }
 
 #[test]
@@ -1065,6 +1073,13 @@ fn the_index_counts_the_worktrees_of_its_repository_it_holds_empty() {
          </index>"
     );
     assert_eq!(client.answer("index_stats", &json!({})), answer);
+    let other = go_module();
+    let second = client.index(other.path());
+    assert_eq!(
+        client.call_as_sent("index_stats", &json!({})).text,
+        format!("<roots total=\"2\">\n{answer}\n{second}\n</roots>"),
+        "a listing of several roots keeps each root's pruned_worktrees in its own envelope"
+    );
 }
 
 #[test]
@@ -1157,7 +1172,7 @@ fn index_stats_answers_an_envelope_over_nothing_indexed() {
 
     assert_eq!(
         client.answer("index_stats", &json!({})),
-        "<index status=\"empty\">nothing is indexed - call index_root with the repository's absolute root</index>"
+        "<roots total=\"0\">nothing is indexed - call index_root with the repository's absolute root</roots>"
     );
 }
 
@@ -1449,10 +1464,11 @@ fn find_callers_offers_alternatives_to_an_unknown_name() {
 }
 
 #[test]
-fn indexing_another_repository_replaces_the_first() {
+fn indexing_another_root_leaves_the_first_served() {
     let first = go_module();
     let second = common::tree(&[("lib/only.go", "package lib\n\nfunc Only() {}\n")]);
     let mut client = Client::start(&[first.path()]);
+    let launched = client.wait_for_index();
 
     let answer = client.index(second.path());
 
@@ -1465,9 +1481,104 @@ fn indexing_another_repository_replaces_the_first() {
         "lib/only.go"
     );
     assert_eq!(
+        client.answer(
+            "find_files",
+            &json!({"root": first.path(), "pattern": "service"})
+        ),
+        "pkg/service.go"
+    );
+    assert_eq!(
+        client.call_as_sent("index_stats", &json!({})).text,
+        format!("<roots total=\"2\">\n{launched}\n{answer}\n</roots>"),
+        "index_stats without a root shows each root in the order the server was first asked to build them"
+    );
+    assert_eq!(
         client.index(second.path()),
         answer,
         "a second build of the same root answers the same"
+    );
+}
+
+#[test]
+fn calls_side_by_side_each_answer_from_the_root_they_name() {
+    let trees = [("First", go_module()), ("Second", go_module())];
+    let mut client = Client::unwatched(&[]);
+    for (name, tree) in &trees {
+        let function = format!("package pkg\n\nfunc {name}() {{}}\n");
+        std::fs::write(tree.path().join("pkg/named.go"), function).expect("the file is written");
+        client.index(tree.path());
+    }
+    let calls: Vec<(&str, Value)> = (0..16)
+        .map(|at| {
+            let root = trees[at % 2].1.path();
+            (
+                "file_outline",
+                json!({"root": root, "file": "pkg/named.go"}),
+            )
+        })
+        .collect();
+
+    let answers = client.calls_at_once(&calls);
+
+    for (at, answer) in answers.iter().enumerate() {
+        let (own, other) = if at % 2 == 0 {
+            ("First", "Second")
+        } else {
+            ("Second", "First")
+        };
+        assert!(
+            !answer.is_error && answer.text.contains(own) && !answer.text.contains(other),
+            "call {at} asked for {own}: {}",
+            answer.text
+        );
+    }
+}
+
+#[test]
+fn index_stats_of_a_root_the_server_does_not_hold_names_the_roots_it_holds() {
+    let tree = go_module();
+    let other = common::tree(&[]);
+    let mut client = Client::unwatched(&[]);
+    client.index(tree.path());
+
+    let answer = client.call("index_stats", &json!({"root": other.path()}));
+
+    assert!(answer.is_error, "{}", answer.text);
+    assert_eq!(
+        answer.text,
+        format!(
+            "this server has not indexed {other:?} - it holds {tree:?}; call index_root with root {other:?} to index \
+             it",
+            other = other.path().display().to_string(),
+            tree = tree.path().display().to_string()
+        )
+    );
+}
+
+#[test]
+fn a_relative_launch_root_is_named_by_its_absolute_path() {
+    let tree = go_module();
+    // constraint: the child resolves its working directory through macOS's /var link, and `canonicalize` writes a
+    // Windows path in the extended-length syntax, as its documentation says, which the root's spelling would then carry
+    let dir = if cfg!(windows) {
+        tree.path().to_owned()
+    } else {
+        tree.path().canonicalize().expect("the tree resolves")
+    };
+    let mut client = Client::start_in(&dir, &[Path::new("pkg")]);
+
+    let stats = client.wait_for_index();
+
+    assert!(
+        stats.starts_with(&format!(
+            "<index root={:?}",
+            dir.join("pkg").display().to_string()
+        )),
+        "{stats}"
+    );
+    assert_eq!(
+        client.answer("find_files", &json!({"pattern": "service"})),
+        "service.go"
     );
 }
 

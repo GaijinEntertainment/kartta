@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -12,6 +12,9 @@ pub(crate) struct Client {
     input: ChildStdin,
     output: BufReader<ChildStdout>,
     next_id: u64,
+    /// The root a call names when its arguments name none: the launch root, then that of each `index_root` that
+    /// answered an index.
+    root: Option<PathBuf>,
     /// The instructions the server's `initialize` answer carries.
     pub(crate) instructions: String,
 }
@@ -26,12 +29,29 @@ pub(crate) struct Answer {
 impl Client {
     /// Starts the server with `arguments`, and completes the MCP handshake.
     pub(crate) fn start(arguments: &[&Path]) -> Self {
-        Self::launch(Self::command(arguments, "on"))
+        Self::launch(Self::command(arguments, "on")).rooted_at(arguments)
     }
 
     /// Starts the server with `arguments` and `KARTTA_WATCH=off`, and completes the MCP handshake.
     pub(crate) fn unwatched(arguments: &[&Path]) -> Self {
-        Self::launch(Self::command(arguments, "off"))
+        Self::launch(Self::command(arguments, "off")).rooted_at(arguments)
+    }
+
+    /// Starts the server in `dir` with `arguments`, and completes the MCP handshake.
+    pub(crate) fn start_in(dir: &Path, arguments: &[&Path]) -> Self {
+        let mut command = Self::command(arguments, "on");
+        command.current_dir(dir);
+        let mut client = Self::launch(command);
+        client.root = arguments.first().map(|root| dir.join(root));
+        client
+    }
+
+    /// The client, its calls naming the root the server's `arguments` launch it with, as an absolute path.
+    fn rooted_at(mut self, arguments: &[&Path]) -> Self {
+        self.root = arguments
+            .first()
+            .map(|root| std::path::absolute(root).expect("the launch root resolves"));
+        self
     }
 
     /// Starts an unwatched server that keeps a file-backed trigram index in `dir`, and completes the MCP handshake.
@@ -62,7 +82,7 @@ impl Client {
     pub(crate) fn with_stderr(arguments: &[&Path]) -> (Self, mpsc::Receiver<String>) {
         let mut command = Self::command(arguments, "on");
         command.stderr(Stdio::piped());
-        let mut client = Self::launch(command);
+        let mut client = Self::launch(command).rooted_at(arguments);
         let stderr = client.child.stderr.take().expect("stderr is piped");
         let (sender, lines) = mpsc::channel();
         std::thread::spawn(move || {
@@ -97,6 +117,7 @@ impl Client {
             input,
             output,
             next_id: 1,
+            root: None,
             instructions: String::new(),
         };
         let initialized = client.request(
@@ -122,14 +143,7 @@ impl Client {
         self.next_id += 1;
         self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
         loop {
-            let mut line = String::new();
-            let read = self.output.read_line(&mut line).expect("stdout reads");
-            assert!(
-                read > 0,
-                "the server closed stdout before answering {method}"
-            );
-            let message: Value =
-                serde_json::from_str(&line).expect("every stdout line is a JSON-RPC frame");
+            let message = self.frame(method);
             if message["id"] == id {
                 assert!(message["error"].is_null(), "{method} failed: {message}");
                 return message["result"].clone();
@@ -137,16 +151,57 @@ impl Client {
         }
     }
 
-    /// Calls a tool with `arguments`.
-    pub(crate) fn call(&mut self, tool: &str, arguments: &Value) -> Answer {
-        let result = self.request("tools/call", &json!({"name": tool, "arguments": arguments}));
-        Answer {
-            text: result["content"][0]["text"]
-                .as_str()
-                .expect("the answer is text")
-                .to_owned(),
-            is_error: result["isError"].as_bool().unwrap_or(false),
+    /// Sends every call before it reads an answer, so the server answers them side by side, and returns their answers
+    /// in the order of `calls`. Each call's arguments go as they are.
+    pub(crate) fn calls_at_once(&mut self, calls: &[(&str, Value)]) -> Vec<Answer> {
+        let first = self.next_id;
+        for (tool, arguments) in calls {
+            let call = json!({"name": tool, "arguments": arguments});
+            self.send(&json!({"jsonrpc": "2.0", "id": self.next_id, "method": "tools/call", "params": call}));
+            self.next_id += 1;
         }
+        let mut answers: Vec<Option<Answer>> = calls.iter().map(|_| None).collect();
+        while answers.iter().any(Option::is_none) {
+            let message = self.frame("tools/call");
+            let at = message["id"].as_u64().and_then(|id| id.checked_sub(first));
+            if let Some(answer) = at.and_then(|at| answers.get_mut(usize::try_from(at).ok()?)) {
+                assert!(message["error"].is_null(), "tools/call failed: {message}");
+                *answer = Some(Answer::of(&message["result"]));
+            }
+        }
+        answers.into_iter().flatten().collect()
+    }
+
+    /// The next frame the server writes, failing when it closes stdout before answering `method`.
+    fn frame(&mut self, method: &str) -> Value {
+        let mut line = String::new();
+        let read = self.output.read_line(&mut line).expect("stdout reads");
+        assert!(
+            read > 0,
+            "the server closed stdout before answering {method}"
+        );
+        serde_json::from_str(&line).expect("every stdout line is a JSON-RPC frame")
+    }
+
+    /// Calls a tool with `arguments`, and with the client's root as `root` when they name none and the tool is not
+    /// `index_root`. An `index_root` that answers an index makes its root the client's.
+    pub(crate) fn call(&mut self, tool: &str, arguments: &Value) -> Answer {
+        let mut arguments = arguments.clone();
+        if let (Some(root), Value::Object(named)) = (&self.root, &mut arguments)
+            && tool != "index_root"
+        {
+            named.entry("root").or_insert_with(|| json!(root));
+        }
+        let answer = self.call_as_sent(tool, &arguments);
+        if tool == "index_root" && answer.text.starts_with("<index root=") {
+            self.root = arguments["root"].as_str().map(PathBuf::from);
+        }
+        answer
+    }
+
+    /// Calls a tool with `arguments` as they are.
+    pub(crate) fn call_as_sent(&mut self, tool: &str, arguments: &Value) -> Answer {
+        Answer::of(&self.request("tools/call", &json!({"name": tool, "arguments": arguments})))
     }
 
     /// Calls a tool and returns its text, failing when it answers a tool error.
@@ -192,6 +247,19 @@ impl Drop for Client {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+impl Answer {
+    /// What the `tools/call` result `result` answered.
+    fn of(result: &Value) -> Self {
+        Self {
+            text: result["content"][0]["text"]
+                .as_str()
+                .expect("the answer is text")
+                .to_owned(),
+            is_error: result["isError"].as_bool().unwrap_or(false),
+        }
     }
 }
 

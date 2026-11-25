@@ -6,6 +6,7 @@ mod symbols;
 mod unused;
 
 use std::fmt::{Display, Write};
+use std::path::Path;
 
 use kartta::{
     Definition, Engine, EngineChange, Entry, EntryKind, Hit, Region, Resolution, Selector,
@@ -700,14 +701,31 @@ fn bound(family: &str, resolution: &Resolution<'_>) -> String {
         .close()
 }
 
-/// The `index_stats` answer while the slot holds no index: nothing indexed, a build under way, or the failure of the
-/// last build.
+/// The `index_stats` answer that names no root: one envelope per root held, `listed`, counted in `total=`, or a hint
+/// when the server holds none.
+pub(crate) fn roots(listed: Vec<String>) -> String {
+    let element = Element::new("roots").attr("total", listed.len());
+    if listed.is_empty() {
+        return element
+            .inline("nothing is indexed - call index_root with the repository's absolute root");
+    }
+    element.children(listed)
+}
+
+/// The envelope a root-less `index_stats` lists for the held `root` whose index could not answer, with the `error` it
+/// answered.
+pub(crate) fn broken(root: &Path, error: &str) -> String {
+    Element::new("index")
+        .attr("root", root.display())
+        .attr("status", "broken")
+        .inline(error)
+}
+
+/// The `index_stats` answer of a root that holds no index: a build under way, or the failure of the last build.
 pub(crate) fn unready(unready: &Unready) -> String {
     let element = Element::new("index");
     match unready {
-        Unready::Empty => element.attr("status", "empty").inline(
-            "nothing is indexed - call index_root with the repository's absolute root",
-        ),
+        Unready::Unheld(miss) => miss.clone(),
         Unready::Building { root, elapsed } => element
             .attr("root", root)
             .attr("status", "building")
