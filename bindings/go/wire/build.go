@@ -130,6 +130,9 @@ type CancelAnswer struct {
 type Stats struct {
 	// Entries counts the entries the index holds, directories included.
 	Entries int `json:"entries"`
+	// PrunedWorktrees names the directories the index holds empty, each a linked worktree of the repository the root
+	// belongs to, root-relative and in the index's entry order; nothing below them is indexed. Nil when none.
+	PrunedWorktrees []string `json:"pruned_worktrees,omitempty"`
 	// Threads counts the threads the index runs on: the build's Threads, or the ambient pool's size when it named none.
 	Threads   int             `json:"threads"`
 	Languages []LanguageFiles `json:"languages"`

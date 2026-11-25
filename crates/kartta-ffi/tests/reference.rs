@@ -815,7 +815,7 @@ fn every_key_of_a_golden_is_a_name_of_the_reference() {
 /// The keys no golden holds, because what answers them is no file of a fixture: an unreadable or removed file, a
 /// symlink a Windows checkout does not make, a machine's own path, a watcher that failed. Each comes with the file
 /// whose test pins it.
-const PINNED_ELSEWHERE: [(&str, &str, &str); 25] = [
+const PINNED_ELSEWHERE: [(&str, &str, &str); 26] = [
     ("BuildParams", "content_cache", "tests/dispatch.rs"),
     ("ContentIndexView", "unindexed", "tests/dispatch.rs"),
     ("FileView", "special", "tests/dispatch.rs"),
@@ -829,6 +829,7 @@ const PINNED_ELSEWHERE: [(&str, &str, &str); 25] = [
     ("ListView", "stopped_build", "src/handle.rs"),
     ("ListedView", "target", "tests/dispatch.rs"),
     ("StatsAnswer", "content_index_failure", "tests/dispatch.rs"),
+    ("StatsAnswer", "pruned_worktrees", "tests/dispatch.rs"),
     ("StatsAnswer", "stopped_build", "src/handle.rs"),
     ("StoppedView", "entries", "src/handle.rs"),
     ("StoppedView", "unvisited", "src/handle.rs"),

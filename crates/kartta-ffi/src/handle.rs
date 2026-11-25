@@ -855,6 +855,34 @@ mod tests {
     }
 
     #[test]
+    fn a_cancel_past_the_walk_answers_the_worktrees_the_stopped_index_holds_empty() {
+        let (tree, kartta) = handle();
+        let git_dir = tree.path().join(".git/worktrees/agent");
+        fs::create_dir_all(&git_dir).expect("the worktree's git directory");
+        fs::write(git_dir.join("commondir"), "../..\n").expect("commondir");
+        let worktree = tree.path().join("agent");
+        fs::create_dir_all(&worktree).expect("the worktree");
+        fs::write(worktree.join(".git"), "gitdir: ../.git/worktrees/agent\n").expect("the gitfile");
+        fs::write(worktree.join("a.defs"), "a\n").expect("the worktree's file");
+        fs::write(tree.path().join("a.defs"), "a\n").expect("a.defs");
+        let kartta = Arc::new(kartta);
+        let params: BuildParams =
+            wire::params(br#"{"id": 1, "threads": 1}"#).expect("the params read");
+        let cancelling = Cancelling(Arc::clone(&kartta), CancelAt::ResolverBuilt);
+
+        let built = kartta.build_languages(&params, vec![Box::new(cancelling)]);
+
+        assert!(built.is_err(), "the build is cancelled");
+        let stats = asked(&kartta, "stats", "");
+        assert!(stats["ok"].get("stopped_build").is_some(), "{stats}");
+        assert_eq!(
+            stats["ok"]["pruned_worktrees"],
+            serde_json::json!(["agent"]),
+            "{stats}"
+        );
+    }
+
+    #[test]
     fn a_cancel_after_the_last_file_resolved_answers_build_cancelled_and_every_query_answers() {
         let (_tree, kartta, built) = cancelled_at(CancelAt::Resolving);
 

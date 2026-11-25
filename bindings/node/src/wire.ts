@@ -237,6 +237,11 @@ export type CancelAnswer = {
 export type Stats = {
 	/** The entries the index holds, directories included. */
 	entries: number;
+	/**
+	 * The directories the index holds empty, each a linked worktree of the repository the root belongs to, root-relative
+	 * and in the index's entry order; nothing below them is indexed. Absent when none.
+	 */
+	pruned_worktrees?: string[];
 	/** The threads the index runs on: the build's `threads`, or the ambient pool's size when it named none. */
 	threads: number;
 	languages: LanguageFiles[];

@@ -220,6 +220,8 @@ impl Serialize for StoredErrors {
 #[derive(Serialize)]
 pub(crate) struct StatsAnswer<'e> {
     entries: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pruned_worktrees: Vec<&'e str>,
     threads: usize,
     languages: Vec<Wired<LanguageFiles<'e>>>,
     graphs: Vec<GraphStats<'e>>,
@@ -289,6 +291,7 @@ impl<'e> StatsAnswer<'e> {
         let stats = engine.stats();
         Self {
             entries: engine.index().len(),
+            pruned_worktrees: engine.index().pruned_worktrees().collect(),
             threads: engine.index().threads(),
             languages: stats.languages.into_iter().map(Wired).collect(),
             graphs: stats
@@ -311,6 +314,7 @@ impl<'e> StatsAnswer<'e> {
     pub(crate) fn stopped(stopped: &'e StoppedBuild) -> Self {
         Self {
             entries: stopped.index.len(),
+            pruned_worktrees: stopped.index.pruned_worktrees().collect(),
             threads: stopped.index.threads(),
             languages: Vec::new(),
             graphs: Vec::new(),

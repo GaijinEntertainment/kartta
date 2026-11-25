@@ -449,6 +449,9 @@ How a site touches a symbol. A call reads it.
 ### StatsAnswer
 
 - `entries` (integer, always): The entries the index holds, directories included.
+- `pruned_worktrees` (array of string, optional): The directories the index holds empty, each a linked worktree of the
+  repository the root belongs to, root-relative and in the index's entry order; nothing below them is indexed. Absent
+  when none.
 - `threads` (integer, always): The threads the index runs on: the build's `threads`, or the ambient pool's size when it
   named none.
 - `languages` (array of [`LanguageFiles`](#languagefiles), always): What the build made of each language's files.
