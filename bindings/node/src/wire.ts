@@ -35,7 +35,8 @@ export type Methods = {
 
 /**
  * What a failure reports. Every code but `closed` is the engine's; `closed` is the binding's own, for a call on a
- * closed handle, and the binding also rejects with `internal` for a failure of the addon or of reading its answer.
+ * closed handle, and the binding also rejects with `internal` for a failure of the addon or of reading its answer. A
+ * library newer than this package may answer a code it does not name.
  */
 export type Code =
 	| 'invalid_request'
@@ -54,7 +55,8 @@ export type Code =
 	| 'not_found'
 	| 'not_a_directory'
 	| 'internal'
-	| 'closed';
+	| 'closed'
+	| (string & Record<never, never>);
 
 /** The params of a method that takes none. */
 export type NoParams = Record<string, never>;
