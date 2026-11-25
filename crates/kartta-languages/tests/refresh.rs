@@ -204,7 +204,7 @@ fn an_engine_refreshed_after_edits_answers_as_a_build_of_the_edited_tree() {
     );
     assert_eq!(
         (whole.dropped, named.dropped),
-        (Some(2), Some(2)),
+        (2, 2),
         "gone.cpp and old.cpp leave"
     );
 }
@@ -415,7 +415,7 @@ fn a_refresh_of_an_unchanged_tree_reads_and_resolves_nothing() {
 
     assert_eq!(
         (refresh.extracted, refresh.resolved_again, refresh.dropped),
-        (0, 0, Some(0))
+        (0, 0, 0)
     );
     assert!(
         refresh.reconfigured.is_empty(),
