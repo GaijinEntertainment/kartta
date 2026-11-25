@@ -35,7 +35,7 @@ use crate::render::{
     self, CallersAsk, EditAsk, Found, Graphless, ImportersAsk, NameDefinitions, PathAsk, Read,
     SUGGESTIONS, Selection, SiteFilter, Suggestion, Unbuilt, Unmatched, UnusedAsk,
 };
-use crate::state::{GraphRow, INDEX_WAIT, Indexed, Request, Served, Slot};
+use crate::state::{GraphRow, INDEX_WAIT, Indexed, Request, Roots, Served, Unready};
 
 /// How many matching lines `grep` answers when the call names no cap.
 const GREP_MATCHES: usize = 100;
@@ -130,10 +130,10 @@ const CALLERS_LISTED: usize = 100;
 /// How many hops `find_callees` walks when the call names none: a body's callees fan out at every hop.
 const CALLEE_HOPS: u32 = 1;
 
-/// The MCP server: the tools, over the one repository it indexes.
+/// The MCP server: the tools, over each repository root it indexes.
 #[derive(Clone)]
 pub struct Server {
-    slot: Arc<Slot>,
+    roots: Arc<Roots>,
     config: Arc<Config>,
     /// How long `index_root` waits for its build before it answers that the build is still running.
     index_wait: Duration,
@@ -144,7 +144,7 @@ impl fmt::Debug for Server {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Server")
-            .field("slot", &self.slot)
+            .field("roots", &self.roots)
             .field("config", &self.config)
             .field("index_wait", &self.index_wait)
             .finish_non_exhaustive()
@@ -156,7 +156,7 @@ impl Server {
     #[must_use]
     pub fn with_config(config: Config) -> Self {
         Self {
-            slot: Arc::new(Slot::new(config.watch)),
+            roots: Arc::new(Roots::new(config.watch, config.max_roots)),
             config: Arc::new(config),
             index_wait: INDEX_WAIT,
             tool_router: Self::tool_router(),
@@ -164,9 +164,10 @@ impl Server {
     }
 
     /// Starts building the index of `root` with every language, as `index_root` with no other argument does, and
-    /// returns without waiting for it. Until the build finishes, `index_stats` answers that it is building and every
-    /// other query answers an error saying so; an `index_root` of the same root joins it, and answers that it is still
-    /// building once it has waited 30 s for it.
+    /// returns without waiting for it. A relative `root` is read against the working directory, and the root every call
+    /// names is the absolute path it comes to. Until the build finishes, `index_stats` answers that it is building and
+    /// every other query of the root answers an error saying so; an `index_root` of the same root joins it, and answers
+    /// that it is still building once it has waited 30 s for it.
     ///
     /// The future it returns resolves once the build ends, to why it built no index, or `None` when it built one. The
     /// build runs whether or not the future is awaited.
@@ -177,12 +178,16 @@ impl Server {
         root: PathBuf,
     ) -> impl Future<Output = Option<String>> + Send + 'static {
         let request = Request {
-            root,
+            root: std::path::absolute(&root).unwrap_or(root),
             languages: CATALOG.to_build(None),
             index_ignored: false,
         };
-        let mut outcome = self.slot.start(request, self.config.build_options(false));
+        let started = self.roots.start(request, self.config.build_options(false));
         async move {
+            let mut outcome = match started {
+                Ok(outcome) => outcome,
+                Err(error) => return Some(error),
+            };
             outcome.wait_for(Option::is_some).await.map_or_else(
                 |_| Some("the build stopped before it answered".to_owned()),
                 |built| {
@@ -194,12 +199,12 @@ impl Server {
         }
     }
 
-    /// Answers a query from the current index on a blocking thread, and on the index's own threads.
-    async fn answer<F>(&self, answer: F) -> Result<String, String>
+    /// Answers a query from the index of `root` on a blocking thread, and on the index's own threads.
+    async fn answer<F>(&self, root: &str, answer: F) -> Result<String, String>
     where
         F: FnOnce(&Indexed) -> Result<String, String> + Send + 'static,
     {
-        answer_from(self.slot.current()?, answer).await
+        answer_from(self.roots.current(root)?, answer).await
     }
 }
 
@@ -214,6 +219,16 @@ where
     })
     .await
     .map_err(|error| format!("the query stopped before it answered: {error}"))?
+}
+
+/// The `index_stats` answer of `indexed`, how the calls of each graph bind included when `coverage` is set.
+fn stats(indexed: &Indexed, coverage: bool) -> String {
+    let coverage = if coverage {
+        indexed.engine.resolution(0)
+    } else {
+        Vec::new()
+    };
+    render::index(indexed, &coverage)
 }
 
 /// Awaits what `answering` answers, cancelling the token it was handed once `stop` resolves first. The answer is still
@@ -341,16 +356,17 @@ impl Server {
         annotations(idempotent_hint = true),
         description = "Build the code index for a repository: walk the file tree and parse every recognized source \
                        file into a per-language code graph of symbols (functions, types, methods...) with their \
-                       calls, uses and includes. Every other tool queries this index, and each but index_stats errors \
-                       until it exists. A \
-                       build at 2 threads takes about 0.4 s on 900 files and about a minute on 170,000; a build \
-                       still running after 30 s answers the status=\"building\" envelope of index_stats instead and \
-                       runs on - call index_stats until it answers the index. One \
-                       repository is indexed per server, and indexing another replaces the previous one (a build of \
-                       the same root, languages and \
-                       index_ignored already under way is waited for, not repeated, and the index they built is \
-                       answered as held, refreshed \
-                       first while index_stats shows watch off). Returns an <index> envelope, its languages= \
+                       calls, uses and includes. Every other tool names the root it queries, and each but index_stats \
+                       errors until that root's index exists. A build at 2 threads takes about 0.4 s on 900 files \
+                       and about a minute on 170,000; a build still running after 30 s answers the \
+                       status=\"building\" envelope of index_stats instead and runs on - call index_stats until it \
+                       answers the index. The server holds the index of each root it builds, up to KARTTA_MAX_ROOTS \
+                       (4 by default): a new root past it drops a failed root, else the least recently asked root not \
+                       building, and building a held root with other languages or index_ignored replaces its index (a \
+                       build of the same root, languages and index_ignored already under way is waited for, not \
+                       repeated, and the index they built is answered as held, refreshed first while index_stats \
+                       shows watch off). \
+                       Returns an <index> envelope, its languages= \
                        naming the languages a 'languages' filter limited the build to (a symbol tool's answer for a \
                        name that matches nothing repeats them as index_languages=), its gitignore= naming the \
                        ignore files that applied as index_stats describes, its grep_index= present only when the \
@@ -389,15 +405,15 @@ impl Server {
             index_ignored,
         };
         let mut outcome = self
-            .slot
-            .start(request.clone(), self.config.build_options(index_ignored));
+            .roots
+            .start(request.clone(), self.config.build_options(index_ignored))?;
         let waited = tokio::time::timeout(self.index_wait, outcome.wait_for(Option::is_some))
             .await
             .map(|built| built.map(|built| built.clone()));
         let built = if let Ok(built) = waited {
             built
         } else {
-            if let Some(building) = self.slot.building(&request) {
+            if let Some(building) = self.roots.building(&request) {
                 return Ok(render::unready(&building));
             }
             outcome
@@ -426,9 +442,12 @@ impl Server {
                        the root is inside the repository at <top>, whose .gitignore files above the root were not \
                        read\": the index can hold files those hide. pruned_worktrees=N, absent when zero, counts the \
                        linked worktrees of the root's repository inside the root, each listed as an empty directory: \
-                       nothing below one is indexed. While a build runs it answers status=\"building\" \
-                       with the seconds so far, before any build status=\"empty\", and after a build that failed \
-                       status=\"failed\" with its root and error; otherwise the <index> envelope index_root produced. \
+                       nothing below one is indexed. While a build runs it answers status=\"building\" with the \
+                       seconds so far, and after a build that failed status=\"failed\" with its root and error; \
+                       otherwise the <index> envelope index_root produced. Without a root it answers \
+                       <roots total=\"N\"> around one such envelope per root the server holds, in the order it was \
+                       first asked to build them, a root that cannot answer as status=\"broken\" with why, and a hint \
+                       to call index_root when it holds none. \
                        With coverage=true it adds one <coverage/> record per language, to tell \"no callers\" from a \
                        language whose calls the graph binds poorly: sites, bound (split into certain / likely / \
                        guess), edges (caller-callee pairs), and why the other sites bound no definition, each only \
@@ -442,19 +461,31 @@ impl Server {
         &self,
         Parameters(p): Parameters<IndexStatsParams>,
     ) -> Result<String, String> {
-        let served = match self.slot.served() {
-            Ok(served) => served,
-            Err(unready) => return Ok(render::unready(&unready)),
-        };
-        answer_from(served, move |indexed| {
-            let coverage = if p.coverage.unwrap_or_default() {
-                indexed.engine.resolution(0)
-            } else {
-                Vec::new()
-            };
-            Ok(render::index(indexed, &coverage))
+        let coverage = p.coverage.unwrap_or_default();
+        let held = p
+            .root
+            .as_ref()
+            .map_or_else(|| self.roots.listed(), |root| vec![self.roots.served(root)]);
+        let mut answers = Vec::with_capacity(held.len());
+        for held in held {
+            answers.push(match held {
+                Ok(served) => {
+                    let asked = Arc::clone(&served);
+                    match answer_from(served, move |indexed| Ok(stats(indexed, coverage))).await {
+                        Ok(answer) => answer,
+                        Err(error) if p.root.is_none() => render::broken(asked.root(), &error),
+                        Err(error) => return Err(error),
+                    }
+                }
+                Err(Unready::Unheld(miss)) => return Err(miss),
+                Err(unready) => render::unready(&unready),
+            });
+        }
+        Ok(if p.root.is_some() {
+            answers.concat()
+        } else {
+            render::roots(answers)
         })
-        .await
     }
 
     #[tool(
@@ -476,7 +507,7 @@ impl Server {
     )]
     async fn refresh(&self, Parameters(p): Parameters<RefreshParams>) -> Result<String, String> {
         let paths = p.paths.unwrap_or_default();
-        let served = self.slot.current()?;
+        let served = self.roots.current(&p.root)?;
         tokio::task::spawn_blocking(move || {
             served
                 .refresh(paths.iter().map(String::as_str))
@@ -513,7 +544,7 @@ impl Server {
         }
         let includes = globs(p.includes.as_deref().unwrap_or_default())?;
         let excludes = globs(p.excludes.as_deref().unwrap_or_default())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let index = indexed.engine.index();
             let mut options = FuzzyOptions::default().limit(p.max_results.unwrap_or_default());
             if let Some(includes) = &includes {
@@ -563,7 +594,7 @@ impl Server {
         }
         let filter = Filter::new(&p.globs).map_err(|error| error.to_string())?;
         let excludes = globs(p.excludes.as_deref().unwrap_or_default())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let index = indexed.engine.index();
             let mut options = GlobOptions::default().limit(p.max_results.unwrap_or_default());
             if let Some(excludes) = &excludes {
@@ -626,7 +657,7 @@ impl Server {
         };
         let context_lines = p.context_lines.unwrap_or_default();
         stop_on(request.ct.cancelled(), |cancel| {
-            self.answer(move |indexed| {
+            self.answer(&p.root, move |indexed| {
                 let index = indexed.engine.index();
                 let mut options = GrepOptions::default()
                     .context(render::grep_context(context_lines))
@@ -691,7 +722,7 @@ impl Server {
             "." => String::new(),
             dir => dir.to_owned(),
         };
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let index = indexed.engine.index();
             let collapse = globs(&collapsed(index, &names)?)?;
             let mut options = ListOptions::default()
@@ -749,7 +780,7 @@ impl Server {
             );
         }
         CATALOG.check(p.languages.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let limit = p.limit.map_or(SYMBOLS, NonZeroUsize::get);
             let searched = selected(indexed, p.languages.as_deref());
             let searches: Vec<(&str, Search<'_>)> = searched
@@ -866,7 +897,7 @@ impl Server {
             return Err("names must not contain a blank name".to_owned());
         }
         CATALOG.check(p.languages.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let limit = p.limit.map_or(DEFINITIONS, NonZeroUsize::get);
             let from = p
                 .from
@@ -971,7 +1002,7 @@ impl Server {
     ) -> Result<String, String> {
         named("name", &p.name)?;
         CATALOG.check(p.languages.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
             let written = Selector::new(&p.name, path_prefix)
@@ -1042,7 +1073,7 @@ impl Server {
         &self,
         Parameters(p): Parameters<FindImportersParams>,
     ) -> Result<String, String> {
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let file = held_file(indexed.engine.index(), &p.file)?;
             let claimed = indexed.engine.graph_of(file);
             let hops = p.hops.map_or(IMPORTER_HOPS, NonZeroU32::get);
@@ -1085,7 +1116,7 @@ impl Server {
         &self,
         Parameters(p): Parameters<FileOutlineParams>,
     ) -> Result<String, String> {
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let file = held_file(indexed.engine.index(), &p.file)?;
             let claimed = indexed.engine.graph_of(file);
             let outline = claimed.and_then(|(_, graph)| graph.outline(file));
@@ -1125,7 +1156,7 @@ impl Server {
         named("from", &p.from)?;
         named("to", &p.to)?;
         CATALOG.check(p.languages.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let hops = p.hops.map_or(PATH_HOPS, NonZeroU32::get);
             let floor = p.min_confidence.unwrap_or_default().floor();
             let limits = Limits::new(hops)
@@ -1234,7 +1265,7 @@ impl Server {
     ) -> Result<String, String> {
         named("name", &p.name)?;
         CATALOG.check(p.languages.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let floor = p.min_confidence.unwrap_or_default().floor();
             let searched = selected(indexed, p.languages.as_deref());
             let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
@@ -1312,7 +1343,7 @@ impl Server {
                 "end_line {end_line} is before start_line {start_line}"
             ));
         }
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let limits = Limits::new(IMPACT_DEPTH).with_max_symbols(IMPACT_MAX_SYMBOLS);
             let query = SegmentQuery::new(limits).with_call_limit(IMPACT_CALLS);
             let file = held_file(indexed.engine.index(), &p.file)?;
@@ -1370,7 +1401,7 @@ impl Server {
         let regions = p.regions.unwrap_or_default();
         let named = regions.len();
         let changed = changed_regions(regions, p.diff.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             for (at, region) in changed.iter().take(named).enumerate() {
                 held_file(indexed.engine.index(), &region.path)
                     .map_err(|error| format!("regions[{at}]: {error}"))?;
@@ -1417,7 +1448,7 @@ impl Server {
         Parameters(p): Parameters<FindUnusedParams>,
     ) -> Result<String, String> {
         CATALOG.check(p.languages.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let limit = p.limit.map_or(UNUSED, NonZeroUsize::get);
             let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
             let judged: Vec<_> = selected(indexed, p.languages.as_deref())
@@ -1466,7 +1497,7 @@ impl Server {
     ) -> Result<String, String> {
         named("name", &p.name)?;
         CATALOG.check(p.languages.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let limits = Limits::new(p.hops.map_or(CALLER_HOPS, NonZeroU32::get))
                 .with_min_confidence(p.min_confidence.unwrap_or_default().floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
@@ -1528,7 +1559,7 @@ impl Server {
     ) -> Result<String, String> {
         named("name", &p.name)?;
         CATALOG.check(p.languages.as_deref())?;
-        self.answer(move |indexed| {
+        self.answer(&p.root, move |indexed| {
             let limits = Limits::new(p.hops.map_or(CALLEE_HOPS, NonZeroU32::get))
                 .with_min_confidence(p.min_confidence.unwrap_or_default().floor())
                 .with_max_symbols(CALLERS_MAX_SYMBOLS);
@@ -1573,10 +1604,12 @@ impl ServerHandler for Server {
         let mut info = ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "kartta answers structural questions about a code repository: where symbols are defined, who calls \
              them and what they call, where they are used, what implements an interface, which files import a file, \
-             and what an edit would break. Every tool answers from one index, of one repository. index_stats tells \
-             whether that index is built or building, and for which root. Call index_root with the repository's \
-             absolute root when index_stats shows no index of it. An index_root whose build runs past 30 s answers \
-             status=\"building\": call index_stats until it answers the index. Each language has its own code \
+             and what an edit would break. The server holds an index of each repository root it built, and every \
+             tool names the absolute root it asks about: a root the server holds no index of is a tool error that \
+             names the roots it holds. index_stats without a root shows each root held, built, building or failed. \
+             Call index_root with the repository's absolute root when index_stats shows no index of it. An \
+             index_root whose build runs past 30 s answers status=\"building\": call index_stats until it answers \
+             the index. Each language has its own code \
              graph, and no tool follows a link from one language into another, such as a call through FFI. A path or \
              a path_prefix the index does not hold is a tool error that names what is wrong with it and the nearest \
              paths it holds. Every answer counts in one vocabulary: total= is every record an element counted, \
@@ -1758,9 +1791,9 @@ mod tests {
         "never cancelled"
     }
 
-    /// Returns once `slot` holds an index to answer from.
-    async fn indexed(slot: &Slot) {
-        while slot.current().is_err() {
+    /// Returns once `roots` holds an index of `root` to answer from.
+    async fn indexed(roots: &Roots, root: &str) {
+        while roots.current(root).is_err() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
@@ -1772,13 +1805,18 @@ mod tests {
         let second = tempfile::tempdir().unwrap();
         let mut server = Server::with_config(Config {
             watch: false,
+            max_roots: NonZeroUsize::MIN,
             ..Config::default()
         });
         server.index_wait = Duration::from_millis(50);
         assert_eq!(server.index_at_launch(first.path().to_owned()).await, None);
-        let held = server.slot.current().unwrap();
+        let held = server
+            .roots
+            .current(&first.path().display().to_string())
+            .unwrap();
+        let root = second.path().display().to_string();
         let params = IndexRootParams {
-            root: second.path().display().to_string(),
+            root: root.clone(),
             languages: None,
             index_ignored: None,
         };
@@ -1796,11 +1834,49 @@ mod tests {
             answer.starts_with("<index root=") && answer.contains(" status=\"building\" "),
             "{answer}"
         );
-        let ran_on = tokio::time::timeout(Duration::from_secs(10), indexed(&server.slot)).await;
+        let ran_on =
+            tokio::time::timeout(Duration::from_secs(10), indexed(&server.roots, &root)).await;
         assert!(ran_on.is_ok(), "the build stopped short of its index");
         assert_eq!(
-            server.slot.current().unwrap().read().unwrap().root,
-            second.path().display().to_string()
+            server.roots.current(&root).unwrap().read().unwrap().root,
+            root
+        );
+    }
+
+    #[tokio::test]
+    async fn a_listing_names_a_root_that_cannot_answer_beside_the_roots_that_do() {
+        let trees = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let server = Server::with_config(Config {
+            watch: false,
+            ..Config::default()
+        });
+        let [first, second] = trees
+            .each_ref()
+            .map(|tree| tree.path().display().to_string());
+        for (tree, root) in trees.iter().zip([&first, &second]) {
+            std::fs::write(tree.path().join("a.go"), "package a\n\nfunc A() {}\n").unwrap();
+            let params = IndexRootParams {
+                root: root.clone(),
+                languages: None,
+                index_ignored: None,
+            };
+            server.index_root(Parameters(params)).await.unwrap();
+        }
+        server.roots.current(&first).unwrap().poison();
+        let params = IndexStatsParams {
+            root: None,
+            coverage: None,
+        };
+
+        let listing = server.index_stats(Parameters(params)).await.unwrap();
+
+        let broken = format!(
+            "<roots total=\"2\">\n<index root={first:?} status=\"broken\">a refresh of {first} panicked"
+        );
+        assert!(listing.starts_with(&broken), "{listing}");
+        assert!(
+            listing.contains(&format!("\n<index root={second:?} files=\"1\" ")),
+            "{listing}"
         );
     }
 

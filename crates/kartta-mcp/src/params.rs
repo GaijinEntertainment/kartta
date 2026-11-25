@@ -16,6 +16,10 @@ use rmcp::handler::server::tool::ToolCallContext;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+/// What every tool but index_root and index_stats says of its `root`.
+const ROOT: &str =
+    "Absolute path of the repository root to answer from, as index_root was given it.";
+
 /// A tool's arguments, read as `P`. A wrong argument fails the call with a tool error that names the parameter by its
 /// path inside the arguments, such as `regions[0].start_line`, then says what the parameter takes.
 // constraint: rmcp's `#[tool]` macro takes a tool's input schema from the argument whose type is named `Parameters`, and
@@ -115,6 +119,10 @@ pub(crate) struct IndexRootParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IndexStatsParams {
+    /// Absolute path of the repository root to report, as index_root was given it. Omitted or null lists every root
+    /// the server holds.
+    #[serde(default)]
+    pub(crate) root: Option<String>,
     /// When true, also resolve every call site of each language's graph and add a <coverage/> record per language:
     /// how many sites bound a definition and how surely, and why the rest bound none. It resolves every call in the
     /// repository, about half a second on a large one, each time it is asked. Omitted or false answers at once
@@ -126,6 +134,8 @@ pub(crate) struct IndexStatsParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RefreshParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Repo-relative paths with forward slashes of the files or directories that changed, as find_files prints them,
     /// never absolute, with a drive such as C:, a backslash or a .. name; a directory covers everything below it, and a
     /// deleted or renamed file is named by its old path as well as its new one. Omit to check the whole tree.
@@ -136,6 +146,8 @@ pub(crate) struct RefreshParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindFilesParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Fuzzy pattern matched against repo-relative paths: characters must appear in order but gaps are fine, and
     /// filename matches rank above directory matches - "serv" finds pkg/service.go, "cfgyaml" finds
     /// internal/config/config.yaml. Whitespace separates terms that must all match. Your own search term; required
@@ -157,6 +169,8 @@ pub(crate) struct FindFilesParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCallersParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// The symbol whose callers to trace: a qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol of
     /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
     /// TypeScript, "Service::greet" in Rust or C++) the callable it names, and a bare name ("New") the unique match. A
@@ -207,6 +221,8 @@ pub(crate) struct FindCallersParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCalleesParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// The symbol whose callees to trace: a qualified name from a find_symbols hit (e.g. "pkg.New") picks the symbol of
     /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
     /// TypeScript, "Service::greet" in Rust or C++) the callable it names, and a bare name ("New") the unique match. A
@@ -262,6 +278,8 @@ pub(crate) struct ChangedRegion {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ImpactOfChangeParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// The changed line ranges, one per diff hunk, e.g. [{"file": "pkg/a.go", "start_line": 10, "end_line": 24},
     /// {"file": "pkg/b.go"}]. A region naming only its file covers the whole file - a file the change adds or
     /// rewrites. A symbol counts as changed when its definition overlaps a region at all. Pass regions, diff, or both.
@@ -285,6 +303,8 @@ pub(crate) struct ImpactOfChangeParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindUnusedParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
     /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
     /// the families searched. Omitted or null selects every indexed language and an empty list none; a valid name
@@ -305,6 +325,8 @@ pub(crate) struct FindUnusedParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GlobFilesParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Glob patterns; a path matching ANY of them is listed, e.g. ["**/*.go", "src/**/*.ts"]. A glob without "/"
     /// matches across directories ("*.go" matches at any depth). REQUIRED and non-empty - to enumerate the whole tree,
     /// pass ["**"]. To hunt ONE file by name, use find_files instead.
@@ -322,6 +344,8 @@ pub(crate) struct GlobFilesParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GrepParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Rust regular expressions, each matched against single lines; a line is returned when ANY pattern matches
     /// (union) - pass naming variants in one call, e.g. ["FooBar", "foo_bar"]. No lookarounds or backreferences;
     /// matching never crosses lines. Literal braces need escaping: "interface\\{\\}". At least one non-blank pattern
@@ -358,6 +382,8 @@ pub(crate) struct GrepParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ListDirParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Repo-relative directory path with forward slashes, e.g. "src/web" - the directory part of any path returned by
     /// find_files or glob_files. "" or "." (or omitting it) lists the repository root.
     #[serde(default)]
@@ -387,6 +413,8 @@ pub(crate) struct ListDirParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindSymbolsParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Keyword(s) matched against the words of symbol names and of their files' paths, e.g. "BuildConfig" or "parse
     /// config"; camelCase and snake_case split into words. A bare identifier works best; partial names match. A blank
     /// query is a tool error.
@@ -405,6 +433,8 @@ pub(crate) struct FindSymbolsParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindCallPathParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// The symbol the chain starts at: the first caller. A qualified name from a find_symbols hit (e.g. "pkg.Serve")
     /// picks the symbol of that name; a name qualified by its owner with its language's separator ("Service.Greet" in
     /// Go, Python or TypeScript, "Service::greet" in Rust or C++) picks the callable it names; a bare name picks the
@@ -454,6 +484,8 @@ pub(crate) struct FindCallPathParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindReferencesParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// The symbol whose uses to list: a qualified name from a find_symbols hit (e.g. "pkg.Config") picks the symbol of
     /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
     /// TypeScript, "Service::greet" in Rust or C++) the symbol it names, and a bare name the unique match. A name that
@@ -518,6 +550,8 @@ impl AccessFilter {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReadDefinitionsParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Symbol names to read, 1 to 10, each bare ("New") or qualified by its package or owner with its language's
     /// separator ("pkg.New", "Service.Greet" in Go, Python or TypeScript, "Service::greet" in Rust or C++). A qualified
     /// name selects every definition whose qualified name equals it or ends with it at a separator, and every
@@ -544,6 +578,8 @@ pub(crate) struct ReadDefinitionsParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindImplementationsParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// The interface / base class / trait / mixed-in module / type alias name, e.g. "Provider". Bare or qualified with
     /// its language's separator ("io.Reader" in Go, "ui::Widget" in Rust or C++); a name that selects nothing as
     /// written is read with each "." as "::", or each "::" as ".", and read_as= names that reading. Take the exact name
@@ -572,6 +608,8 @@ pub(crate) struct FindImplementationsParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FileOutlineParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.
     pub(crate) file: String,
@@ -584,6 +622,8 @@ pub(crate) struct FileOutlineParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FindImportersParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.
     pub(crate) file: String,
@@ -602,6 +642,8 @@ pub(crate) struct FindImportersParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ImpactOfEditParams {
+    #[schemars(description = ROOT)]
+    pub(crate) root: String,
     /// Repo-relative path with forward slashes, exactly as returned by find_files or find_symbols (e.g.
     /// "pkg/service.go") - not absolute, not a bare filename.
     pub(crate) file: String,
