@@ -114,15 +114,17 @@ fn no_hits(languages: Option<&str>, coverage: &[&GraphRow]) -> String {
     )
 }
 
-/// One requested name of a `read_definitions` call: the reading it was answered for when it selects nothing as
-/// written, how many definitions it selects, the nearest of them with their text, and the close alternatives to a
-/// name that selects none.
+/// One requested name of a `read_definitions` call, in the files and on the line the call looks at: the reading it
+/// was answered for when it selects nothing as written, how many definitions it selects, the nearest of them with
+/// their text, the next nearest after those as candidates, each with its graph, and the close alternatives to a name
+/// that selects none.
 #[derive(Debug)]
 pub(crate) struct NameDefinitions<'g> {
-    pub(crate) name: &'g str,
+    pub(crate) selector: Selector<'g>,
     pub(crate) read_as: Option<String>,
     pub(crate) total: usize,
     pub(crate) definitions: Vec<Read<'g>>,
+    pub(crate) candidates: Vec<(&'g str, Definition<'g>)>,
     pub(crate) unmatched: Unmatched<'g>,
 }
 
@@ -136,7 +138,7 @@ pub(crate) struct Read<'g> {
 }
 
 /// The `read_definitions` answer: one `<name>` per requested name, in request order, each holding its definitions
-/// nearest first with their text numbered from its first line.
+/// nearest first with their text numbered from its first line, then a `<candidate/>` for each of the next nearest.
 pub(crate) fn definitions(
     languages: Option<&str>,
     built: Option<&str>,
@@ -147,22 +149,34 @@ pub(crate) fn definitions(
         .attr("total", answers.len());
     element.children(answers.iter().map(|answer| {
         let name = Element::new("name")
-            .attr("of", answer.name)
+            .attr("of", answer.selector.name)
             .optional("read_as", answer.read_as.as_deref())
             .attr("total", answer.total);
         if answer.total == 0 {
             let asked = Asked {
                 end: "",
-                selector: Selector::new(answer.name, None),
+                selector: answer.selector,
                 built,
             };
             return unresolved(name, languages, asked, &answer.unmatched);
         }
         let cut = answer.total > answer.definitions.len();
+        let others = answer
+            .candidates
+            .iter()
+            .map(|(family, definition)| candidate(definition).attr("lang", *family).close());
+        let listed = answer.definitions.len() + answer.candidates.len();
         name.optional("shown", cut.then_some(answer.definitions.len()))
             .flag("truncated", cut)
             .children(
                 (answer.definitions.iter().map(definition))
+                    .chain(others)
+                    .chain(candidates_cut(
+                        answer.total > listed,
+                        answer.total,
+                        "this name",
+                        languages,
+                    ))
                     .chain(cut.then(|| LIMIT_CUT.to_owned())),
             )
     }))

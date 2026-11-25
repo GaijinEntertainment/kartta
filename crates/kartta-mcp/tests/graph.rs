@@ -227,7 +227,8 @@ fn read_definitions_ends_each_name_its_limit_cut_with_the_line_that_names_limit(
     assert_eq!(cut.matches("<definition ").count(), 2, "{cut}");
     assert!(
         cut.contains(&format!(
-            "</definition>\n{LIMIT_CUT}\n</name>\n<name of=\"Shut\" total=\"1\">"
+            "</definition>\n<candidate name=\"Open\" qn=\"b.Open\" kind=\"function\" loc=\"b/b.go:3\" \
+             lang=\"go\"/>\n{LIMIT_CUT}\n</name>\n<name of=\"Shut\" total=\"1\">"
         )),
         "{cut}"
     );
@@ -239,6 +240,110 @@ fn read_definitions_ends_each_name_its_limit_cut_with_the_line_that_names_limit(
     assert!(
         whole.contains(r#"<name of="Open" total="2">"#) && !whole.contains(LIMIT_CUT),
         "{whole}"
+    );
+}
+
+#[test]
+fn read_definitions_locates_the_definitions_it_does_not_show_and_reads_one_by_path_prefix_and_line()
+{
+    let mut files = vec![("go.mod", "module example.com/app\n\ngo 1.22\n")];
+    let packages = ["a", "b", "c", "d", "e", "f", "g", "h", "i"].map(|name| {
+        (
+            format!("{name}/{name}.go"),
+            format!("package {name}\n\nfunc Open() {{}}\n"),
+        )
+    });
+    files.extend(
+        packages
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    let answers = answers_over(
+        &files,
+        &[
+            ("read_definitions", json!({"names": ["Open"]})),
+            (
+                "read_definitions",
+                json!({"names": ["Open"], "path_prefix": "g/g.go", "line": 3}),
+            ),
+            (
+                "read_definitions",
+                json!({"names": ["Open"], "path_prefix": "g/", "line": 4}),
+            ),
+            ("read_definitions", json!({"names": ["Open"], "line": 4})),
+        ],
+    );
+
+    let candidate = |name: &str| {
+        format!(
+            r#"<candidate name="Open" qn="{name}.Open" kind="function" loc="{name}/{name}.go:3" lang="go"/>"#
+        )
+    };
+    let shown: Vec<String> = ["a", "b", "c"]
+        .map(|name| format!("loc=\"{name}/{name}.go:3\""))
+        .into();
+    let (cut, picked, missed, off_line) = (&answers[0], &answers[1], &answers[2], &answers[3]);
+    assert!(
+        cut.contains(r#"<name of="Open" total="9" shown="3" truncated="true">"#),
+        "{cut}"
+    );
+    assert!(shown.iter().all(|loc| cut.contains(loc.as_str())), "{cut}");
+    assert!(
+        cut.contains(&format!(
+            "</definition>\n{}\na fixed cap cut these candidates - find_symbols of this name with limit 9 lists \
+             the rest\n{LIMIT_CUT}\n</name>",
+            ["d", "e", "f", "g", "h"].map(candidate).join("\n")
+        )),
+        "{cut}"
+    );
+    assert!(
+        picked.contains(r#"<name of="Open" total="1">"#)
+            && picked.contains(r#"loc="g/g.go:3""#)
+            && !picked.contains("<candidate"),
+        "{picked}"
+    );
+    assert!(
+        missed.contains(
+            "no definition of this name under path_prefix starts on line 4 - 9 are elsewhere:"
+        ),
+        "{missed}"
+    );
+    assert!(
+        off_line.contains("no definition of this name starts on line 4 - 9 are elsewhere:"),
+        "{off_line}"
+    );
+}
+
+#[test]
+fn read_definitions_reads_one_of_two_definitions_of_a_name_in_one_file_by_its_line() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+            (
+                "j/j.go",
+                "package j\n\ntype A struct{}\n\nfunc (A) Open() {}\n\ntype B struct{}\n\nfunc (B) Open() {}\n",
+            ),
+        ],
+        &[
+            (
+                "read_definitions",
+                json!({"names": ["Open"], "path_prefix": "j/j.go", "line": 5}),
+            ),
+            (
+                "read_definitions",
+                json!({"names": ["Open"], "path_prefix": "j/j.go", "line": 9}),
+            ),
+        ],
+    );
+
+    let (first, second) = (&answers[0], &answers[1]);
+    assert!(
+        first.contains(r#"<name of="Open" total="1">"#) && first.contains(r#"loc="j/j.go:5""#),
+        "{first}"
+    );
+    assert!(
+        second.contains(r#"<name of="Open" total="1">"#) && second.contains(r#"loc="j/j.go:9""#),
+        "{second}"
     );
 }
 

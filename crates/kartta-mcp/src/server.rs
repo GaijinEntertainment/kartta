@@ -878,7 +878,8 @@ impl Server {
                        marks a file whose size changed since. truncated=true marks a body cut before the span ends, or \
                        missing because the file no longer reaches the span; a definition whose file could not be read \
                        has no body, carries error= with the reason and its sig when one was captured. total on a \
-                       <name> counts every definition the name selects, and a name nothing defines answers total=0."
+                       <name> counts every definition the name selects, and a name nothing defines answers total=0; past the \
+                       limit up to 5 <candidate/> records locate the next nearest, which path_prefix and line read."
     )]
     async fn read_definitions(
         &self,
@@ -906,16 +907,20 @@ impl Server {
                 .transpose()
                 .map_err(|error| format!("from: {error}"))?;
             let searched = selected(indexed, p.languages.as_deref());
-            let per_name: Vec<(usize, Vec<Nearest<'_>>, Option<String>)> = p
+            let path_prefix = prefix_of(indexed, "path_prefix", p.path_prefix.as_deref())?;
+            let line = p.line.map(NonZeroU32::get);
+            let read = limit.saturating_add(CANDIDATES);
+            let per_name: Vec<_> = p
                 .names
                 .iter()
                 .map(|name| {
+                    let written = Selector::new(name, path_prefix).with_line(line);
                     let (selecting, [read_as]) = ask_reading(
                         searched.iter().copied(),
-                        [Selector::new(name, None)],
+                        [written],
                         |_| true,
                         |(family, graph), [named]| {
-                            let definitions = graph.definitions(named.name, from, limit);
+                            let definitions = graph.definitions(named, from, read);
                             (definitions.total > 0).then_some((family, definitions))
                         },
                     );
@@ -933,42 +938,47 @@ impl Server {
                         })
                         .collect();
                     found.sort_by_key(|(_, found)| found.nearness);
-                    found.truncate(limit);
-                    (total, found, read_as)
+                    found.truncate(read);
+                    let others = found.split_off(limit.min(found.len()));
+                    (written, total, found, others, read_as)
                 })
                 .collect();
             let wanted: Vec<_> = per_name
                 .iter()
-                .flat_map(|(_, found, _)| found.iter().map(|(_, found)| found.definition))
+                .flat_map(|(_, _, found, _, _)| found.iter().map(|(_, found)| found.definition))
                 .collect();
             let options = SourceOptions::default()
                 .max_lines(SOURCE_LINES)
                 .max_line_bytes(SOURCE_LINE_BYTES);
             let mut sources = indexed.engine.sources(&wanted, options).into_iter();
-            let answers: Vec<NameDefinitions<'_>> = p
-                .names
-                .iter()
-                .zip(per_name)
-                .map(|(name, (total, found, read_as))| NameDefinitions {
-                    name,
-                    read_as,
-                    total,
-                    definitions: found
-                        .into_iter()
-                        .zip(&mut sources)
-                        .map(|((family, found), source)| Read {
-                            family,
-                            definition: found.definition,
-                            nearness: found.nearness,
-                            source,
-                        })
-                        .collect(),
-                    unmatched: if total == 0 {
-                        unmatched(&searched, Selector::new(name, None), |_| true)
-                    } else {
-                        Unmatched::Suggested(Vec::new())
+            let answers: Vec<NameDefinitions<'_>> = per_name
+                .into_iter()
+                .map(
+                    |(selector, total, found, others, read_as)| NameDefinitions {
+                        selector,
+                        read_as,
+                        total,
+                        definitions: found
+                            .into_iter()
+                            .zip(&mut sources)
+                            .map(|((family, found), source)| Read {
+                                family,
+                                definition: found.definition,
+                                nearness: found.nearness,
+                                source,
+                            })
+                            .collect(),
+                        candidates: others
+                            .into_iter()
+                            .map(|(family, found)| (family, found.definition))
+                            .collect(),
+                        unmatched: if total == 0 {
+                            unmatched(&searched, selector, |_| true)
+                        } else {
+                            Unmatched::Suggested(Vec::new())
+                        },
                     },
-                })
+                )
                 .collect();
             Ok(render::definitions(
                 p.languages.as_deref().map(echo).as_deref(),

@@ -560,6 +560,15 @@ pub(crate) struct ReadDefinitionsParams {
     /// ".", and read_as= on its <name> names that reading. An empty list or a blank name is a tool error.
     #[schemars(length(min = 1, max = 10), inner(length(min = 1)))]
     pub(crate) names: Vec<String>,
+    /// Repo-relative path prefix with forward slashes: only the definitions in files whose path starts with it are
+    /// read, for every name, e.g. a <candidate/>'s file. Omitted reads from every file.
+    #[serde(default)]
+    pub(crate) path_prefix: Option<String>,
+    /// 1-based line the definition starts on, e.g. a <candidate/>'s loc line: only the definitions that start on it
+    /// are read. Omitted or null reads from every line.
+    #[serde(default)]
+    #[schemars(range(max = u32::MAX))]
+    pub(crate) line: Option<NonZeroU32>,
     /// Repository-relative path of the file the names are read for, as returned by find_files. Definitions in its
     /// directory rank first. Omitted, every definition ranks as other or vendored.
     #[serde(default)]
