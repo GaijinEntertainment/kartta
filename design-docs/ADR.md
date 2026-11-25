@@ -124,6 +124,7 @@ lost, and what would reopen it.
 - [1.71 Keep the content index in memory, a scratch file or a mapping](/design-docs/adr/1.71-content-index-storage.md)
 - [1.72 Build the content index from sorted runs merged in place](/design-docs/adr/1.72-content-index-build.md)
 - [1.73 Tell a watched root that went from dropped changes](/design-docs/adr/1.73-watched-root-loss.md)
+- [1.74 Hold a nested worktree of the indexed repository empty, and leave every other git layout to the ignore rules](/design-docs/adr/1.74-git-layouts.md)
 - [2.2 Take per-file data from the shared cache in the walk's read](/design-docs/adr/2.2-build-cache-lookup.md)
 
 ## crates/kartta-fuzz
