@@ -71,16 +71,12 @@ pub struct EngineRefresh {
     /// [reconfigured](EngineRefresh::reconfigured).
     pub resolved_again: usize,
     /// The files the graphs held and hold no more: gone, hidden by the ignore rules, no longer read as text, or not
-    /// read again where a change reached them. `None` when every graph was [rebuilt](EngineRefresh::rebuilt), which
-    /// keeps no list of the files held before; [`RefreshOutcome::removed`] still names the files the tree lost.
-    pub dropped: Option<usize>,
+    /// read again where a change reached them.
+    pub dropped: usize,
     /// The [families](Language::family) whose resolver read another configuration than it read before, a `go.mod` or
     /// a `tsconfig.json`, and does not [resolve as](kartta_lang::Resolver::resolves_as) it resolved before, so that
     /// every file of theirs was resolved again, in the order of [`Engine::graphs`].
     pub reconfigured: Vec<String>,
-    /// Whether every graph was built again from every file, because the engine was built without
-    /// [`BuildOptions::stamps`] and kept nothing to find what a change reaches.
-    pub rebuilt: bool,
     /// The paths an [`Engine::refresh_paths`] was named, the parts they came to and the limit those passed, when it
     /// refreshed the whole tree in their place; `None` from [`Engine::refresh`] and from a call that walked the parts
     /// of its paths.

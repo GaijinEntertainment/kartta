@@ -51,7 +51,7 @@ impl<'r> RefreshAnswer<'r> {
             removed: refresh.index.removed.len(),
             extracted: refresh.extracted,
             resolved_again: refresh.resolved_again,
-            dropped: refresh.dropped.unwrap_or(0),
+            dropped: refresh.dropped,
             reconfigured: &refresh.reconfigured,
             widened: refresh.widened.map(
                 |Widened {

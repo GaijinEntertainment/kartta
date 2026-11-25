@@ -209,13 +209,12 @@ impl Following {
             errors: inserted.errors,
             extracted,
             resolved_again,
-            dropped: Some(dropped),
+            dropped,
             reconfigured: plan
                 .reconfigured
                 .iter()
                 .map(|&family| families[family].name.clone())
                 .collect(),
-            rebuilt: false,
             widened: None,
         }
     }
