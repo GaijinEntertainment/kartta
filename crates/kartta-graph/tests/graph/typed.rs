@@ -2,8 +2,8 @@
 
 use kartta_graph::{Graph, Limits, Miss, SiteCounts, SiteQuery};
 use kartta_lang::{
-    Access, Conventions, Extraction, MemberCalls, OwnMembers, Receiver, Receivers, Symbol,
-    SymbolFlags, SymbolId, SymbolKind, UseRef,
+    Access, BuiltApart, Conventions, Extraction, Implements, MemberCalls, OwnMembers, Receiver,
+    Receivers, SameMethod, Symbol, SymbolFlags, SymbolId, SymbolKind, Twins, UseRef,
 };
 
 use crate::go_code::{callees_of, file, function, importing};
@@ -1816,5 +1816,92 @@ fn a_return_path_that_reaches_no_type_leaves_the_value_after_it_or_the_empty_rec
             .map(|unbound| (unbound.line, unbound.receiver))
             .collect::<Vec<_>>(),
         [(3, Some(".held")), (4, Some(""))]
+    );
+}
+
+fn method_of(qualified_owner: &str, name: &str, line: u32) -> Symbol {
+    let mut method = member(qualified_owner, name, SymbolKind::Method, line);
+    method.signature = Some("func()".to_owned());
+    method
+}
+
+fn interface_file(path: &str) -> Extraction {
+    file(
+        path,
+        "p",
+        vec![
+            typed("p", "Doer", SymbolKind::Interface, 3),
+            method_of("p.Doer", "Do", 4),
+        ],
+        Vec::new(),
+    )
+}
+
+fn through_of(graph: &Graph, name: &str) -> Vec<(String, Option<String>)> {
+    let walk = graph
+        .callers(name, Limits::new(1))
+        .expect("the method is held");
+    walk.reached
+        .iter()
+        .map(|reached| {
+            (
+                reached.symbol.qualified_name.to_owned(),
+                reached.through.map(|parent| parent.file.to_owned()),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_caller_through_an_interface_two_files_declare_names_the_first_in_path_order_after_files_move()
+{
+    let mut conventions = go();
+    conventions.implements = Implements::MethodSets(SameMethod(|own, parent| own == parent));
+    conventions.twins = Twins::Package(BuiltApart(|_, _| false));
+    let lone = |path: &str, name: &str| file(path, "p", vec![function("p", name, 3)], Vec::new());
+    let implementation = file(
+        "p/impl.go",
+        "p",
+        vec![
+            typed("p", "thing", SymbolKind::Struct, 3),
+            method_of("p.thing", "Do", 5),
+        ],
+        Vec::new(),
+    );
+    let user = file(
+        "p/use.go",
+        "p",
+        vec![function("p", "Use", 3)],
+        vec![member_call("Doer", "Do", 4)],
+    );
+    let mut moved = graph_of(
+        conventions,
+        &[
+            lone("p/a.go", "A"),
+            interface_file("p/iface.go"),
+            implementation.clone(),
+            user.clone(),
+            lone("p/z.go", "Z"),
+        ],
+    );
+    moved.remove("p/a.go");
+    moved.insert(&interface_file("p/iface.k1.go"));
+    let fresh = graph_of(
+        conventions,
+        &[
+            interface_file("p/iface.go"),
+            interface_file("p/iface.k1.go"),
+            implementation,
+            user,
+            lone("p/z.go", "Z"),
+        ],
+    );
+
+    let first = [("p.Use".to_owned(), Some("p/iface.go".to_owned()))];
+    assert_eq!(through_of(&fresh, "p.thing.Do"), first);
+    assert_eq!(
+        through_of(&moved, "p.thing.Do"),
+        first,
+        "the copy took the slot the removed file freed, before the first copy's"
     );
 }

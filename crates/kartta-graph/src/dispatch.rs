@@ -8,7 +8,7 @@ use crate::strings::Str;
 /// The methods a call may bind and still run one method.
 #[derive(Default)]
 pub(crate) struct Dispatching {
-    /// The methods of its name, each once, that its owner implements or overrides.
+    /// The methods of its name, each once and in path order, that its owner implements or overrides.
     pub(crate) parents: Vec<SymbolAt>,
     /// Its owner's class and the types above it, where the language reads them.
     lineage: Option<Vec<SymbolAt>>,
@@ -126,7 +126,7 @@ pub(crate) fn parent_methods<'g>(
     for parent in parents.iter_mut() {
         *parent = cascade.canonical(*parent);
     }
-    parents.sort_unstable();
+    parents.sort_unstable_by_key(|&at| graph.order_of(at));
     parents.dedup();
     parents.retain(|&at| at != method);
     dispatching
