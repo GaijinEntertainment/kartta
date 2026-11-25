@@ -302,8 +302,9 @@ impl Graph {
         Some(whole.into_iter().map(|at| self.definition_at(at)).collect())
     }
 
-    /// The definitions `name` selects, nearest to the file `from` first, then those outside test code, then those
-    /// outside vendored code, then by path and line, at most `limit` of them.
+    /// The definitions `selector`'s name selects in the files and on the line it looks at, nearest to the file `from`
+    /// first, then those outside test code, then those outside vendored code, then by path and line, at most `limit` of
+    /// them; its candidate limit plays no part. A `&str` selects in every file, on every line.
     ///
     /// A bare name selects the definitions of that name. A qualified one, `Owner.parse` or `ns::Owner::parse`,
     /// selects every definition whose qualified name equals it or ends with it at a separator, and every definition
@@ -313,17 +314,25 @@ impl Graph {
     /// part holds a separator, `das::operator/`, `Sprite.operator . frameSize :=` or `Kartta.#handle`, selects the
     /// definition it names. The separators are those the languages qualify with: `.`, `:`, `\`, `#` and `/`.
     #[must_use]
-    pub fn definitions(&self, name: &str, from: Option<&str>, limit: usize) -> Definitions<'_> {
+    pub fn definitions<'s>(
+        &self,
+        selector: impl Into<Selector<'s>>,
+        from: Option<&str>,
+        limit: usize,
+    ) -> Definitions<'_> {
+        let selector = selector.into();
+        let selected = self
+            .selected(selector.name)
+            .filter(|&at| self.is_within(at, selector));
         if limit == 0 {
             return Definitions {
-                total: self.selected(name).count(),
+                total: selected.count(),
                 found: Vec::new(),
             };
         }
 
         let from_dir = from.map(path::dir);
-        let mut found: Vec<(usize, Found<'_>)> = self
-            .selected(name)
+        let mut found: Vec<(usize, Found<'_>)> = selected
             .map(|at| {
                 let definition = self.definition_at(at);
                 Found {

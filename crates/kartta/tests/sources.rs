@@ -88,7 +88,7 @@ fn definitions<'e>(engine: &'e Engine, names: &[&str]) -> Vec<Definition<'e>> {
         .iter()
         .map(|name| {
             graph
-                .definitions(name, None, 1)
+                .definitions(*name, None, 1)
                 .found
                 .first()
                 .expect("the name is defined")

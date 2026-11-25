@@ -1,6 +1,6 @@
 //! The graph's contract: what it answers about the files it holds, and how a file going in or out changes that.
 
-use kartta_graph::{Definitions, Graph, Limits, Nearness, SiteQuery};
+use kartta_graph::{Definitions, Graph, Limits, Nearness, Selector, SiteQuery};
 use kartta_lang::{Conventions, Extraction, IncludeRef, Symbol, SymbolFlags, SymbolKind, TypeUses};
 
 use crate::{call, file, function, graph};
@@ -114,6 +114,34 @@ fn a_limit_keeps_the_nearest_definitions_in_rank_order() {
         ["lib/more.go:4", "lib/parse.go:9", "a/parse.go:1"]
     );
     assert_eq!(nearest.total, 4);
+}
+
+#[test]
+fn a_selector_reads_only_the_definitions_under_its_path_prefix_and_on_its_line() {
+    let graph = graph(&[
+        file(
+            "a/parse.go",
+            vec![
+                symbol("Parse", "Parse", 1, 1),
+                symbol("Parse", "Parse", 5, 5),
+            ],
+        ),
+        file("b/parse.go", vec![symbol("Parse", "Parse", 1, 1)]),
+    ]);
+
+    let under = graph.definitions(Selector::new("Parse", Some("a/")), None, 10);
+    let on_line = graph.definitions(
+        Selector::new("Parse", Some("a/parse.go")).with_line(Some(5)),
+        None,
+        10,
+    );
+    let counted = graph.definitions(Selector::new("Parse", Some("b/")), None, 0);
+
+    assert_eq!(places(&under), ["a/parse.go:1", "a/parse.go:5"]);
+    assert_eq!(under.total, 2);
+    assert_eq!(places(&on_line), ["a/parse.go:5"]);
+    assert_eq!(on_line.total, 1);
+    assert_eq!(counted.total, 1);
 }
 
 #[test]
