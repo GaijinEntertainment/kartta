@@ -833,10 +833,10 @@ impl Index {
     /// in [`Index::entries`] order.
     ///
     /// Such a directory is one whose `.git` is a gitfile naming a git directory that holds a `commondir`, which names
-    /// the common git directory the root's own `.git` comes to: a second checkout of the root's repository, as
-    /// `git worktree add` makes one inside the tree. The directory is an entry of the index, and nothing below it is.
-    /// The ignore rules decide every other layout, so a submodule, a clone and a worktree of another repository are
-    /// indexed as any other directory. While [`BuildOptions::ignore_sources`](crate::BuildOptions::ignore_sources) is
+    /// the common git directory that the nearest `.git`, in the root or a directory above it, comes to: a second
+    /// checkout of the root's repository, as `git worktree add` makes one inside the tree. The directory is an entry of
+    /// the index, and nothing below it is. The ignore rules decide every other layout, so a submodule, a clone and a
+    /// worktree of another repository are indexed as any other directory. While [`BuildOptions::ignore_sources`](crate::BuildOptions::ignore_sources) is
     /// [`IgnoreSources::None`], nothing is held empty.
     pub fn pruned_worktrees(&self) -> impl ExactSizeIterator<Item = &str> {
         self.worktrees.iter().map(AsRef::as_ref)

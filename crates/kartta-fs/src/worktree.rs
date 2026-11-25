@@ -4,13 +4,28 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::rules::DOT_GIT;
+
 const GITFILE_PREFIX: &str = "gitdir: ";
 const COMMONDIR: &str = "commondir";
+
+/// The common git directory, canonical, of the repository `dir` belongs to: that of the nearest `.git`, in `dir` or
+/// a directory above it, one `lstat` a directory. `None` where no directory up to `/` holds one.
+// constraint: git's discovery stops at the first directory, going up, whose `.git` is a gitfile or a directory (git
+// v2.56.1 `setup.c:1626-1662`)
+pub(crate) fn enclosing_common_dir(dir: &Path) -> Option<PathBuf> {
+    let dot_git = dir
+        .ancestors()
+        .map(|dir| dir.join(DOT_GIT))
+        .find(|dot_git| fs::symlink_metadata(dot_git).is_ok())?;
+
+    common_dir(&dot_git)
+}
 
 /// The common git directory of the repository whose checkout's `.git` is `dot_git`, canonical: the git directory itself
 /// or the one its gitfile names, unless that holds a `commondir`, whose directory it is then. `None` where `dot_git`
 /// is neither a directory nor a gitfile, or names a path that does not resolve.
-pub(crate) fn common_dir(dot_git: &Path) -> Option<PathBuf> {
+fn common_dir(dot_git: &Path) -> Option<PathBuf> {
     let git_dir = match gitfile_target(dot_git) {
         Some(git_dir) => git_dir,
         None if fs::symlink_metadata(dot_git).is_ok_and(|metadata| metadata.is_dir()) => {
