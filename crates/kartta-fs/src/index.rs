@@ -100,6 +100,7 @@ pub struct Index {
     content_cache_ttl: Duration,
     content: ContentIndexes,
     pool: Option<Arc<ThreadPool>>,
+    worktrees: Vec<Box<str>>,
 }
 
 impl Index {
@@ -344,6 +345,7 @@ impl Index {
             ran_out_of_ids,
             content,
             targets,
+            worktrees,
         } = policy.into_report();
         if ran_out_of_ids {
             return Err(BuildError::ContentIdsExhausted);
@@ -360,6 +362,7 @@ impl Index {
             previous,
         };
         let (mut index, carried_text) = Self::from_tree(base, tree, targets, placing);
+        index.note_worktrees(&[String::new()], worktrees);
         let stored = content.filter(|_| !cancelled).map(|content| {
             let reads = ReadIds {
                 first: first_content_id,
@@ -556,6 +559,7 @@ impl Index {
             content_cache_ttl,
             content: ContentIndexes::default(),
             pool,
+            worktrees: Vec::new(),
         };
         (index, placed.carried_text)
     }
@@ -823,6 +827,28 @@ impl Index {
     #[must_use]
     pub fn kind_at(&self, position: usize) -> EntryKind {
         self.kinds[position]
+    }
+
+    /// The directories this index holds empty because each is a linked worktree of the repository its root belongs to,
+    /// in [`Index::entries`] order.
+    ///
+    /// Such a directory is one whose `.git` is a gitfile naming a git directory that holds a `commondir`, which names
+    /// the common git directory the root's own `.git` comes to: a second checkout of the root's repository, as
+    /// `git worktree add` makes one inside the tree. The directory is an entry of the index, and nothing below it is.
+    /// The ignore rules decide every other layout, so a submodule, a clone and a worktree of another repository are
+    /// indexed as any other directory. While [`BuildOptions::ignore_sources`](crate::BuildOptions::ignore_sources) is
+    /// [`IgnoreSources::None`], nothing is held empty.
+    pub fn pruned_worktrees(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.worktrees.iter().map(AsRef::as_ref)
+    }
+
+    pub(crate) fn note_worktrees(&mut self, walked: &[String], found: Vec<Box<str>>) {
+        self.worktrees
+            .retain(|path| !walked.iter().any(|part| scoped::holds(part, path)));
+        self.worktrees.extend(found);
+        self.worktrees
+            .sort_unstable_by(|left, right| tree_order(left, right));
+        self.worktrees.dedup();
     }
 
     pub(crate) const fn inspection(&self) -> &Inspection {
@@ -1845,6 +1871,7 @@ mod tests {
             content_cache_ttl: Duration::ZERO,
             content: ContentIndexes::default(),
             pool: None,
+            worktrees: Vec::new(),
         }
     }
 

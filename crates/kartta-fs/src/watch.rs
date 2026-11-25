@@ -52,7 +52,8 @@ const REPORTED: Duration = Duration::from_millis(50);
 /// On Linux each directory a walk keeps is watched through inotify, one watch a directory, before the walk lists it,
 /// so whatever is made in it after the listing raises a notification: the walk of a watched build or refresh, and that
 /// of [`Index::refresh_paths_watched`], which takes in each directory made later. A directory named `.git` or in
-/// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names) is never watched, and one the ignore rules the
+/// [`BuildOptions::pruned_names`](crate::BuildOptions::pruned_names) is never watched, nor is a directory below one
+/// the index holds empty as a worktree ([`Index::pruned_worktrees`]), and one the ignore rules the
 /// walk reads hide is not watched until a `.gitignore` edit shows it and the refresh that takes it in watches it; one
 /// an edit hides loses its watches, and those of every directory below it, to the refresh that drops it from the
 /// index. On macOS the root is watched through `FSEvents` and on Windows through `ReadDirectoryChangesW`, both of
