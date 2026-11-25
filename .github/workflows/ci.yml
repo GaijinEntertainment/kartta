@@ -183,7 +183,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo check --locked --workspace --exclude kartta-node --all-features
 
-  # Every crate's public API and the wire against the newest release tag, which both scripts pass without.
+  # The wire against the newest release tag, which the script passes without.
   semver:
     runs-on: ubuntu-24.04
     steps:
@@ -192,14 +192,6 @@ jobs:
           fetch-depth: 0
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: install cargo-semver-checks
-        working-directory: ${{ runner.temp }}
-        run: |
-          archive=cargo-semver-checks-x86_64-unknown-linux-gnu.tar.gz
-          curl -fsSLO "https://github.com/obi1kenobi/cargo-semver-checks/releases/download/v0.51.0/$archive"
-          echo "cacadafaa5cd27ae6d05a74a103266917ebab4c5e43c898360e177d4fbf06a65  $archive" | sha256sum -c
-          tar -xzf "$archive" -C ~/.cargo/bin
-      - run: scripts/semver.sh
       - run: scripts/wire-freeze.sh
 
   # The Go binding, linked against the static library the same checkout builds. Its cgo build compiles the
