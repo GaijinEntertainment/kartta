@@ -291,7 +291,7 @@ lost, and what would reopen it.
 - [4.15 Name the definition that holds an unowned symbol in an outline](/design-docs/adr/4.15-outline-holders.md)
 - [4.19 Name a language that records no use of a type in a type's references](/design-docs/adr/4.19-unrecorded-type-uses.md)
 - [4.20 Read a change from the new side of a unified diff](/design-docs/adr/4.20-change-diff-input.md)
-- [4.21 Hold one repository's engine per process](/design-docs/adr/4.21-mcp-engine-slot.md)
+- [4.21 Hold the indexes of several roots per process, and answer each call from the root it names](/design-docs/adr/4.21-mcp-engine-slot.md)
 - [4.22 Name a language that records no read or write of a data kind in its references](/design-docs/adr/4.22-unrecorded-data-uses.md)
 - [4.23 Bound each MCP tool's answer by a default limit](/design-docs/adr/4.23-mcp-default-limits.md)
 - [4.24 Count in each MCP answer what it left out](/design-docs/adr/4.24-mcp-omission-counts.md)
