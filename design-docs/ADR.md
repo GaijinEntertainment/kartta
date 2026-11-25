@@ -11,7 +11,6 @@ lost, and what would reopen it.
 
 - [4.46 Cut one 0.1.0 of every artifact for macOS, Linux and Windows](/design-docs/adr/4.46-release-scope.md)
 - [4.48 Check on every pull request what a published crate carries](/design-docs/adr/4.48-crate-packaging.md)
-- [4.51 Compare every crate's public API with the newest release tag](/design-docs/adr/4.51-semver-gate.md)
 - [4.55 Cut a release from a version tag](/design-docs/adr/4.55-release-workflow.md)
 - [4.56 Test the Go binding on musl against the archive a release ships](/design-docs/adr/4.56-go-musl-job.md)
 - [4.59 Run each channel's tests natively on every target of the support matrix](/design-docs/adr/4.59-ci-platform-coverage.md)
@@ -71,7 +70,6 @@ lost, and what would reopen it.
 - [4.33 Follow the tree over the wire only when a build asks](/design-docs/adr/4.33-wire-follow.md)
 - [4.34 Say how a symbol method read a name, and why it matched nothing](/design-docs/adr/4.34-wire-name-misses.md)
 - [4.35 Flag a references part where its language records none of its symbol's uses](/design-docs/adr/4.35-wire-unrecorded-uses.md)
-- [4.36 Pin each wire method in a golden file both bindings replay](/design-docs/adr/4.36-wire-method-pinning.md)
 - [4.45 Drop a handle's engine before its next build walks, and keep what a cancel leaves](/design-docs/adr/4.45-wire-build-lifecycle.md)
 - [4.52 Publish the wire as a hand-written reference a test holds to the code](/design-docs/adr/4.52-wire-reference.md)
 - [4.57 State what each wire method takes and what its answer left out](/design-docs/adr/4.57-wire-params-answers.md)
