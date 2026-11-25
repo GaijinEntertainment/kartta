@@ -8,6 +8,7 @@ readonly SITES=(
   'Cargo.toml|/^kartta[-a-z]* = \{ version = /'
   'Cargo.lock|/^name = "kartta(-[a-z]+)*"$/,/^version = /'
   'crates/kartta-ffi/tests/golden/version.json|/^ +"version": "/'
+  'bindings/go/version.go|/^const version = "/'
   'bindings/node/package.json|/^[[:blank:]]"version": /'
   'bindings/node/package.json|/^[[:blank:]]+"kartta-[a-z0-9-]+": /'
   'bindings/node/package-lock.json|/^[[:blank:]]{1,2}"name": "kartta",$/,/^[[:blank:]]+"license": /'
