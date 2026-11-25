@@ -1028,6 +1028,46 @@ fn index_repo_reports_each_graph() {
 }
 
 #[test]
+fn the_index_counts_the_worktrees_of_its_repository_it_holds_empty() {
+    let tree = common::tree(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        (".git/worktrees/agent1/HEAD", "ref: refs/heads/agent\n"),
+        (".git/worktrees/agent1/commondir", "../..\n"),
+        (".git/worktrees/agent2/HEAD", "ref: refs/heads/agent\n"),
+        (".git/worktrees/agent2/commondir", "../..\n"),
+        (
+            ".claude/worktrees/agent1/.git",
+            "gitdir: ../../../.git/worktrees/agent1\n",
+        ),
+        (
+            ".claude/worktrees/agent1/main.go",
+            "package main\n\nfunc main() {}\n",
+        ),
+        (
+            ".claude/worktrees/agent2/.git",
+            "gitdir: ../../../.git/worktrees/agent2\n",
+        ),
+        (
+            ".claude/worktrees/agent2/main.go",
+            "package main\n\nfunc main() {}\n",
+        ),
+        ("main.go", "package main\n\nfunc main() {}\n"),
+    ]);
+    let mut client = Client::start(&[]);
+
+    let answer = client.index(tree.path());
+
+    assert_eq!(
+        rooted(&answer, tree.path()),
+        "<index root=\"<root>\" files=\"1\" pruned_worktrees=\"2\" gitignore=\"in-tree\" watch=\"following\" \
+         symbols=\"1\" calls=\"0\">\n\
+         <language name=\"go\" files=\"1\" symbols=\"1\" calls=\"0\" uses=\"0\" includes=\"0\"/>\n\
+         </index>"
+    );
+    assert_eq!(client.answer("index_stats", &json!({})), answer);
+}
+
+#[test]
 fn an_index_inside_a_repository_names_the_top_whose_rules_it_did_not_read_unless_it_applies_none() {
     let tree = common::tree(&[
         (".git/HEAD", "ref: refs/heads/main\n"),
