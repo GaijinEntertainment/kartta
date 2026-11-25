@@ -78,7 +78,9 @@ pub struct Reached<'g> {
     /// In a walk over callers, the method the call binds where it reaches the called method only through it: a method
     /// of the same name that a parent of the called method's owner declares, an interface, a trait or a base class.
     /// The call is made on that parent, so it runs whichever implementation the value holds, this one or another
-    /// implementor's. `None` for a call that binds the called symbol itself, and in a walk over callees.
+    /// implementor's. Of several such methods the caller reaches it through, the one its most confident call binds,
+    /// then the one its first such call binds, then the first in path order, as between copies of one interface in two
+    /// files. `None` for a call that binds the called symbol itself, and in a walk over callees.
     pub through: Option<Definition<'g>>,
 }
 
