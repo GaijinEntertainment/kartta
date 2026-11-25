@@ -7,7 +7,7 @@ stdio.
 kartta-mcp [ROOT]
 ```
 
-`index_repo` builds the index of a repository root, and every other tool answers from it. A `ROOT` argument, or
+`index_root` builds the index of a repository root, and every other tool answers from it. A `ROOT` argument, or
 `KARTTA_ROOT`, starts that build at launch; until it finishes, `index_stats` answers that it is building and every other
 query answers an error saying so. One repository is indexed per process, and indexing another replaces it.
 

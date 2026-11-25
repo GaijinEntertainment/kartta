@@ -18,7 +18,7 @@ use rmcp::transport::stdio;
 const USAGE: &str = "usage: kartta-mcp [ROOT]
 
 Serves the kartta code graph tools over MCP on stdio. ROOT, or KARTTA_ROOT when no ROOT is given, starts indexing
-that repository at launch; without either, the index_repo tool builds one.
+that repository at launch; without either, the index_root tool builds one.
 
 Environment:
   KARTTA_ROOT            the repository to index at launch

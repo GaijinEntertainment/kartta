@@ -12,7 +12,7 @@ use kartta::{
 use kartta_fs::EntryKind;
 use tokio::sync::watch;
 
-/// How long `index_repo` waits for the build it started before it answers that the build is still running: under the
+/// How long `index_root` waits for the build it started before it answers that the build is still running: under the
 /// 60 s a client's request waits by default.
 pub(crate) const INDEX_WAIT: Duration = Duration::from_secs(30);
 
@@ -159,7 +159,7 @@ impl Served {
     }
 
     /// Brings the index up to the tree at `paths`, or across the whole tree when there are none, until an
-    /// `index_repo` that replaces the index cancels it.
+    /// `index_root` that replaces the index cancels it.
     pub(crate) fn refresh<'p>(
         &self,
         paths: impl ExactSizeIterator<Item = &'p str>,
@@ -188,7 +188,7 @@ impl Served {
         let refreshed = refresh(&mut indexed.engine);
         let (refresh, walked) = refreshed.map_err(|error| match error {
             BuildError::Cancelled => {
-                "a later index_repo replaced this index before the refresh finished".to_owned()
+                "a later index_root replaced this index before the refresh finished".to_owned()
             }
             BuildError::Misspelled { path, fault } => format!(
                 "{path:?} {fault} - pass paths relative to the repository root, with / between names, as \
@@ -223,7 +223,7 @@ impl Served {
     }
 }
 
-/// The index follows its tree until an `index_repo` replaces it, which cancels the token.
+/// The index follows its tree until an `index_root` replaces it, which cancels the token.
 impl Followed for Served {
     fn token(&self) -> &CancelToken {
         &self.cancel
@@ -248,7 +248,7 @@ impl Followed for Served {
 /// The error a query answers once a refresh panicked while it held the index.
 fn broken(indexed: &Indexed) -> String {
     format!(
-        "a refresh of {} panicked partway, so the index may hold half of it - call index_repo to build it again",
+        "a refresh of {} panicked partway, so the index may hold half of it - call index_root to build it again",
         indexed.root
     )
 }
@@ -300,17 +300,17 @@ pub(crate) enum Unready {
 impl fmt::Display for Unready {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Empty => formatter.write_str("no repository indexed: call index_repo first"),
+            Self::Empty => formatter.write_str("no repository indexed: call index_root first"),
             Self::Building { root, elapsed } => write!(
                 formatter,
                 "the index of {root} is still building ({}s so far) - index_stats answers once it is ready, and \
-                 index_repo with the same root, languages and index_ignored waits for it, up to {}s",
+                 index_root with the same root, languages and index_ignored waits for it, up to {}s",
                 elapsed.as_secs(),
                 INDEX_WAIT.as_secs()
             ),
             Self::Failed { root, error } => write!(
                 formatter,
-                "indexing {root} failed: {error} - call index_repo again"
+                "indexing {root} failed: {error} - call index_root again"
             ),
         }
     }
@@ -405,7 +405,7 @@ impl Slot {
             let ready = slot.finish(id, &request, &built);
             match (&built, follower) {
                 (Ok(served), _) if !ready => {
-                    served.unwatch("a later index_repo replaced this index".to_owned());
+                    served.unwatch("a later index_root replaced this index".to_owned());
                 }
                 (Ok(served), Some(follower)) => drop(follower.follow(served)),
                 _ => {}
@@ -501,7 +501,7 @@ fn build(
         kartta_languages::select(&request.languages).map_err(|error| error.to_string())?;
     let failed = |error| match error {
         BuildError::Stopped(_) => {
-            "a later index_repo replaced this build before it finished".to_owned()
+            "a later index_root replaced this build before it finished".to_owned()
         }
         error => error.to_string(),
     };
@@ -563,7 +563,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_building_slot_names_every_field_a_waiting_index_repo_matches() {
+    fn a_building_slot_names_every_field_a_waiting_index_root_matches() {
         let building = Unready::Building {
             root: "/repo".into(),
             elapsed: Duration::from_secs(3),
