@@ -29,9 +29,29 @@ commit is a lockstep `X.Y.(Z+1)` of every artifact**, cut from the start below, 
 ## Cut a release
 
 1. On a branch, run `scripts/version.sh X.Y.Z`. Its pull request runs the release workflow's builds and both publishes
-   as dry runs. Merge it once they pass.
-2. Tag the merge commit on `main` and push the tag: `git tag vX.Y.Z <commit>`, then `git push origin vX.Y.Z`.
-3. Once both branches finish, run the install checks from the registries on every target:
+   as dry runs.
+2. On that branch, run the Claude Code line of `crates/kartta-mcp/README.md` in a shell of its own. A scratch
+   configuration leaves yours as it is, and the check needs no login:
+
+   ```sh
+   set -eu
+   scratch="$(mktemp -d)"
+   cargo install --locked --path crates/kartta-mcp --root "$scratch"
+   mkdir "$scratch/config" "$scratch/project"
+   cd "$scratch/project"
+   export CLAUDE_CONFIG_DIR="$scratch/config" PATH="$scratch/bin:$PATH"
+   claude mcp add --scope user kartta -- kartta-mcp
+   claude mcp list
+   claude -p ok --output-format stream-json --verbose |
+     jq -r 'select(.subtype == "init") | .tools[] | select(startswith("mcp__kartta__"))'
+   ```
+
+   `claude mcp list` shows `kartta` connected, and the last command prints one `mcp__kartta__` line per tool,
+   `mcp__kartta__index_root` among them. A line that fails is a defect in the README: fix it on the branch against
+   Claude Code's MCP documentation (`https://code.claude.com/docs/en/mcp`).
+3. Merge the pull request once the dry runs and the check pass.
+4. Tag the merge commit on `main` and push the tag: `git tag vX.Y.Z <commit>`, then `git push origin vX.Y.Z`.
+5. Once both branches finish, run the install checks from the registries on every target:
    `gh workflow run verify-release.yml --ref vX.Y.Z -f version=X.Y.Z`. A check that fails on what the release published
    is a defect in it, below.
 
