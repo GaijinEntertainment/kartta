@@ -91,7 +91,7 @@ impl CallerRole {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct IndexRepoParams {
+pub(crate) struct IndexRootParams {
     /// Absolute filesystem path of the repository root to index, e.g. "/home/me/projects/app". Comes from the user or
     /// the session context, not from a tool output.
     pub(crate) root: String,

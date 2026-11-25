@@ -611,12 +611,12 @@ fn a_held_file_of_a_language_the_build_left_out_names_the_filter() {
     ]);
     let mut client = Client::start(&[]);
     client.answer(
-        "index_repo",
+        "index_root",
         &json!({"root": tree.path(), "languages": ["rust"]}),
     );
 
-    let unbuilt = "the go language claims this file, and index_repo's languages filter left it out of this index, \
-                   so no code graph holds it - read or grep it, or index_repo with go in languages";
+    let unbuilt = "the go language claims this file, and index_root's languages filter left it out of this index, \
+                   so no code graph holds it - read or grep it, or index_root with go in languages";
     let declined = "the go language leaves this file out of its graph: no Go build reads a file whose name starts \
                     with _ or . - read or grep it";
     let unclaimed =
@@ -655,7 +655,7 @@ fn a_change_to_files_of_a_language_the_build_left_out_counts_them_under_it() {
     ]);
     let mut client = Client::start(&[]);
     client.answer(
-        "index_repo",
+        "index_root",
         &json!({"root": tree.path(), "languages": ["rust"]}),
     );
 
@@ -687,7 +687,7 @@ fn a_change_to_files_of_a_language_the_build_left_out_counts_them_under_it() {
             ),
             concat!(
                 r#"<unbuilt language="go" regions="2">the go language claims these regions' files, and "#,
-                "index_repo's languages filter left it out of this index - read or grep them, or index_repo with ",
+                "index_root's languages filter left it out of this index - read or grep them, or index_root with ",
                 "go in languages</unbuilt>",
             ),
             "</change>",

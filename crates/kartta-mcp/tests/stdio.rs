@@ -128,7 +128,7 @@ fn the_server_lists_its_tools() {
             format!("grep {read_only}"),
             format!("impact_of_change {read_only}"),
             format!("impact_of_edit {read_only}"),
-            format!("index_repo {idempotent}"),
+            format!("index_root {idempotent}"),
             format!("index_stats {read_only}"),
             format!("list_dir {read_only}"),
             format!("read_definitions {read_only}"),
@@ -183,7 +183,7 @@ fn the_instructions_send_an_agent_to_index_stats_before_it_builds() {
     assert!(
         client.instructions.contains(
             "Every tool answers from one index, of one repository. index_stats tells whether that index is built or \
-             building, and for which root. Call index_repo with the repository's absolute root when index_stats shows \
+             building, and for which root. Call index_root with the repository's absolute root when index_stats shows \
              no index of it."
         ),
         "{}",
@@ -1001,17 +1001,17 @@ fn grep_says_when_its_globs_selected_symlinks_alone() {
 }
 
 #[test]
-fn a_query_before_index_repo_names_the_fix() {
+fn a_query_before_index_root_names_the_fix() {
     let mut client = Client::start(&[]);
 
     let answer = client.call("find_files", &json!({"pattern": "main"}));
 
     assert!(answer.is_error);
-    assert_eq!(answer.text, "no repository indexed: call index_repo first");
+    assert_eq!(answer.text, "no repository indexed: call index_root first");
 }
 
 #[test]
-fn index_repo_reports_each_graph() {
+fn index_root_reports_each_graph() {
     let tree = go_module();
     std::fs::create_dir(tree.path().join(".git")).expect("the root is a repository's top");
     let mut client = Client::start(&[]);
@@ -1108,7 +1108,7 @@ fn an_index_inside_a_repository_names_the_top_whose_rules_it_did_not_read_unless
         "the description quotes the answer: {description}"
     );
     assert_eq!(
-        client.answer("index_repo", &json!({"root": root, "index_ignored": true})),
+        client.answer("index_root", &json!({"root": root, "index_ignored": true})),
         format!(
             "<index root={:?} files=\"2\" gitignore=\"ignored\" watch=\"following\" symbols=\"0\" calls=\"0\">the \
              code graph is empty</index>",
@@ -1128,7 +1128,7 @@ fn a_root_that_is_not_an_absolute_readable_directory_is_refused_and_the_index_st
     let refused: Vec<String> = [json!(missing), json!(file), json!("."), json!("")]
         .iter()
         .map(|root| {
-            let answer = client.call("index_repo", &json!({"root": root}));
+            let answer = client.call("index_root", &json!({"root": root}));
             assert!(answer.is_error, "{root} was indexed: {}", answer.text);
             answer.text
         })
@@ -1157,7 +1157,7 @@ fn index_stats_answers_an_envelope_over_nothing_indexed() {
 
     assert_eq!(
         client.answer("index_stats", &json!({})),
-        "<index status=\"empty\">nothing is indexed - call index_repo with the repository's absolute root</index>"
+        "<index status=\"empty\">nothing is indexed - call index_root with the repository's absolute root</index>"
     );
 }
 
@@ -1173,7 +1173,7 @@ fn index_stats_names_why_a_build_failed() {
     assert!(
         shown
             .starts_with("<index root=\"<root>\" status=\"failed\">cannot read directory <root>: ")
-            && shown.ends_with(" - call index_repo again</index>"),
+            && shown.ends_with(" - call index_root again</index>"),
         "{stats}"
     );
     let refused = client.call("find_symbols", &json!({"query": "x"}));
@@ -1181,7 +1181,7 @@ fn index_stats_names_why_a_build_failed() {
     assert!(
         refused.is_error
             && shown.starts_with("indexing <root> failed: cannot read directory <root>: ")
-            && shown.ends_with(" - call index_repo again"),
+            && shown.ends_with(" - call index_root again"),
         "{}",
         refused.text
     );
@@ -1207,7 +1207,7 @@ fn a_launch_build_that_fails_warns_on_stderr() {
 }
 
 #[test]
-fn a_root_given_at_launch_builds_without_index_repo() {
+fn a_root_given_at_launch_builds_without_index_root() {
     let tree = go_module();
     let mut client = Client::start(&[tree.path()]);
 
@@ -1226,7 +1226,7 @@ fn an_unknown_language_lists_the_names_taken() {
     let mut client = Client::start(&[]);
 
     let answer = client.call(
-        "index_repo",
+        "index_root",
         &json!({"root": tree.path(), "languages": ["golang"]}),
     );
 
@@ -1252,7 +1252,7 @@ fn a_filtered_build_names_its_languages_on_the_index_and_on_a_miss() {
     let mut client = Client::start(&[]);
 
     let indexed = client.answer(
-        "index_repo",
+        "index_root",
         &json!({"root": tree.path(), "languages": ["typescript"]}),
     );
     let misses = [
@@ -1267,7 +1267,7 @@ fn a_filtered_build_names_its_languages_on_the_index_and_on_a_miss() {
     let stats = client.answer("index_stats", &json!({}));
     let hit = client.answer("find_symbols", &json!({"query": "render"}));
     let whole = client.index(tree.path());
-    let none = client.answer("index_repo", &json!({"root": tree.path(), "languages": []}));
+    let none = client.answer("index_root", &json!({"root": tree.path(), "languages": []}));
     let none_miss = client.answer("find_callers", &json!({"name": "helper"}));
 
     assert!(none.contains(r#" languages="[]" files="2""#), "{none}");
@@ -1480,9 +1480,9 @@ fn an_agent_told_a_build_still_runs_is_sent_to_index_stats() {
         .as_array()
         .expect("a tool list")
         .iter()
-        .find(|tool| tool["name"] == "index_repo")
+        .find(|tool| tool["name"] == "index_root")
         .and_then(|tool| tool["description"].as_str())
-        .expect("index_repo is described");
+        .expect("index_root is described");
 
     for told in [description, &client.instructions] {
         assert!(
@@ -1494,7 +1494,7 @@ fn an_agent_told_a_build_still_runs_is_sent_to_index_stats() {
 }
 
 #[test]
-fn index_repo_names_every_field_a_repeated_build_matches() {
+fn index_root_names_every_field_a_repeated_build_matches() {
     let mut client = Client::start(&[]);
 
     let listed = client.request("tools/list", &json!({}));
@@ -1502,9 +1502,9 @@ fn index_repo_names_every_field_a_repeated_build_matches() {
         .as_array()
         .expect("a tool list")
         .iter()
-        .find(|tool| tool["name"] == "index_repo")
+        .find(|tool| tool["name"] == "index_root")
         .and_then(|tool| tool["description"].as_str())
-        .expect("index_repo is described");
+        .expect("index_root is described");
 
     assert!(
         description

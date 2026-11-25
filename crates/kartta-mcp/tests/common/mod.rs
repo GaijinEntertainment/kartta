@@ -162,7 +162,7 @@ impl Client {
 
     /// Indexes `root` and returns the answer.
     pub(crate) fn index(&mut self, root: &Path) -> String {
-        self.answer("index_repo", &json!({"root": root}))
+        self.answer("index_root", &json!({"root": root}))
     }
 
     /// Polls `index_stats` until the index is no longer building.
