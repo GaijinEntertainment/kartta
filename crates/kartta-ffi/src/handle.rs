@@ -480,7 +480,10 @@ mod tests {
 
     #[test]
     fn a_query_waits_while_the_engine_is_written() {
-        let (tree, kartta) = built();
+        let (tree, kartta) = handle();
+        let built: Value =
+            serde_json::from_slice(&kartta.call("build", br#"{"stamps": true}"#)).expect("JSON");
+        assert!(built.get("ok").is_some(), "{built}");
         let engine = kartta.built().expect("an engine");
         let mut written = engine.built.write().expect("the engine is not poisoned");
         let asking = Barrier::new(2);
