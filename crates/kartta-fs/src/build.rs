@@ -167,7 +167,8 @@ pub struct BuildOptions {
 /// refreshes when the index has no ids left, and
 /// [`BuildError::Misspelled`] by [`Index::refresh_paths`](crate::Index::refresh_paths) for a path not spelled as the
 /// index spells one; [`Index::build`](crate::Index::build) takes no token and returns only the first two.
-/// [`BuildError::WatchWithoutStamps`] is a consumer's, for a watched build it was asked to run without stamps.
+/// [`BuildError::WatchWithoutStamps`] and [`BuildError::RefreshWithoutStamps`] are a consumer's, for a watched build and
+/// a refresh it was asked to run without stamps.
 /// Everything else is collected into [`BuildOutcome::errors`](crate::BuildOutcome::errors) and costs only what it names,
 /// so one unreadable directory yields a partial index rather than none.
 #[derive(Debug, thiserror::Error)]
@@ -271,6 +272,17 @@ pub enum BuildError {
         "cannot follow the tree without stamps: a refresh from each change would read again every file the build read"
     )]
     WatchWithoutStamps,
+    /// A refresh was asked of what a build made without [`BuildOptions::stamps`], which kept nothing to find what a
+    /// change reaches, so the refresh would read every file again and build every graph again, costing more than a
+    /// build.
+    ///
+    /// Returned before anything is watched or walked, by a refresh of a consumer that reads files for a visitor, such
+    /// as the `kartta` engine's. The index's own refreshes do not return it.
+    #[error(
+        "cannot refresh without stamps: the build kept nothing to find what a change reaches, so a refresh would read \
+         every file again and build every graph again"
+    )]
+    RefreshWithoutStamps,
     /// The directory [`BuildOptions::content_cache`] names could not be opened, written, published to or merged, or its
     /// merge could not remove files it should have: merged packs, which then hold their entries twice, temporary files
     /// of killed builds, or packs it does not map.
@@ -289,7 +301,7 @@ pub enum BuildError {
 
 impl BuildError {
     /// The word for the failure in an answer: `walk`, `thread_pool`, `ignore`, `name`, `read`, `content_index`,
-    /// `cancelled`, `content_ids_exhausted`, `misspelled`, `watch_without_stamps` or `cache`.
+    /// `cancelled`, `content_ids_exhausted`, `misspelled`, `watch_without_stamps`, `refresh_without_stamps` or `cache`.
     #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
@@ -303,6 +315,7 @@ impl BuildError {
             Self::ContentIdsExhausted => "content_ids_exhausted",
             Self::Misspelled { .. } => "misspelled",
             Self::WatchWithoutStamps => "watch_without_stamps",
+            Self::RefreshWithoutStamps => "refresh_without_stamps",
             Self::Cache { .. } => "cache",
         }
     }
@@ -316,7 +329,7 @@ impl BuildError {
     ///
     /// Every collected error names a path. Only the returned [`BuildError::ThreadPool`], [`BuildError::Stopped`],
     /// [`BuildError::Cancelled`], [`BuildError::ContentIdsExhausted`], [`BuildError::Misspelled`] and
-    /// [`BuildError::WatchWithoutStamps`] do not.
+    /// [`BuildError::WatchWithoutStamps`] and [`BuildError::RefreshWithoutStamps`] do not.
     #[must_use]
     pub fn native_path(&self) -> Option<&Path> {
         match self {
@@ -331,7 +344,8 @@ impl BuildError {
             | Self::Cancelled
             | Self::ContentIdsExhausted
             | Self::Misspelled { .. }
-            | Self::WatchWithoutStamps => None,
+            | Self::WatchWithoutStamps
+            | Self::RefreshWithoutStamps => None,
         }
     }
 
@@ -349,6 +363,7 @@ impl BuildError {
             Self::ThreadPool { .. } => 9,
             Self::Stopped(_) => 10,
             Self::WatchWithoutStamps => 11,
+            Self::RefreshWithoutStamps => 12,
         }
     }
 }
@@ -468,6 +483,10 @@ mod tests {
         assert_eq!(
             BuildError::WatchWithoutStamps.label(),
             "watch_without_stamps"
+        );
+        assert_eq!(
+            BuildError::RefreshWithoutStamps.label(),
+            "refresh_without_stamps"
         );
         assert_eq!(
             BuildError::ContentIdsExhausted.label(),

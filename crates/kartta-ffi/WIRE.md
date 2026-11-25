@@ -1155,6 +1155,7 @@ Each value is the engine's label. From `cancelled` on, a failure stops the call,
 - `content_ids_exhausted`: The index has no content ids left to number the files a refresh reads.
 - `misspelled`: A path given to `refresh` is not spelled from the root with `/` between names.
 - `watch_without_stamps`: A `build` asked to `watch` without `stamps`.
+- `refresh_without_stamps`: A `refresh` asked of a build without `stamps`.
 
 ### LineKind
 

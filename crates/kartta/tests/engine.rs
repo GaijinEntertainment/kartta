@@ -1183,6 +1183,43 @@ fn a_tree_of_more_files_than_one_batch_resolves_whole() {
     assert_eq!((graph.stats().files, graph.stats().symbols), (4100, 4100));
 }
 
+#[test]
+fn a_refresh_of_an_engine_built_without_stamps_is_refused_before_it_walks() {
+    let tree = tree(&[("a.defs", "def a\n")]);
+    let languages: Vec<Box<dyn Language>> = vec![Box::new(Defs::new("defs", "defs", ".defs"))];
+    let mut engine = Engine::build(tree.path(), &BuildOptions::default(), languages, None)
+        .expect("build the engine")
+        .engine;
+    let held = engine.index().len();
+    fs::write(tree.path().join("b.defs"), "def b\n").expect("write a file");
+
+    let whole = engine.refresh(None);
+    let named = engine.refresh_paths(["b.defs"], None);
+    let misspelled = engine.refresh_paths(["/b.defs"], None);
+
+    assert!(
+        matches!(whole, Err(BuildError::RefreshWithoutStamps)),
+        "{whole:?}"
+    );
+    assert!(
+        matches!(named, Err(BuildError::RefreshWithoutStamps)),
+        "{named:?}"
+    );
+    assert!(
+        matches!(misspelled, Err(BuildError::Misspelled { .. })),
+        "a path's spelling is refused first: {misspelled:?}"
+    );
+    #[cfg(feature = "watch")]
+    {
+        let watched = engine.refresh_watched(None);
+        assert!(
+            matches!(watched, Err(BuildError::RefreshWithoutStamps)),
+            "{watched:?}"
+        );
+    }
+    assert_eq!(engine.index().len(), held, "nothing was walked");
+}
+
 #[cfg(feature = "watch")]
 #[test]
 fn a_watched_build_without_stamps_is_refused_before_it_walks() {
