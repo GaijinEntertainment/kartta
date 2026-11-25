@@ -41,6 +41,7 @@
   },
   "method": "callees",
   "params": {
+    "depth": 1,
     "line": 1,
     "name": "Circle",
     "path_prefix": "cpp/"

@@ -66,6 +66,7 @@
   },
   "method": "analyze_change",
   "params": {
+    "depth": 3,
     "regions": [
       {
         "file": "go/_skip.go"

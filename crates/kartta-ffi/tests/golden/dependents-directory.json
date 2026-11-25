@@ -8,6 +8,8 @@
   },
   "method": "dependents",
   "params": {
-    "file": "go/lib"
+    "depth": 3,
+    "file": "go/lib",
+    "max_files": 100
   }
 }

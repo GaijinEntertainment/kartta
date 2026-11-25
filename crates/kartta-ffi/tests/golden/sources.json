@@ -35,6 +35,7 @@
   "method": "sources",
   "params": {
     "lang": "go",
+    "limit": 10,
     "max_lines": 3,
     "name": "run"
   }

@@ -9,13 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, ErrorCode};
 use crate::wire::StoppedView;
 
-const LIST_DEPTH: usize = 1;
-const LIST_LIMIT: usize = 1000;
-const FUZZY_LIMIT: usize = 50;
-const GREP_LIMIT: usize = 100;
-const GREP_MAX_LINE_BYTES: usize = 1024;
-const GREP_MAX_FILE_BYTES: u64 = 4 << 20;
-
 fn filter(globs: Option<&[String]>) -> Result<Option<Filter>, Error> {
     globs
         .map(|globs| {
@@ -29,8 +22,8 @@ fn filter(globs: Option<&[String]>) -> Result<Option<Filter>, Error> {
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct ListParams {
     path: String,
-    depth: Option<usize>,
-    limit: Option<usize>,
+    depth: usize,
+    limit: usize,
     collapse: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
 }
@@ -54,7 +47,7 @@ pub(crate) struct FuzzyParams {
     #[serde(default)]
     exclude: Option<Vec<String>>,
     #[serde(default)]
-    limit: Option<usize>,
+    limit: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,13 +63,13 @@ pub(crate) struct GrepParams {
     #[serde(default)]
     context: usize,
     #[serde(default)]
-    limit: Option<usize>,
+    limit: usize,
     #[serde(default)]
     count_all: bool,
     #[serde(default)]
-    max_line_bytes: Option<usize>,
+    max_line_bytes: usize,
     #[serde(default)]
-    max_file_bytes: Option<u64>,
+    max_file_bytes: u64,
     #[serde(default)]
     pub(crate) id: Option<u64>,
     #[serde(default)]
@@ -126,8 +119,8 @@ impl<'a> ListView<'a> {
         let collapse = filter(params.collapse.as_deref())?;
         let exclude = filter(params.exclude.as_deref())?;
         let mut options = ListOptions::default()
-            .depth(params.depth.unwrap_or(LIST_DEPTH))
-            .limit(params.limit.unwrap_or(LIST_LIMIT));
+            .depth(params.depth)
+            .limit(params.limit);
         if let Some(collapse) = &collapse {
             options = options.collapse(collapse);
         }
@@ -238,7 +231,7 @@ impl FuzzyView {
     ) -> Result<Self, Error> {
         let exclude = filter(params.exclude.as_deref())?;
         let filter = filter(params.globs.as_deref())?;
-        let mut options = FuzzyOptions::default().limit(params.limit.unwrap_or(FUZZY_LIMIT));
+        let mut options = FuzzyOptions::default().limit(params.limit);
         if let Some(filter) = &filter {
             options = options.filter(filter);
         }
@@ -330,9 +323,9 @@ impl GrepParams {
         let exclude = filter(self.exclude.as_deref())?;
         let mut options = GrepOptions::default()
             .context(self.context)
-            .limit(self.limit.unwrap_or(GREP_LIMIT))
-            .max_line_bytes(self.max_line_bytes.unwrap_or(GREP_MAX_LINE_BYTES))
-            .max_file_bytes(self.max_file_bytes.unwrap_or(GREP_MAX_FILE_BYTES))
+            .limit(self.limit)
+            .max_line_bytes(self.max_line_bytes)
+            .max_file_bytes(self.max_file_bytes)
             .cancel(cancel);
         if self.count_all {
             options = options.count_all();

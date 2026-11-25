@@ -4,10 +4,10 @@ package wire
 type ListParams struct {
 	// Path is the directory to list; empty lists the root.
 	Path string `json:"path,omitempty"`
-	// Depth is how many levels to descend; nil lists the directory's children alone, and 0 its whole subtree.
-	Depth *int `json:"depth,omitempty"`
-	// Limit caps the entries answered; nil takes the default, 1,000, and 0 sets no cap.
-	Limit *int `json:"limit,omitempty"`
+	// Depth is how many levels to descend; 0 lists the whole subtree.
+	Depth int `json:"depth,omitempty"`
+	// Limit caps the entries answered; 0 sets no cap.
+	Limit int `json:"limit,omitempty"`
 	// Collapse are globs naming the directories listed without their entries.
 	Collapse []string `json:"collapse,omitempty"`
 	// Exclude are globs naming the entries left out.
@@ -66,8 +66,8 @@ type FuzzyParams struct {
 	Globs []string `json:"globs,omitempty"`
 	// Exclude are globs naming the paths left out, a directory with everything beneath it.
 	Exclude []string `json:"exclude,omitempty"`
-	// Limit caps the matches answered; nil takes the default, 50, and 0 sets no cap.
-	Limit *int `json:"limit,omitempty"`
+	// Limit caps the matches answered; 0 sets no cap.
+	Limit int `json:"limit,omitempty"`
 }
 
 // Fuzzy is the answer of fuzzy: the best-ranked paths, best first.
@@ -104,15 +104,14 @@ type GrepParams struct {
 	Exclude []string `json:"exclude,omitempty"`
 	// Context is how many lines around each match to answer.
 	Context int `json:"context,omitempty"`
-	// Limit caps the matching lines answered; nil takes the default, 100, and 0 sets no cap.
-	Limit *int `json:"limit,omitempty"`
+	// Limit caps the matching lines answered; 0 sets no cap.
+	Limit int `json:"limit,omitempty"`
 	// CountAll counts every matching line and file past the limit, into TotalLines and TotalFiles.
 	CountAll bool `json:"count_all,omitempty"`
-	// MaxLineBytes caps the bytes of each line answered; nil takes the default, 1,024, and 0 answers lines whole.
-	MaxLineBytes *int `json:"max_line_bytes,omitempty"`
-	// MaxFileBytes is the size past which a file is not searched; nil takes the default, 4 MiB, and 0 searches every
-	// size.
-	MaxFileBytes *uint64 `json:"max_file_bytes,omitempty"`
+	// MaxLineBytes caps the bytes of each line answered; 0 answers lines whole.
+	MaxLineBytes int `json:"max_line_bytes,omitempty"`
+	// MaxFileBytes is the size past which a file is not searched; 0 searches every size.
+	MaxFileBytes uint64 `json:"max_file_bytes,omitempty"`
 }
 
 // Grep is the answer of grep: the files holding a match with their lines, and the account of every candidate.

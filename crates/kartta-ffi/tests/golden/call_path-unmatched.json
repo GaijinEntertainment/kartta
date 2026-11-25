@@ -25,6 +25,7 @@
   },
   "method": "call_path",
   "params": {
+    "depth": 8,
     "from": "main",
     "from_line": 3,
     "to": "helper",

@@ -41,6 +41,7 @@
   },
   "method": "callers",
   "params": {
+    "depth": 3,
     "name": "Cirlce"
   }
 }

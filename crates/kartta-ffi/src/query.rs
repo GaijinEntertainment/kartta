@@ -11,9 +11,9 @@ use crate::wire::graph::{
     ReferencesView, Wired,
 };
 use crate::wire::params::{
-    CALLEES_DEPTH, CALLERS_DEPTH, CallPathParams, ChangeParams, DeadCodeParams, DefinitionsParams,
-    DependentsParams, ImplementationsParams, OutlineParams, ReferencesParams, ResolutionParams,
-    SearchParams, SegmentParams, SourcesParams, WalkParams,
+    CallPathParams, ChangeParams, DeadCodeParams, DefinitionsParams, DependentsParams,
+    ImplementationsParams, OutlineParams, ReferencesParams, ResolutionParams, SearchParams,
+    SegmentParams, SourcesParams, WalkParams,
 };
 use crate::wire::{self, StoppedView};
 
@@ -67,7 +67,7 @@ fn ask_named<'b, T>(
 
 fn callers(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
-    let limits = params.limits(CALLERS_DEPTH);
+    let limits = params.limits();
     wire::ok(&ask_named(
         built.graphs(params.lang.as_deref())?,
         params.selector(),
@@ -78,7 +78,7 @@ fn callers(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 
 fn callees(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: WalkParams = wire::params(params)?;
-    let limits = params.limits(CALLEES_DEPTH);
+    let limits = params.limits();
     wire::ok(&ask_named(
         built.graphs(params.lang.as_deref())?,
         params.selector(),
@@ -132,7 +132,7 @@ fn implementations(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         params.selector(),
         is_parent,
         |(name, graph), named| {
-            let found = graph.implementations(named, params.depth(), params.limit())?;
+            let found = graph.implementations(named, params.depth, params.limit)?;
             Some((name, Wired(found)))
         },
     ))
@@ -145,7 +145,7 @@ fn definitions(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         Selector::new(&params.name, None),
         |_| true,
         |(name, graph), named| {
-            let found = graph.definitions(named.name, params.from.as_deref(), params.limit());
+            let found = graph.definitions(named.name, params.from.as_deref(), params.limit);
             (found.total > 0).then(|| (name, DefinitionsView::new(&found, None)))
         },
     ))
@@ -161,7 +161,7 @@ fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         Selector::new(&params.name, None),
         |_| true,
         |(name, graph), named| {
-            let found = graph.definitions(named.name, params.from.as_deref(), params.limit());
+            let found = graph.definitions(named.name, params.from.as_deref(), params.limit);
             if found.total == 0 {
                 return None;
             }
@@ -175,7 +175,7 @@ fn sources(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
 fn search(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: SearchParams = wire::params(params)?;
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        let found = graph.search(&params.query, params.limit());
+        let found = graph.search(&params.query, params.limit);
         (!found.hits.is_empty() || found.total > 0).then_some(Wired(found))
     })?)
 }
@@ -187,7 +187,7 @@ fn dead_code(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
         Some(Wired(graph.dead_code(
             &kinds,
             params.path_prefix.as_deref(),
-            params.limit(),
+            params.limit,
         )))
     })?)
 }
@@ -196,7 +196,7 @@ fn resolution(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: ResolutionParams = wire::params(params)?;
     let index = built.engine.index();
     wire::ok(&built.each_graph(params.lang.as_deref(), |graph| {
-        Some(Wired(index.on_threads(|| graph.resolution(params.limit()))))
+        Some(Wired(index.on_threads(|| graph.resolution(params.limit))))
     })?)
 }
 
@@ -213,7 +213,7 @@ fn dependents(built: &Built, params: &[u8]) -> Result<Vec<u8>, Error> {
     let params: DependentsParams = wire::params(params)?;
     wire::ok(&FileView::new(&built.engine, &params.file, |graph| {
         graph
-            .dependents(&params.file, params.depth(), params.max_files())
+            .dependents(&params.file, params.depth, params.max_files)
             .map(|dependents| DependentsView::new(dependents, graph.conventions()))
     }))
 }

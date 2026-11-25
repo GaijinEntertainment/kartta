@@ -41,6 +41,7 @@
   },
   "method": "references",
   "params": {
+    "limit": 500,
     "line": 5,
     "name": "Circle",
     "path_prefix": "go/"

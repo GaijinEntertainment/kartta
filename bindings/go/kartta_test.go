@@ -133,7 +133,8 @@ func Test_Kartta(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		walks, err := k.Callers(wire.WalkParams{Name: "helper", Lang: "go"})
+		depth := 3
+		walks, err := k.Callers(wire.WalkParams{Name: "helper", Lang: "go", Depth: &depth})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -218,8 +219,9 @@ func Test_Kartta(t *testing.T) {
 		if !stats.Watch.Following {
 			t.Fatalf("Build.Watch = %+v, want following", stats.Watch)
 		}
+		limit := 1
 		defined := func() bool {
-			found, err := k.Definitions(wire.DefinitionsParams{Name: "extra"})
+			found, err := k.Definitions(wire.DefinitionsParams{Name: "extra", Limit: &limit})
 			return err == nil && len(found.Matches) == 1 && len(found.Matches[0].Found) == 1
 		}
 		if !eventually(defined) {
@@ -289,9 +291,10 @@ func Test_Kartta(t *testing.T) {
 
 		var wg sync.WaitGroup
 		failures := make(chan error, 32)
+		depth := 3
 		for range 16 {
 			wg.Go(func() {
-				if _, err := k.Callers(wire.WalkParams{Name: "helper"}); err != nil {
+				if _, err := k.Callers(wire.WalkParams{Name: "helper", Depth: &depth}); err != nil {
 					failures <- err
 				}
 				if _, err := k.Stats(); err != nil {

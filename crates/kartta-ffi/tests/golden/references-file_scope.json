@@ -38,6 +38,7 @@
   },
   "method": "references",
   "params": {
+    "limit": 500,
     "name": "begin_area"
   }
 }

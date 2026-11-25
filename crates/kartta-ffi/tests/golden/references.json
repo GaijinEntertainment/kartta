@@ -69,6 +69,7 @@
   "method": "references",
   "params": {
     "lang": "cpp",
+    "limit": 500,
     "name": "Circle"
   }
 }

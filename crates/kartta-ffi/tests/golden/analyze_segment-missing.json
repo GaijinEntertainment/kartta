@@ -8,6 +8,7 @@
   },
   "method": "analyze_segment",
   "params": {
+    "depth": 3,
     "file": "go/gone.go"
   }
 }

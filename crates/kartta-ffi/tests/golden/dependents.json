@@ -26,6 +26,8 @@
   },
   "method": "dependents",
   "params": {
-    "file": "cpp/shape.h"
+    "depth": 3,
+    "file": "cpp/shape.h",
+    "max_files": 100
   }
 }

@@ -68,6 +68,7 @@
   },
   "method": "analyze_segment",
   "params": {
+    "depth": 3,
     "end_line": 3,
     "file": "go/limit.go",
     "start_line": 3
