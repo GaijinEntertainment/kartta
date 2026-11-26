@@ -1,5 +1,5 @@
 {
-	"name": "kartta-win32-x64-msvc",
+	"name": "@gaijin/kartta-win32-x64-msvc",
 	"version": "0.0.0",
 	"description": "The addon of the kartta package for Windows on x64",
 	"license": "MIT",
@@ -20,6 +20,9 @@
 		"x64"
 	],
 	"main": "kartta.win32-x64-msvc.node",
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"prepack": "node ../../scripts/stage.ts win32-x64-msvc"
 	},

@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `addon` names the target's npm package, `kartta-<addon>` (ADR 4.40).
+        # `addon` names the target's npm package, `@gaijin/kartta-<addon>` (ADR 4.40).
         include:
           - target: aarch64-apple-darwin
             os: macos-26

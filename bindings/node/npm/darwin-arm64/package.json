@@ -1,5 +1,5 @@
 {
-	"name": "kartta-darwin-arm64",
+	"name": "@gaijin/kartta-darwin-arm64",
 	"version": "0.0.0",
 	"description": "The addon of the kartta package for macOS on arm64",
 	"license": "MIT",
@@ -20,6 +20,9 @@
 		"arm64"
 	],
 	"main": "kartta.darwin-arm64.node",
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"prepack": "node ../../scripts/stage.ts darwin-arm64"
 	},

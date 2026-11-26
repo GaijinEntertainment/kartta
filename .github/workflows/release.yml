@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `addon` names the target's npm package, `kartta-<addon>` (ADR 4.40).
+        # `addon` names the target's npm package, `@gaijin/kartta-<addon>` (ADR 4.40).
         include:
           - target: aarch64-apple-darwin
             os: macos-26
@@ -232,9 +232,9 @@ jobs:
           path: npm
           pattern: npm-*
           merge-multiple: true
-      # constraint: npm generates no provenance for a package the registry does not hold yet without `--access public`
-      # (libnpmpublish's lib/publish.js)
-      - run: scripts/npm-publish.sh npm --provenance --access public
+      # constraint: npm generates no provenance for a package the registry does not hold yet unless it publishes as
+      # public (libnpmpublish's lib/publish.js), which each manifest's `publishConfig` sets
+      - run: scripts/npm-publish.sh npm --provenance
 
   checksums:
     needs: build

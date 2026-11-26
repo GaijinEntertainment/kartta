@@ -1,5 +1,5 @@
 {
-	"name": "kartta-linux-x64-musl",
+	"name": "@gaijin/kartta-linux-x64-musl",
 	"version": "0.0.0",
 	"description": "The addon of the kartta package for Linux on x64 with musl",
 	"license": "MIT",
@@ -23,6 +23,9 @@
 		"musl"
 	],
 	"main": "kartta.linux-x64-musl.node",
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"prepack": "node ../../scripts/stage.ts linux-x64-musl"
 	},

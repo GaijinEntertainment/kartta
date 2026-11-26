@@ -8,7 +8,7 @@ One version `X.Y.Z` goes out once, in lockstep, on every channel
 
 - `build` → `checksums` → `crates` → `publish`, where `crates` uploads the crates, and `publish` pushes the Go tag
   `bindings/go/vX.Y.Z` and creates the GitHub release.
-- `build` → `npm-pack` → `npm-publish`, where `npm-publish` uploads the seven npm packages, `kartta` last.
+- `build` → `npm-pack` → `npm-publish`, where `npm-publish` uploads the seven npm packages, `@gaijin/kartta` last.
 
 ## What cannot be undone
 
@@ -92,8 +92,8 @@ release and keeps the tag.
 
 ### npm is not out: `npm-pack` or `npm-publish` failed
 
-npm resolves no `kartta@X.Y.Z` until `kartta` itself is out. What the crates branch published serves its consumers
-meanwhile.
+npm resolves no `@gaijin/kartta@X.Y.Z` until `@gaijin/kartta` itself is out. What the crates branch published serves its
+consumers meanwhile.
 
 - **`npm-pack` failed**: nothing of this branch uploaded. A runner or network fault: re-run. A defect in the tree:
   `X.Y.(Z+1)`.
@@ -101,10 +101,11 @@ meanwhile.
   of this repository and `release.yml`, or holds one that expired, which npm does to a publisher no publish used
   within 2 days of its creation. Any package before it is out. Delete an expired one, add the publisher (below), then
   re-run within 2 days; the script skips what is out.
-- **Midway**, some target packages uploaded and `kartta` not: re-run. `scripts/npm-publish.sh` skips each version the
-  registry holds and publishes `kartta` last, so no install of `kartta` reaches a missing target's package.
+- **Midway**, some target packages uploaded and `@gaijin/kartta` not: re-run. `scripts/npm-publish.sh` skips each
+  version the registry holds and publishes `@gaijin/kartta` last, so no install of `@gaijin/kartta` reaches a missing
+  target's package.
 - **Nothing more can upload** from this tree, or the 30 days of re-runs are over: cut `X.Y.(Z+1)`. The other channels'
-  `X.Y.Z` stay as they are, and so do the target packages already at `X.Y.Z`, which no `kartta` reaches.
+  `X.Y.Z` stay as they are, and so do the target packages already at `X.Y.Z`, which no `@gaijin/kartta` reaches.
 
 ### A defect in a published release
 

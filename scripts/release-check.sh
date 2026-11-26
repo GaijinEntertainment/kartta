@@ -20,8 +20,8 @@ this checkout stands in for crates.io and the Go module proxy.
   crate  builds a scratch crate that depends on kartta at exactly <version>
   go     runs a scratch Go program that requires the module at v<version>, linked against the archive in <tarball>,
          and checks the version the library answers
-  npm    installs kartta at <version>, or every pack in <dir> under RELEASE_RUN, and checks the version the engine
-         answers
+  npm    installs @gaijin/kartta at <version>, or every pack in <dir> under RELEASE_RUN, and checks the version the
+         engine answers
   sums   checks every tarball in <dir> against the SHA256SUMS there, and that the file lists no other
 USAGE
 }
@@ -160,10 +160,10 @@ check_npm() {
   if [ -n "$packs" ]; then
     npm install --no-audit --no-fund "$packs"/*.tgz
   else
-    npm install --no-audit --no-fund "kartta@$version"
+    npm install --no-audit --no-fund "@gaijin/kartta@$version"
   fi
   cat >version.mjs <<'JS'
-import {Kartta} from 'kartta';
+import {Kartta} from '@gaijin/kartta';
 
 const kartta = Kartta.open('.');
 try {

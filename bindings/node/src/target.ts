@@ -17,7 +17,7 @@ export type Host = {
 
 /**
  * The target the addon of this host is built for, as `<platform>-<arch>[-<abi>]`: the addon's file is
- * `kartta.<target>.node`, and the package that ships it is `kartta-<target>`.
+ * `kartta.<target>.node`, and the package that ships it is `@gaijin/kartta-<target>`.
  */
 export function target(host: Host = process): string {
 	const stem = `${host.platform}-${host.arch}`;
