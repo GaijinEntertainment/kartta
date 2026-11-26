@@ -1,5 +1,5 @@
 {
-	"name": "kartta",
+	"name": "@gaijin/kartta",
 	"version": "0.0.0",
 	"description": "Node.js binding of the kartta code graph engine: file search, content search and graph queries",
 	"keywords": [
@@ -26,6 +26,9 @@
 			"default": "./dist/kartta.js"
 		}
 	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"build": "node scripts/build.ts",
 		"typecheck": "tsc",
@@ -39,12 +42,12 @@
 		"vite-plus": "1.5.0"
 	},
 	"optionalDependencies": {
-		"kartta-darwin-arm64": "0.0.0",
-		"kartta-linux-arm64-gnu": "0.0.0",
-		"kartta-linux-arm64-musl": "0.0.0",
-		"kartta-linux-x64-gnu": "0.0.0",
-		"kartta-linux-x64-musl": "0.0.0",
-		"kartta-win32-x64-msvc": "0.0.0"
+		"@gaijin/kartta-darwin-arm64": "0.0.0",
+		"@gaijin/kartta-linux-arm64-gnu": "0.0.0",
+		"@gaijin/kartta-linux-arm64-musl": "0.0.0",
+		"@gaijin/kartta-linux-x64-gnu": "0.0.0",
+		"@gaijin/kartta-linux-x64-musl": "0.0.0",
+		"@gaijin/kartta-win32-x64-msvc": "0.0.0"
 	},
 	"engines": {
 		"node": ">=24"

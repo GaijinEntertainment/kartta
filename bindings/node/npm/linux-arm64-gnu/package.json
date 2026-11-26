@@ -1,5 +1,5 @@
 {
-	"name": "kartta-linux-arm64-gnu",
+	"name": "@gaijin/kartta-linux-arm64-gnu",
 	"version": "0.0.0",
 	"description": "The addon of the kartta package for Linux on arm64 with glibc",
 	"license": "MIT",
@@ -23,6 +23,9 @@
 		"glibc"
 	],
 	"main": "kartta.linux-arm64-gnu.node",
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"prepack": "node ../../scripts/stage.ts linux-arm64-gnu"
 	},

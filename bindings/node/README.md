@@ -4,7 +4,7 @@ Node.js binding of the kartta code graph engine: a handle on a tree, one build t
 and graph query the engine answers, each answer carrying the counts of what a cap or a bound left out.
 
 ```ts
-import {Kartta} from 'kartta';
+import {Kartta} from '@gaijin/kartta';
 
 const kartta = Kartta.open('/path/to/repo');
 try {
@@ -28,10 +28,10 @@ try {
   params)` reaches the wire untyped.
 
 The addon is a native library per platform: macOS on arm64, Linux on x64 and arm64 each with glibc and with musl, and
-Windows on x64. Each ships in a package of its own, `kartta-<target>`, an optional dependency of this package, which npm
-installs only where it matches and this package loads; a checkout builds the host's with `vp run build`, which needs the
-Rust toolchain `rust-toolchain.toml` pins. `npm pack` in a target's directory under `npm/` packs the addon a build left
-beside `package.json`, with the licence and the third-party notices.
+Windows on x64. Each ships in a package of its own, `@gaijin/kartta-<target>`, an optional dependency of this package,
+which npm installs only where it matches and this package loads; a checkout builds the host's with `vp run build`, which
+needs the Rust toolchain `rust-toolchain.toml` pins. `npm pack` in a target's directory under `npm/` packs the addon a
+build left beside `package.json`, with the licence and the third-party notices.
 
 A checkout's toolchain is the `vite-plus` the lockfile pins, installed by `npm ci --ignore-scripts`: `vp fmt` formats,
 `vp lint` lints, `vp run typecheck` type-checks and `vp test` runs the tests, which load the addon `vp run build` built.

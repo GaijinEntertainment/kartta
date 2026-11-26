@@ -10,10 +10,10 @@ readonly SITES=(
   'crates/kartta-ffi/tests/golden/version.json|/^ +"version": "/'
   'bindings/go/version.go|/^const version = "/'
   'bindings/node/package.json|/^[[:blank:]]"version": /'
-  'bindings/node/package.json|/^[[:blank:]]+"kartta-[a-z0-9-]+": /'
-  'bindings/node/package-lock.json|/^[[:blank:]]{1,2}"name": "kartta",$/,/^[[:blank:]]+"license": /'
-  'bindings/node/package-lock.json|/^[[:blank:]]+"kartta-[a-z0-9-]+": /'
-  'bindings/node/package-lock.json|/^[[:blank:]]+"node_modules\/kartta-[a-z0-9-]+": /,/^[[:blank:]]+"version": /'
+  'bindings/node/package.json|/^[[:blank:]]+"@gaijin\/kartta-[a-z0-9-]+": /'
+  'bindings/node/package-lock.json|/^[[:blank:]]{1,2}"name": "@gaijin\/kartta",$/,/^[[:blank:]]+"license": /'
+  'bindings/node/package-lock.json|/^[[:blank:]]+"@gaijin\/kartta-[a-z0-9-]+": /'
+  'bindings/node/package-lock.json|/^[[:blank:]]+"node_modules\/@gaijin\/kartta-/,/^[[:blank:]]+"version": /'
   'bindings/node/npm/darwin-arm64/package.json|/^[[:blank:]]"version": /'
   'bindings/node/npm/linux-arm64-gnu/package.json|/^[[:blank:]]"version": /'
   'bindings/node/npm/linux-arm64-musl/package.json|/^[[:blank:]]"version": /'
@@ -21,7 +21,7 @@ readonly SITES=(
   'bindings/node/npm/linux-x64-musl/package.json|/^[[:blank:]]"version": /'
   'bindings/node/npm/win32-x64-msvc/package.json|/^[[:blank:]]"version": /'
 )
-readonly VERSION_FIELD='(version"?|"kartta-[a-z0-9-]+")( =|:) "'
+readonly VERSION_FIELD='(version"?|"@gaijin\/kartta-[a-z0-9-]+")( =|:) "'
 readonly SEMVER='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 
 usage() {

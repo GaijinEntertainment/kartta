@@ -1,8 +1,8 @@
 import {execFileSync, execSync} from 'node:child_process';
-import {existsSync, mkdtempSync, readdirSync, readFileSync, rmSync} from 'node:fs';
+import {copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 
 import {expect, onTestFinished, test} from 'vite-plus/test';
 
@@ -23,9 +23,10 @@ type Package = Platform & {
 	files: string[];
 	scripts: Record<string, string>;
 	optionalDependencies: Record<string, string>;
+	publishConfig: {access: string};
 };
 
-type Lock = {packages: Record<string, Package>};
+type Lock = {name: string; packages: Record<string, Package>};
 
 function text(relative: string): string {
 	return readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8');
@@ -38,7 +39,7 @@ const root = JSON.parse(text('package.json')) as Package;
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion
 const lock = JSON.parse(text('package-lock.json')) as Lock;
 const stage = fileURLToPath(new URL('../scripts/stage.ts', import.meta.url));
-const dependencies = Object.fromEntries(TARGETS.map((name) => [`kartta-${name}`, root.version]));
+const dependencies = Object.fromEntries(TARGETS.map((name) => [`@gaijin/kartta-${name}`, root.version]));
 
 function runStage(args: string[]): {directory: string; run: () => string} {
 	const directory = mkdtempSync(path.join(tmpdir(), 'kartta-stage-'));
@@ -61,6 +62,11 @@ test('a package exists for every target and for no other', () => {
 	expect(readdirSync(new URL('../npm/', import.meta.url)).toSorted()).toStrictEqual([...TARGETS]);
 });
 
+test('the main package publishes as public under the @gaijin scope', () => {
+	expect(root).toMatchObject({name: '@gaijin/kartta', publishConfig: {access: 'public'}});
+	expect(lock).toMatchObject({name: root.name, packages: {'': {name: root.name}}});
+});
+
 test('the main package depends on every target at its own version', () => {
 	expect(root.optionalDependencies).toStrictEqual(dependencies);
 	expect(lock.packages['']?.optionalDependencies).toStrictEqual(dependencies);
@@ -72,8 +78,9 @@ test.for(TARGETS)('the %s package ships its addon and notices and installs only 
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 	const manifest = JSON.parse(text(`npm/${name}/package.json`)) as Package;
 	expect(manifest).toMatchObject({
-		name: `kartta-${name}`,
+		name: `@gaijin/kartta-${name}`,
 		version: root.version,
+		publishConfig: {access: 'public'},
 		main: addon,
 		files: [addon, 'THIRD-PARTY-NOTICES.txt'],
 		scripts: {prepack: `node ../../scripts/stage.ts ${name}`},
@@ -83,7 +90,7 @@ test.for(TARGETS)('the %s package ships its addon and notices and installs only 
 });
 
 test.for(TARGETS)('the lock holds the %s package', (name) => {
-	expect(lock.packages[`node_modules/kartta-${name}`]).toStrictEqual({
+	expect(lock.packages[`node_modules/@gaijin/kartta-${name}`]).toStrictEqual({
 		version: root.version,
 		license: root.license,
 		optional: true,
@@ -113,6 +120,41 @@ test('the stage fails on a target with no addon built', () => {
 	const {directory, run} = runStage(['linux-riscv64-musl']);
 	expect(run).toThrow(/kartta\.linux-riscv64-musl\.node/v);
 	expect(existsSync(path.join(directory, 'kartta.linux-riscv64-musl.node'))).toBe(false);
+});
+
+test('the package loads the addon from the package of its host when no build sits beside it', {timeout: 60_000}, () => {
+	const directory = mkdtempSync(path.join(tmpdir(), 'kartta-load-'));
+	onTestFinished(() => {
+		rmSync(directory, {recursive: true, force: true});
+	});
+	const checkout = path.join(directory, 'kartta');
+	cpSync(fileURLToPath(new URL('../src/', import.meta.url)), path.join(checkout, 'src'), {recursive: true});
+	copyFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), path.join(checkout, 'package.json'));
+	const installed = path.join(directory, 'node_modules', `@gaijin/kartta-${target()}`);
+	mkdirSync(installed, {recursive: true});
+	copyFileSync(
+		fileURLToPath(new URL(`../npm/${target()}/package.json`, import.meta.url)),
+		path.join(installed, 'package.json'),
+	);
+	const addon = `kartta.${target()}.node`;
+	copyFileSync(fileURLToPath(new URL(`../${addon}`, import.meta.url)), path.join(installed, addon));
+	const script = `
+		const {Kartta} = await import(process.argv[1]);
+		const kartta = Kartta.open(process.argv[2]);
+		console.log((await kartta.version()).version);
+		kartta.close();
+	`;
+	const module = pathToFileURL(path.join(checkout, 'src', 'kartta.ts')).href;
+
+	const stdout = execFileSync(
+		process.execPath,
+		['--no-warnings', '--input-type=module', '--eval', script, module, directory],
+		{
+			encoding: 'utf8',
+		},
+	);
+
+	expect(stdout.trim()).toBe(root.version);
 });
 
 test('npm pack of the host package holds its addon, the notices and the licence', {timeout: 60_000}, () => {

@@ -388,7 +388,7 @@ function addon(): Addon {
 function load(): Addon {
 	const host = target();
 	const require = createRequire(import.meta.url);
-	for (const id of [`../kartta.${host}.node`, `kartta-${host}`]) {
+	for (const id of [`../kartta.${host}.node`, `@gaijin/kartta-${host}`]) {
 		try {
 			// SAFETY: both ids name the addon crates/kartta-node builds, whose surface `Addon` declares.
 			// oxlint-disable-next-line typescript/no-unsafe-type-assertion

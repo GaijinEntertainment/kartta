@@ -44,7 +44,7 @@ The npm package, for Node 24 or later, which installs the addon of its host's ta
 ([README](bindings/node/README.md)):
 
 ```sh
-npm install kartta
+npm install @gaijin/kartta
 ```
 
 ## Support
