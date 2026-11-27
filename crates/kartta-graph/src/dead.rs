@@ -1,6 +1,6 @@
 use foldhash::fast::FixedState;
 use hashbrown::HashMap;
-use kartta_lang::{CallableRole, DataUses, SymbolKind, TypeUses};
+use kartta_lang::{CallableRole, DataUses, Exports, SymbolKind, TypeUses};
 
 use crate::calls::Calls;
 use crate::confidence;
@@ -65,6 +65,9 @@ pub struct DeadCode<'g> {
     pub total: usize,
     /// The definitions judged and found reached.
     pub live: usize,
+    /// The dead definitions, before the limit, that their language exports, or `None` where the language records no
+    /// export ([`Exports::Unrecorded`](kartta_lang::Exports::Unrecorded)).
+    pub exported: Option<usize>,
     /// The definitions left unjudged, by reason.
     pub excluded: Excluded,
 }
@@ -113,6 +116,7 @@ impl Graph {
                 found: Vec::new(),
                 total: 0,
                 live: 0,
+                exported: (self.conventions.exports == Exports::Recorded).then_some(0),
                 excluded: Excluded::default(),
             },
             alternatives: HashMap::default(),
@@ -241,6 +245,9 @@ impl Judge<'_, '_> {
             return;
         }
         self.answer.total += 1;
+        if let Some(exported) = &mut self.answer.exported {
+            *exported += usize::from(symbol.exported());
+        }
         if self.answer.found.len() < limit {
             self.answer.found.push(Dead {
                 definition: self.graph.definition_at(at),

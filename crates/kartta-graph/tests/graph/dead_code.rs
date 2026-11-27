@@ -3,9 +3,9 @@
 
 use kartta_graph::{DeadCode, Graph};
 use kartta_lang::{
-    Access, CallRef, Callable, CallableRole, Conventions, DataUses, Extraction, FILE_SCOPE,
-    ImportBinding, IncludeRef, OwnMembers, Receiver, Receivers, Symbol, SymbolFlags, SymbolId,
-    SymbolKind, TypeUses, UntypedMembers, UseRef,
+    Access, CallRef, Callable, CallableRole, Conventions, DataUses, Exports, Extraction,
+    FILE_SCOPE, ImportBinding, IncludeRef, OwnMembers, Receiver, Receivers, Symbol, SymbolFlags,
+    SymbolId, SymbolKind, TypeUses, UntypedMembers, UseRef,
 };
 
 use crate::{call, function, graph, graph_of, member_call};
@@ -86,6 +86,37 @@ fn a_function_no_call_reaches_is_dead_and_a_called_one_is_live() {
     assert_eq!(names(&dead), ["main_loop", "orphan"]);
     assert_eq!((dead.total, dead.live), (2, 1));
     assert!(dead.found.iter().all(|found| !found.spelled));
+}
+
+#[test]
+fn the_dead_a_language_exports_are_counted_past_the_limit_and_not_where_it_records_no_export() {
+    let exported = |mut symbol: Symbol| {
+        symbol.exported = true;
+        symbol
+    };
+    let files = [file(
+        "src/lib.c",
+        vec![
+            exported(function("api", 1)),
+            function("internal", 5),
+            exported(function("tail", 9)),
+            exported(function("used", 13)),
+        ],
+        vec![call(1, "used", 6)],
+    )];
+    let mut unrecorded = Conventions::default();
+    unrecorded.exports = Exports::Unrecorded;
+
+    let (recording, unrecording) = (graph(&files), graph_of(unrecorded, &files));
+    let dead = recording.dead_code(&[], None, 1);
+    let unmarked = unrecording.dead_code(&[], None, 10);
+
+    assert_eq!(
+        (names(&dead), dead.total, dead.live, dead.exported),
+        (vec!["api"], 3, 1, Some(2))
+    );
+    assert!(dead.found[0].definition.exported);
+    assert_eq!((unmarked.total, unmarked.exported), (3, None));
 }
 
 #[test]
