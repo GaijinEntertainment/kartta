@@ -299,6 +299,7 @@ lost, and what would reopen it.
 - [4.68 Name what a file's language counts as an importer in find_importers and dependents](/design-docs/adr/4.68-importer-counts.md)
 - [4.70 Write a location as its span, and a call's line bare](/design-docs/adr/4.70-mcp-answer-locations.md)
 - [4.71 Spell each count concept of an MCP answer with one word](/design-docs/adr/4.71-mcp-count-vocabulary.md)
+- [4.72 List a symbol's callers by hop, test and generated code last within each](/design-docs/adr/4.72-caller-list-order.md)
 
 ## crates/kartta-node
 
