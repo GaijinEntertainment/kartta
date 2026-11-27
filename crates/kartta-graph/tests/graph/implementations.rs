@@ -95,6 +95,23 @@ fn implementors_come_nearest_first_then_in_path_order() {
 }
 
 #[test]
+fn the_answer_holds_the_parents_the_selected_type_writes() {
+    let graph = hierarchy();
+
+    let shape = graph
+        .implementations("Shape", 1, 10)
+        .expect("Shape is a type");
+    let base = graph
+        .implementations("Base", 1, 10)
+        .expect("Base is a type");
+
+    assert_eq!(
+        (shape.root_parents, base.root_parents),
+        (vec!["Base"], Vec::<&str>::new())
+    );
+}
+
+#[test]
 fn a_type_reached_through_two_parents_is_listed_once() {
     let mut graph = hierarchy();
     graph.insert(&including(
