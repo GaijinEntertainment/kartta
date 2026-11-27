@@ -1,6 +1,6 @@
 {
 	"name": "@gaijin/kartta-linux-x64-gnu",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "The addon of the kartta package for Linux on x64 with glibc",
 	"license": "MIT",
 	"author": "Gaijin Entertainment",
