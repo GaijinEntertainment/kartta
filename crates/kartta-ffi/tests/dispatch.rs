@@ -644,6 +644,45 @@ fn a_list_of_0_answers_the_counts_alone() {
 }
 
 #[test]
+fn dead_code_counts_the_exported_past_the_limit_and_none_where_exports_are_unrecorded() {
+    let tree = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        tree.path().join("go.mod"),
+        "module example.com/app\n\ngo 1.22\n",
+    )
+    .expect("go.mod");
+    fs::create_dir(tree.path().join("pkg")).expect("pkg");
+    fs::write(
+        tree.path().join("pkg/pkg.go"),
+        "package pkg\n\nfunc Exported() {}\n\nfunc internal() {}\n\nfunc Tail() {}\n",
+    )
+    .expect("pkg.go");
+    fs::write(tree.path().join("hud.nut"), "function hud() {}\n").expect("hud.nut");
+    let kartta = open(tree.path());
+    ok(&kartta, "build", &Value::Null);
+
+    let answer = ok(&kartta, "dead_code", &json!({ "limit": 1 }));
+    let part = |graph: &str| {
+        answer["matches"]
+            .as_array()
+            .and_then(|parts| parts.iter().find(|part| part["graph"] == graph))
+            .unwrap_or_else(|| panic!("no {graph} part: {answer}"))
+    };
+
+    assert_eq!(
+        (
+            &part("go")["total"],
+            &part("go")["exported"],
+            part("go")["found"].as_array().map(Vec::len)
+        ),
+        (&json!(3), &json!(2), Some(1)),
+        "{answer}"
+    );
+    assert_eq!(part("quirrel")["total"], 1, "{answer}");
+    assert!(part("quirrel").get("exported").is_none(), "{answer}");
+}
+
+#[test]
 fn an_implementations_limit_of_0_answers_the_total_alone() {
     let (_tree, kartta) = rust_crate();
 

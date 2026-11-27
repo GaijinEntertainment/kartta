@@ -456,6 +456,10 @@ type DeadCode struct {
 	Total int `json:"total"`
 	// Live counts the definitions judged and found reached.
 	Live int `json:"live"`
+	// Exported counts the dead definitions, before the limit, whose Definition is Exported. It is nil where the graph's
+	// language records no export: its extraction marks exported what the language keeps to a file, so the Exported of
+	// each of its definitions says nothing.
+	Exported *int `json:"exported,omitempty"`
 	// Excluded counts the definitions left unjudged, by reason.
 	Excluded Excluded `json:"excluded"`
 }

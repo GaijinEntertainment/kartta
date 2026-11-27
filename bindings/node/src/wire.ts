@@ -818,6 +818,12 @@ export type DeadCode = {
 	found: Array<{definition: Definition; spelled: boolean}>;
 	total: number;
 	live: number;
+	/**
+	 * The dead definitions, before the limit, whose `definition` is `exported`. Absent where the graph's language records
+	 * no export: its extraction marks exported what the language keeps to a file, so the `exported` of each of its
+	 * definitions says nothing.
+	 */
+	exported?: number;
 	excluded: {
 		kind: number;
 		test: number;

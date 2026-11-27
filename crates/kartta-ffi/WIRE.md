@@ -43,8 +43,8 @@ is no substitute: its `-lunwind` fails on Alpine, where gcc brings the unwinder.
 - A bound the public layer takes as an argument is `required`, and a request without it answers `invalid_params`
   naming it. Any other bound left out cuts nothing. A bound of 0 means what its field says.
 - A `min_confidence` left out takes 0, which turns no call or site away.
-- A count left out of an answer reads as 0, except `fuzzy_total`, `matched`, `total_files` and `total_lines`, whose
-  fields say when they are counted: there, absent means not counted.
+- A count left out of an answer reads as 0, except `fuzzy_total`, `matched`, `total_files`, `total_lines` and a
+  [`DeadCode`](#deadcode)'s `exported`, whose fields say when they are counted: there, absent means not counted.
 - A count holds what the graph records, so 0 does not show that nothing uses a symbol: a language records only some
   uses, and `type_uses_unrecorded` and `data_uses_unrecorded` name where it records none of a kind.
 - `version` needs no build. Every other method but `build` and `cancel` asks what the last finished build made, and
@@ -981,6 +981,9 @@ The fields of [`DeclinedView`](#declinedview), and:
 - `found` (array of [`Dead`](#dead), always): The dead definitions, in path order, at most the limit.
 - `total` (integer, always): The dead definitions, before the limit.
 - `live` (integer, always): The definitions judged and found reached.
+- `exported` (integer, optional): The dead definitions, before the limit, whose `definition` is `exported`. Absent
+  where the graph's language records no export: its extraction marks exported what the language keeps to a file, so
+  the `exported` of each of its definitions says nothing.
 - `excluded` ([`Excluded`](#excluded), always): The definitions left unjudged, by reason.
 
 ### Dead
