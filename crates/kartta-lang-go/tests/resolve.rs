@@ -246,6 +246,36 @@ fn a_nested_module_wins_by_the_longest_prefix() {
 }
 
 #[test]
+fn an_import_of_a_package_of_the_std_module_names_its_directory_without_a_prefix() {
+    let files = MemoryRepository::new([
+        ("src/go.mod", "module std\n"),
+        ("src/strings/builder.go", ""),
+        ("src/go/parser/interface.go", ""),
+        ("src/net/http/server.go", ""),
+        ("src/cmd/go.mod", "module cmd\n"),
+        ("src/cmd/cover/cover.go", ""),
+        ("src/cmd/internal/obj/link.go", ""),
+    ]);
+    let source =
+        b"package cover\n\nimport (\n\t\"strings\"\n\t\"go/parser\"\n\t\"cmd/internal/obj\"\n)\n";
+    let dirs = |path: &str| -> Vec<Option<String>> {
+        resolve(&files, source, path)
+            .bindings
+            .into_iter()
+            .map(|binding| binding.target_dir)
+            .collect()
+    };
+    let expected = [
+        Some("src/strings".to_owned()),
+        Some("src/go/parser".to_owned()),
+        Some("src/cmd/internal/obj".to_owned()),
+    ];
+
+    assert_eq!(dirs("src/net/http/server.go"), expected);
+    assert_eq!(dirs("src/cmd/cover/cover.go"), expected);
+}
+
+#[test]
 fn a_go_mod_under_vendor_declares_no_module() {
     let files = MemoryRepository::new([
         ("go.mod", "module example.com/app\n"),
