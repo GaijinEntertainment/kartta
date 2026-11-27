@@ -1020,9 +1020,10 @@ impl Server {
                        the type through N-1 others. total= counts every implementor found, at most 500 listed; \
                        passed_over= counts the other types the name selects, and then a <root/> names the type \
                        answered for and up to 5 <candidate/> records list the most implemented others. A type that \
-                       implements an interface without naming it, as Go's and TypeScript's structural typing allows, \
-                       is not found, and the answer for such an interface says so in its text. A name no indexed type \
-                       has, as a library's Display or io.Reader, asked without path_prefix or line, lists under \
+                       implements an interface without naming it, as Go's and TypeScript's structural typing and a \
+                       Python Protocol allow, is not found, and the answer for such an interface says so in its text. \
+                       A name no indexed type has, as a library's Display or io.Reader, asked without path_prefix or \
+                       line, lists under \
                        outside_graph=true the types whose written parents end with it, one hop, and namesakes= counts \
                        the other indexed types and namespaces of its last segment, which no listed parent reached. A \
                        name several types end with lists them instead; a name held only as kinds no type implements, \

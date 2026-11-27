@@ -321,15 +321,25 @@ pub(crate) fn implementations(
 }
 
 /// The types the answer cannot list, where a root's language lets a type implement it without naming it: a Go or
-/// TypeScript interface, which a type implements by its members alone.
+/// TypeScript interface, or a Python protocol, a class whose bases list typing's `Protocol` itself, written bare or as
+/// `typing.Protocol` or `typing_extensions.Protocol`, each of which a type implements by its members alone.
 fn unnamed_implementors(found: &[(&str, Implementations<'_>)]) -> Option<String> {
     let languages: Vec<&str> = found
         .iter()
         .filter_map(|(family, found)| {
             let interface = found.root.kind == SymbolKind::Interface;
+            let protocol = || {
+                found.root_parents.iter().any(|parent| {
+                    matches!(
+                        *parent,
+                        "Protocol" | "typing.Protocol" | "typing_extensions.Protocol"
+                    )
+                })
+            };
             match *family {
                 "go" if interface => Some("Go"),
                 "jsts" if interface => Some("TypeScript"),
+                "python" if protocol() => Some("Python"),
                 _ => None,
             }
         })
