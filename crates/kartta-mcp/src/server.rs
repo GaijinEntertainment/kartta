@@ -550,8 +550,7 @@ impl Server {
         description = "List the indexed files that match glob patterns, in path order: every .go file, everything \
                        under src/, the tree minus vendored code. Use it when the set of files is the answer; to find \
                        one file by name, use find_files. It answers repo-relative paths, one a line, quoted as \
-                       find_files quotes them. A list max_results cut ends with a (truncated: ...) line that counts no \
-                       total: pass max_results 0 to list and count every match."
+                       find_files quotes them. A list max_results cut ends with a line counting every match."
     )]
     async fn glob_files(
         &self,

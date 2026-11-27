@@ -142,9 +142,9 @@ pub(crate) fn paths(
     answer
 }
 
-/// The `glob_files` answer: the paths one per line, in path order, and a last line saying so when the cap cut them,
-/// since paths in path order look the same whether or not more follow, and a last line counting the matches the
-/// excludes removed. An answer that lists nothing echoes each glob quoted and escaped, `, ` between them: a glob can
+/// The `glob_files` answer: the paths one per line, in path order, and a last line counting every match when the cap
+/// cut them, since paths in path order look the same whether or not more follow, and a last line counting the matches
+/// the excludes removed. An answer that lists nothing echoes each glob quoted and escaped, `, ` between them: a glob can
 /// hold a comma, and a line break too, since a name can.
 pub(crate) fn globbed(globs: &Selection<'_>, found: &Capped<'_>) -> String {
     let excluded = found.excluded();
@@ -175,7 +175,8 @@ pub(crate) fn globbed(globs: &Selection<'_>, found: &Capped<'_>) -> String {
     if found.truncated() {
         let _ = write!(
             answer,
-            "\n(truncated: the first {shown} matching paths in path order; more match)"
+            "\n({shown} of {} matching paths, in path order)",
+            found.matched()
         );
     }
     if excluded > 0 {
@@ -477,7 +478,7 @@ mod tests {
 
         assert_eq!(
             globbed(&selection, &found),
-            "a.rs\n\"b\\nc.rs\"\n(truncated: the first 2 matching paths in path order; more match)"
+            "a.rs\n\"b\\nc.rs\"\n(2 of 3 matching paths, in path order)"
         );
     }
 }

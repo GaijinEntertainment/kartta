@@ -423,24 +423,36 @@ fn glob_files_lists_in_path_order_and_says_when_the_cap_cut_it() {
     );
     assert_eq!(
         client.answer("glob_files", &json!({"globs": ["**"], "max_results": 2})),
-        "README.md\ncmd/app/main.go\n(truncated: the first 2 matching paths in path order; more match)"
+        "README.md\ncmd/app/main.go\n(2 of 4 matching paths, in path order)"
     );
     assert_eq!(
         client.answer(
             "glob_files",
             &json!({"globs": ["**"], "excludes": ["*.md"], "max_results": 1})
         ),
-        "cmd/app/main.go\n(truncated: the first 1 matching paths in path order; more match)\n\
-         (excludes removed: 1)"
+        "cmd/app/main.go\n(1 of 3 matching paths, in path order)\n(excludes removed: 1)"
     );
     assert_eq!(
         client.answer(
             "glob_files",
             &json!({"globs": ["**"], "excludes": ["cmd"], "max_results": 2})
         ),
-        "README.md\ngo.mod\n(truncated: the first 2 matching paths in path order; more match)\n\
-         (excludes removed: 1)",
+        "README.md\ngo.mod\n(2 of 3 matching paths, in path order)\n(excludes removed: 1)",
         "an excluded directory takes everything beneath it, and the cap holds"
+    );
+    assert_eq!(
+        [
+            client.answer(
+                "glob_files",
+                &json!({"globs": ["**"], "excludes": ["pkg"], "max_results": 1})
+            ),
+            client.answer("glob_files", &json!({"globs": ["**"], "excludes": ["pkg"]})),
+        ],
+        [
+            "README.md\n(1 of 3 matching paths, in path order)\n(excludes removed: 1)",
+            "README.md\ncmd/app/main.go\ngo.mod\n(excludes removed: 1)",
+        ],
+        "pkg/service.go lies past the cut, and both lines count the whole tree as the uncut list does"
     );
     assert_eq!(
         client.answer("glob_files", &json!({"globs": ["*.rs"]})),
@@ -1404,14 +1416,12 @@ fn find_files_and_glob_files_say_when_their_default_cap_cut_the_list() {
     assert_eq!(found.lines().count(), 202, "{found}");
     assert!(
         globbed.ends_with(&format!(
-            "\nnotes/n199.txt\n(truncated: the first 200 matching paths in path order; more match)\n{marker}"
+            "\nnotes/n199.txt\n(200 of 201 matching paths, in path order)\n{marker}"
         )),
         "{globbed}"
     );
     assert!(
-        capped.ends_with(
-            "\nnotes/n199.txt\n(truncated: the first 200 matching paths in path order; more match)"
-        ),
+        capped.ends_with("\nnotes/n199.txt\n(200 of 201 matching paths, in path order)"),
         "a cap the call named takes no line for the default: {capped}"
     );
     assert!(
@@ -1444,7 +1454,7 @@ fn a_path_that_opens_with_a_parenthesis_is_quoted_so_it_cannot_read_as_the_closi
             client.answer("find_files", &json!({"pattern": "(x", "max_results": 1})),
         ],
         [
-            "\"(x).txt\"\n(truncated: the first 1 matching paths in path order; more match)",
+            "\"(x).txt\"\n(1 of 2 matching paths, in path order)",
             "\"(x).txt\"\n(1 of 2 matching paths, best first)",
         ]
     );
