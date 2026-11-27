@@ -320,6 +320,8 @@ pub struct Conventions {
     /// Which interfaces a type implements and which of their methods its method stands for, so that a call bound to a
     /// parent's method may run the type's method of the name.
     pub implements: Implements,
+    /// Whether [`Symbol::exported`](crate::Symbol::exported) follows what the language exports.
+    pub exports: Exports,
 }
 
 impl Conventions {
@@ -362,6 +364,7 @@ impl Conventions {
         calls_apart: CallsApart::None,
         twins: Twins::First,
         implements: Implements::Declared,
+        exports: Exports::Recorded,
     };
 }
 
@@ -677,6 +680,20 @@ pub enum TypeUses {
     /// composite literal and a call in a conversion: such a type that no call and no use names is named nowhere the
     /// language reads. A local type stays unjudged, because no use binds a local.
     Every,
+}
+
+/// Whether a language's extraction records which definitions the language exports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum Exports {
+    /// [`Symbol::exported`](crate::Symbol::exported) follows the language's rule for what code outside a definition's
+    /// file or module can name.
+    #[default]
+    Recorded,
+    /// The extraction marks a definition exported that the language keeps to its file, as Quirrel's does a function at
+    /// file scope, which its file hands out only as part of what it returns: no answer counts what the language exports
+    /// by the mark.
+    Unrecorded,
 }
 
 /// Where a language records a read or a write of a field, a variable or a constant.
