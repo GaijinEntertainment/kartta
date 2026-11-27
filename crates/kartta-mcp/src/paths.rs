@@ -101,9 +101,10 @@ pub(crate) fn unheld(index: &Index, path: &str, wanted: Wanted) -> String {
 
 /// Up to [`NEAR`] paths the index holds nearest to `path`, best first. The names of `path`, its drive, `.` and `..`
 /// names dropped and `\` read as `/`, lead to the deepest directory the index holds: that directory unless a file is
-/// asked for, then its entries whose names start as the next name does, longest start first, which takes in the path
-/// the names spell when the index holds it. Last come the entries anywhere in the tree named as the last name is, of
-/// the kind `wanted` asks, so a misplaced file is found too.
+/// asked for, then its entry the next name names, its entries one edit from that name as [`kartta::each_one_edit`]
+/// edits one when it holds [`EDITED`] characters or more, and its entries whose names start as that name does,
+/// longest start first. Last come the entries anywhere in the tree named as the last name is, of the kind `wanted`
+/// asks, so a misplaced file is found too.
 fn near(index: &Index, path: &str, wanted: Wanted) -> List {
     let names: Vec<&str> = path
         .split(['/', '\\'])
@@ -132,16 +133,23 @@ fn near(index: &Index, path: &str, wanted: Wanted) -> List {
     let next = names[held];
     let started = next.len().min(STARTED);
     if let Ok(listing) = index.list(dir, &ListOptions::default().depth(1)) {
-        let mut children: Vec<(usize, String)> = listing
+        let edited = one_edit_from(index, dir, next);
+        let mut children: Vec<_> = listing
             .items()
             .iter()
             .map(|listed| {
                 let entry = listed.entry();
-                (common_start(entry.name(), next), entry.path().to_owned())
+                let name = entry.name();
+                let rank = (
+                    name == next,
+                    edited.iter().any(|one_edit| one_edit == name),
+                    common_start(name, next),
+                );
+                (rank, entry.path().to_owned())
             })
-            .filter(|&(common, _)| common >= started)
+            .filter(|&((_, one_edit, common), _)| one_edit || common >= started)
             .collect();
-        children.sort_by_key(|&(common, _)| std::cmp::Reverse(common));
+        children.sort_by_key(|&(rank, _)| std::cmp::Reverse(rank));
         for (_, child) in &children {
             near.push(child);
         }
@@ -166,8 +174,35 @@ fn near(index: &Index, path: &str, wanted: Wanted) -> List {
     near.list
 }
 
+/// The names of the entries of `dir` one edit from `name`, as [`kartta::each_one_edit`] edits one, each found by a
+/// lookup in the index, or none for a `name` of fewer than [`EDITED`] characters.
+fn one_edit_from(index: &Index, dir: &str, name: &str) -> Vec<String> {
+    let mut held = Vec::new();
+    if name.chars().nth(EDITED - 1).is_none() {
+        return held;
+    }
+    let mut probed = if dir.is_empty() {
+        String::new()
+    } else {
+        format!("{dir}/")
+    };
+    let named_at = probed.len();
+    kartta::each_one_edit(name, |edited| {
+        probed.truncate(named_at);
+        probed.push_str(edited);
+        if index.entry(&probed).is_some() {
+            held.push(edited.to_owned());
+        }
+    });
+    held
+}
+
 /// How many leading bytes an entry's name shares with the asked name for the entry to be named near it.
 const STARTED: usize = 3;
+
+/// The fewest characters an asked name holds for the entries one edit from it to be named near it: one edit of a
+/// shorter name is most of it, and makes every short name of the directory near.
+const EDITED: usize = 3;
 
 /// The paths a miss names, each once, at most [`NEAR`] of them.
 #[derive(Debug, Default)]
