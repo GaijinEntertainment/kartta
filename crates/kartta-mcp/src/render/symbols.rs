@@ -248,7 +248,8 @@ fn scope(nearness: Nearness, definition: &Definition<'_>) -> &'static str {
 
 /// The `find_implementations` answer: a `<type/>` per implementor, nearest first, `depth` marking one that implements
 /// the type through another. Where the name selects several types, a `<root/>` names the one answered for, and
-/// `<candidate/>` records the most implemented of the others.
+/// `<candidate/>` records the most implemented of the others. Where a root's language lets a type implement it without
+/// naming it, the answer says such a type is not listed.
 pub(crate) fn implementations(
     ask: &CallersAsk<'_>,
     found: &[(&str, Implementations<'_>)],
@@ -292,13 +293,16 @@ pub(crate) fn implementations(
             std::iter::once(root).chain(others).chain(cut)
         })
         .collect();
+    let unnamed = unnamed_implementors(found);
     if count == 0 {
-        return noted(
-            element,
-            "the symbol is indexed but nothing implements or extends it",
-            selection,
+        let text = unnamed.as_ref().map_or_else(
+            || "the symbol is indexed but nothing implements or extends it".to_owned(),
+            |unnamed| format!("the symbol is indexed but no type names it as a parent - {unnamed} is not listed"),
         );
+        return noted(element, &text, selection);
     }
+    let note =
+        unnamed.map(|unnamed| Element::new("note").inline(&format!("{unnamed} is not listed")));
     let types = found.iter().flat_map(|(family, found)| {
         found.found.iter().map(move |implementor| {
             let symbol = &implementor.symbol;
@@ -313,7 +317,29 @@ pub(crate) fn implementations(
         })
     });
     let cut = (total > count).then(|| fixed_cut("this list", None));
-    element.children(selection.into_iter().chain(types).chain(cut))
+    element.children(note.into_iter().chain(selection).chain(types).chain(cut))
+}
+
+/// The types the answer cannot list, where a root's language lets a type implement it without naming it: a Go or
+/// TypeScript interface, which a type implements by its members alone.
+fn unnamed_implementors(found: &[(&str, Implementations<'_>)]) -> Option<String> {
+    let languages: Vec<&str> = found
+        .iter()
+        .filter_map(|(family, found)| {
+            let interface = found.root.kind == SymbolKind::Interface;
+            match *family {
+                "go" if interface => Some("Go"),
+                "jsts" if interface => Some("TypeScript"),
+                _ => None,
+            }
+        })
+        .collect();
+    (!languages.is_empty()).then(|| {
+        format!(
+            "a {} type that implements it by its members alone, without naming it,",
+            languages.join(" or ")
+        )
+    })
 }
 
 /// The `find_implementations` answer for a parent no searched graph holds a type of, `outside_graph` on its envelope:
