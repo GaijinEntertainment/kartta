@@ -3,6 +3,7 @@ line-length = 120
 
 [per-file-ignores]
 "CLAUDE.md" = ["MD033"]
+"README.md" = ["MD033"]
 ".claude/**/*.md" = ["MD033", "MD041"]
 "design-docs/adr/3.134-doc-comment-forms.md" = ["MD038"]
 
