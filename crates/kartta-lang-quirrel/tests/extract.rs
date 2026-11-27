@@ -6,8 +6,9 @@
 )]
 
 use kartta_lang::{
-    Access, Conventions, FILE_SCOPE, IncludedRuntimeMembers, Language, OwnMembers, RawExtraction,
-    Receiver, ReceiverMembers, Symbol, SymbolId, SymbolKind, UnlistedReceivers, UntypedOwners,
+    Access, Conventions, Exports, FILE_SCOPE, IncludedRuntimeMembers, Language, OwnMembers,
+    RawExtraction, Receiver, ReceiverMembers, Symbol, SymbolId, SymbolKind, UnlistedReceivers,
+    UntypedOwners,
 };
 use kartta_lang_quirrel::Quirrel;
 
@@ -131,6 +132,7 @@ fn a_bare_call_in_a_member_reaches_the_class_first() {
     expected.includers = Some(
         "the scripts whose import, from ... import, require or require_optional of a string literal names this file",
     );
+    expected.exports = Exports::Unrecorded;
 
     assert_eq!(conventions, expected);
 }

@@ -91,7 +91,7 @@
 
 use kartta_lang::path::has_extension;
 use kartta_lang::{
-    BlockComment, Conventions, DocComments, IncludedRuntimeMembers, Language, OwnMembers,
+    BlockComment, Conventions, DocComments, Exports, IncludedRuntimeMembers, Language, OwnMembers,
     RawExtraction, ReceiverMembers, Repository, Resolver, UnlistedReceivers, UntypedOwners,
 };
 
@@ -131,6 +131,9 @@ const CONVENTIONS: Conventions = {
     conventions.includers = Some(
         "the scripts whose import, from ... import, require or require_optional of a string literal names this file",
     );
+    // constraint: a function, a class, a `let` or a `local` at file scope is local to its file, which hands out only
+    // what it returns, yet the walk marks every definition exported
+    conventions.exports = Exports::Unrecorded;
     conventions
 };
 
