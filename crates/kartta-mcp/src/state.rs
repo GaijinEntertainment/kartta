@@ -285,6 +285,13 @@ pub(crate) struct GraphRow {
 
 pub(crate) type Outcome = Result<Arc<Served>, String>;
 
+/// Where a started build's outcome arrives, and the note that names the root the bound dropped to make room for it.
+#[derive(Debug)]
+pub(crate) struct Started {
+    pub(crate) outcome: watch::Receiver<Option<Outcome>>,
+    pub(crate) dropped: Option<String>,
+}
+
 /// Where the server keeps the roots it indexes, at most `bound` of them: for each, a build under way, the engine it
 /// built, or why its build failed.
 #[derive(Debug)]
@@ -393,33 +400,39 @@ impl Roots {
     /// request built is answered as it is held, brought up to its tree first when it does not follow the tree, unless
     /// a refresh broke it. A build of another request for the same root is cancelled, and so is a refresh of the engine
     /// this one replaces. A root past the bound drops a root that holds no build, one that failed first and else the
-    /// least recently asked, cancelled the same way; when every root builds, no root is dropped and the request is
-    /// refused. The new build starts once every other build has ended, and once the engine it replaces or drops is
-    /// gone, a cancelled build's included, and every query that was answering from it has answered, so the server
-    /// never holds more engines than its bound.
+    /// least recently asked, cancelled the same way, and names it in `dropped`; when every root builds, no root is
+    /// dropped and the request is refused. The new build starts once every other build has ended, and once the engine
+    /// it replaces or drops is gone, a cancelled build's included, and every query that was answering from it has
+    /// answered, so the server never holds more engines than its bound.
     pub(crate) fn start(
         self: &Arc<Self>,
         request: Request,
         options: BuildOptions,
-    ) -> Result<watch::Receiver<Option<Outcome>>, String> {
+    ) -> Result<Started, String> {
         let mut table = self.lock();
         let at = table.position(&request.root);
         if let Some(at) = at {
             match &table.ask(at).state {
                 State::Building(build) if build.request == request => {
-                    return Ok(build.outcome.clone());
+                    return Ok(Started {
+                        outcome: build.outcome.clone(),
+                        dropped: None,
+                    });
                 }
                 State::Ready(served)
                     if served.request == request && !served.indexed.is_poisoned() =>
                 {
-                    return Ok(held(Arc::clone(served)));
+                    return Ok(Started {
+                        outcome: held(Arc::clone(served)),
+                        dropped: None,
+                    });
                 }
                 State::Building(_) | State::Ready(_) | State::Failed(_) => {}
             }
         }
-        let dropped = match at {
-            Some(_) => None,
-            None => table.room(self.bound)?,
+        let (dropped, note) = match at {
+            Some(_) => (None, None),
+            None => table.room(self.bound)?.unzip(),
         };
         let id = self.builds.fetch_add(1, Ordering::Relaxed);
         let (sender, outcome) = watch::channel(None);
@@ -464,7 +477,10 @@ impl Roots {
             }
             sender.send_replace(Some(built));
         });
-        Ok(outcome)
+        Ok(Started {
+            outcome,
+            dropped: note,
+        })
     }
 
     /// The engine to answer a query about `root` from, or the error that says why there is none.
@@ -531,9 +547,9 @@ impl Table {
     }
 
     /// Makes room for one more root under `bound`: drops a root that holds no build, one that failed before one that
-    /// is ready and else the least recently asked, and answers its state; or the error that names the roots when every
-    /// one of them builds.
-    fn room(&mut self, bound: NonZeroUsize) -> Result<Option<State>, String> {
+    /// is ready and else the least recently asked, and answers its state with the note that names it; or the error
+    /// that names the roots when every one of them builds.
+    fn room(&mut self, bound: NonZeroUsize) -> Result<Option<(State, String)>, String> {
         if self.roots.len() < bound.get() {
             return Ok(None);
         }
@@ -550,7 +566,18 @@ impl Table {
                 self.listing()
             ));
         };
-        Ok(Some(self.roots.remove(at).state))
+        let dropped = self.roots.remove(at);
+        let why = if matches!(dropped.state, State::Failed(_)) {
+            "a root whose build failed"
+        } else {
+            "the root a call named least recently"
+        };
+        let path = dropped.path.display().to_string();
+        let note = format!(
+            "this index_root dropped {path:?} to stay within KARTTA_MAX_ROOTS={bound} roots, {why} - call index_root \
+             with root {path:?} to build it again"
+        );
+        Ok(Some((dropped.state, note)))
     }
 
     /// Settles the root of build `id` on its outcome, unless a later build replaced it or the bound dropped its root,
@@ -782,7 +809,10 @@ mod tests {
             index_ignored: false,
         };
 
-        let mut built = roots.start(request(first.path()), options.clone()).unwrap();
+        let mut built = roots
+            .start(request(first.path()), options.clone())
+            .unwrap()
+            .outcome;
         let watched = Arc::downgrade(
             &runtime
                 .block_on(built.wait_for(Option::is_some))
@@ -793,7 +823,10 @@ mod tests {
         );
         drop(built);
         std::fs::write(first.path().join("b.go"), "package a\n\nfunc B() {}\n").unwrap();
-        let mut rebuilt = roots.start(request(second.path()), options).unwrap();
+        let mut rebuilt = roots
+            .start(request(second.path()), options)
+            .unwrap()
+            .outcome;
         drop(runtime.block_on(rebuilt.wait_for(Option::is_some)).unwrap());
 
         assert!(
@@ -803,12 +836,9 @@ mod tests {
     }
 
     /// The outcome a build sends, once it sends one.
-    fn settled(
-        runtime: &tokio::runtime::Runtime,
-        mut outcome: watch::Receiver<Option<Outcome>>,
-    ) -> Outcome {
+    fn settled(runtime: &tokio::runtime::Runtime, mut started: Started) -> Outcome {
         runtime
-            .block_on(outcome.wait_for(Option::is_some))
+            .block_on(started.outcome.wait_for(Option::is_some))
             .unwrap()
             .clone()
             .unwrap()
@@ -991,7 +1021,21 @@ mod tests {
 
         let kept = Arc::downgrade(&built(&roots, &runtime, built_tree.path()));
         assert!(settled(&runtime, roots.start(request(&missing), options).unwrap()).is_err());
-        drop(built(&roots, &runtime, third.path()));
+        let options = crate::Config::default().build_options(false);
+        let started = roots.start(request(third.path()), options).unwrap();
+
+        assert_eq!(
+            started.dropped.as_deref(),
+            Some(
+                format!(
+                    "this index_root dropped {missing:?} to stay within KARTTA_MAX_ROOTS=2 roots, a root whose build \
+                     failed - call index_root with root {missing:?} to build it again",
+                    missing = missing.display().to_string()
+                )
+                .as_str()
+            )
+        );
+        drop(settled(&runtime, started));
 
         assert!(
             kept.upgrade()
