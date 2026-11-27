@@ -1503,8 +1503,10 @@ impl Server {
         description = "Trace who calls a symbol, hop by hop back from the named function or method. Answers \"what is \
                        affected if I change this function?\"; for a field's or a variable's reads and writes use \
                        find_references. Returns a <callers> envelope of one <match lang=..> per language the name \
-                       resolves in: the symbol's loc, total= its callers within the hops limit, and flat <ref hops=N/> \
-                       records, nearest first and at most 'limit' (default 100), each with the caller's loc, at= the \
+                       resolves in: the symbol's loc, total= its callers within the hops limit, consumers=, tests=, \
+                       entries= and generated= how many of them carry each role, each only when it is not zero, and \
+                       flat <ref hops=N/> records, nearest first and within a hop consumer and entry code ahead of \
+                       test and generated code, at most 'limit' (default 100), each with the caller's loc, at= the \
                        line of its call in the caller's own file, role= and any confidence mark. A caller whose call \
                        binds a same-named method of an interface, a trait or a base class of the method's owner \
                        carries through= that method's qualified name, so the call may run another implementation. \
