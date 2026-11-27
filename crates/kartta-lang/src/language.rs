@@ -716,7 +716,8 @@ pub enum DataUses {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub enum ValueUses {
-    /// In the use's package, where packages are directories, or a dot-imported one.
+    /// In the use's package, where packages are directories, or a dot-imported one, else where an import of a module's
+    /// file, named or a glob, takes a bare call of the name.
     #[default]
     Declared,
     /// In the one file of those the use's file includes that exports the name outside every body and owner, else in

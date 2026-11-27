@@ -420,6 +420,179 @@ fn a_call_that_names_an_import_of_a_module_s_file_binds_the_file_s_export() {
 }
 
 #[test]
+fn a_bare_use_that_names_an_import_of_a_module_s_file_binds_the_file_s_export_as_a_bare_call_does()
+{
+    let used = || {
+        vec![UseRef::new(
+            SymbolId(0),
+            "parse".to_owned(),
+            Receiver::Bare,
+            2,
+        )]
+    };
+    let mut named = importing_module(
+        "crates/b/src/lib.rs",
+        "parse",
+        "crates/a/src/m.rs",
+        Vec::new(),
+    );
+    named.uses = used();
+    let mut globbed = file("crates/b/src/run.rs", vec![function("run", 1)], Vec::new());
+    globbed.bindings = vec![ImportBinding::new(
+        Some(".".to_owned()),
+        Some("crates/a/src/m.rs".to_owned()),
+        "m".to_owned(),
+    )];
+    globbed.uses = used();
+    let graph = graph(&[
+        named,
+        globbed,
+        file(
+            "crates/a/src/m.rs",
+            vec![exported(function("parse", 1))],
+            Vec::new(),
+        ),
+        file(
+            "crates/c/src/parse.rs",
+            vec![exported(function("parse", 1))],
+            Vec::new(),
+        ),
+    ]);
+    let sites = |path: &str| -> Vec<(String, u8)> {
+        graph
+            .references(
+                Selector::new("parse", Some(path)),
+                SiteQuery::new(usize::MAX),
+            )
+            .expect("the name selects a symbol")
+            .sites
+            .iter()
+            .map(|site| (site.site_of.file.to_owned(), site.confidence))
+            .collect()
+    };
+
+    assert_eq!(
+        sites("crates/a/src/m.rs"),
+        [
+            ("crates/b/src/lib.rs".to_owned(), 95),
+            ("crates/b/src/run.rs".to_owned(), 95)
+        ]
+    );
+    assert_eq!(sites("crates/c/src/parse.rs"), []);
+}
+
+#[test]
+fn a_bare_use_binds_its_own_file_before_a_named_import_and_a_named_import_before_a_glob() {
+    let used = || {
+        vec![UseRef::new(
+            SymbolId(0),
+            "parse".to_owned(),
+            Receiver::Bare,
+            2,
+        )]
+    };
+    let mut own = importing_module(
+        "crates/b/src/lib.rs",
+        "parse",
+        "crates/a/src/m.rs",
+        Vec::new(),
+    );
+    own.symbols.push(function("parse", 5));
+    own.uses = used();
+    let mut both = importing_module(
+        "crates/b/src/run.rs",
+        "parse",
+        "crates/a/src/m.rs",
+        Vec::new(),
+    );
+    both.bindings.push(ImportBinding::new(
+        Some(".".to_owned()),
+        Some("crates/a/src/n.rs".to_owned()),
+        "n".to_owned(),
+    ));
+    both.uses = used();
+    let graph = graph(&[
+        own,
+        both,
+        file(
+            "crates/a/src/m.rs",
+            vec![exported(function("parse", 1))],
+            Vec::new(),
+        ),
+        file(
+            "crates/a/src/n.rs",
+            vec![exported(function("parse", 1))],
+            Vec::new(),
+        ),
+    ]);
+    let sites = |path: &str| -> Vec<(String, u8)> {
+        graph
+            .references(
+                Selector::new("parse", Some(path)),
+                SiteQuery::new(usize::MAX),
+            )
+            .expect("the name selects a symbol")
+            .sites
+            .iter()
+            .map(|site| (site.site_of.file.to_owned(), site.confidence))
+            .collect()
+    };
+
+    assert_eq!(
+        sites("crates/b/src/lib.rs"),
+        [("crates/b/src/lib.rs".to_owned(), 80)]
+    );
+    assert_eq!(
+        sites("crates/a/src/m.rs"),
+        [("crates/b/src/run.rs".to_owned(), 95)]
+    );
+    assert_eq!(sites("crates/a/src/n.rs"), []);
+}
+
+#[test]
+fn a_use_through_a_qualifier_bound_to_a_module_s_file_binds_the_file_s_export_as_a_call_through_it_does()
+ {
+    let mut through = importing_module("crates/b/src/lib.rs", "m", "crates/a/src/m.rs", Vec::new());
+    through.uses = vec![UseRef::new(
+        SymbolId(0),
+        "parse".to_owned(),
+        Receiver::Qualifier("m".to_owned()),
+        2,
+    )];
+    let graph = graph(&[
+        through,
+        file(
+            "crates/a/src/m.rs",
+            vec![exported(function("parse", 1))],
+            Vec::new(),
+        ),
+        file(
+            "crates/c/src/parse.rs",
+            vec![exported(function("parse", 1))],
+            Vec::new(),
+        ),
+    ]);
+    let sites = |path: &str| -> Vec<(String, u8)> {
+        graph
+            .references(
+                Selector::new("parse", Some(path)),
+                SiteQuery::new(usize::MAX),
+            )
+            .expect("the name selects a symbol")
+            .sites
+            .iter()
+            .map(|site| (site.site_of.file.to_owned(), site.confidence))
+            .collect()
+    };
+
+    assert_eq!(
+        sites("crates/a/src/m.rs"),
+        [("crates/b/src/lib.rs".to_owned(), 95)]
+    );
+    assert_eq!(sites("crates/c/src/parse.rs"), []);
+}
+
+#[test]
 fn a_module_s_file_without_a_top_level_export_of_the_name_leaves_its_import_to_later_tiers() {
     let importer = || {
         importing_module(
