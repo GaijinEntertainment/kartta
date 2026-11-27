@@ -29,7 +29,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
@@ -37,29 +37,29 @@ repository = "https://github.com/GaijinEntertainment/kartta"
 authors = ["Gaijin Entertainment"]
 
 [workspace.dependencies]
-kartta = { version = "0.0.0", path = "crates/kartta" }
-kartta-cache = { version = "0.0.0", path = "crates/kartta-cache" }
-kartta-ffi = { version = "0.0.0", path = "crates/kartta-ffi" }
-kartta-fs = { version = "0.0.0", path = "crates/kartta-fs" }
-kartta-fuzz = { version = "0.0.0", path = "crates/kartta-fuzz" }
-kartta-graph = { version = "0.0.0", path = "crates/kartta-graph" }
-kartta-lang = { version = "0.0.0", path = "crates/kartta-lang" }
-kartta-lang-bash = { version = "0.0.0", path = "crates/kartta-lang-bash" }
-kartta-lang-blk = { version = "0.0.0", path = "crates/kartta-lang-blk" }
-kartta-lang-cpp = { version = "0.0.0", path = "crates/kartta-lang-cpp" }
-kartta-lang-daslang = { version = "0.0.0", path = "crates/kartta-lang-daslang" }
-kartta-lang-dshl = { version = "0.0.0", path = "crates/kartta-lang-dshl" }
-kartta-lang-go = { version = "0.0.0", path = "crates/kartta-lang-go" }
-kartta-lang-jsts = { version = "0.0.0", path = "crates/kartta-lang-jsts" }
-kartta-lang-lua = { version = "0.0.0", path = "crates/kartta-lang-lua" }
-kartta-lang-php = { version = "0.0.0", path = "crates/kartta-lang-php" }
-kartta-lang-puppet = { version = "0.0.0", path = "crates/kartta-lang-puppet" }
-kartta-lang-python = { version = "0.0.0", path = "crates/kartta-lang-python" }
-kartta-lang-quirrel = { version = "0.0.0", path = "crates/kartta-lang-quirrel" }
-kartta-lang-ruby = { version = "0.0.0", path = "crates/kartta-lang-ruby" }
-kartta-lang-rust = { version = "0.0.0", path = "crates/kartta-lang-rust" }
-kartta-languages = { version = "0.0.0", path = "crates/kartta-languages" }
-kartta-walk = { version = "0.0.0", path = "crates/kartta-walk" }
+kartta = { version = "0.1.0", path = "crates/kartta" }
+kartta-cache = { version = "0.1.0", path = "crates/kartta-cache" }
+kartta-ffi = { version = "0.1.0", path = "crates/kartta-ffi" }
+kartta-fs = { version = "0.1.0", path = "crates/kartta-fs" }
+kartta-fuzz = { version = "0.1.0", path = "crates/kartta-fuzz" }
+kartta-graph = { version = "0.1.0", path = "crates/kartta-graph" }
+kartta-lang = { version = "0.1.0", path = "crates/kartta-lang" }
+kartta-lang-bash = { version = "0.1.0", path = "crates/kartta-lang-bash" }
+kartta-lang-blk = { version = "0.1.0", path = "crates/kartta-lang-blk" }
+kartta-lang-cpp = { version = "0.1.0", path = "crates/kartta-lang-cpp" }
+kartta-lang-daslang = { version = "0.1.0", path = "crates/kartta-lang-daslang" }
+kartta-lang-dshl = { version = "0.1.0", path = "crates/kartta-lang-dshl" }
+kartta-lang-go = { version = "0.1.0", path = "crates/kartta-lang-go" }
+kartta-lang-jsts = { version = "0.1.0", path = "crates/kartta-lang-jsts" }
+kartta-lang-lua = { version = "0.1.0", path = "crates/kartta-lang-lua" }
+kartta-lang-php = { version = "0.1.0", path = "crates/kartta-lang-php" }
+kartta-lang-puppet = { version = "0.1.0", path = "crates/kartta-lang-puppet" }
+kartta-lang-python = { version = "0.1.0", path = "crates/kartta-lang-python" }
+kartta-lang-quirrel = { version = "0.1.0", path = "crates/kartta-lang-quirrel" }
+kartta-lang-ruby = { version = "0.1.0", path = "crates/kartta-lang-ruby" }
+kartta-lang-rust = { version = "0.1.0", path = "crates/kartta-lang-rust" }
+kartta-languages = { version = "0.1.0", path = "crates/kartta-languages" }
+kartta-walk = { version = "0.1.0", path = "crates/kartta-walk" }
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"

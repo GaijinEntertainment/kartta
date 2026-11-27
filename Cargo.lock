@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "kartta"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "foldhash",
  "kartta-fs",
@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-cache"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "memmap2",
@@ -811,7 +811,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-ffi"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta",
  "kartta-languages",
@@ -823,7 +823,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-fs"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bstr",
  "gix-glob",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-fuzz"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "criterion",
  "memchr",
@@ -855,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-graph"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "foldhash",
  "hashbrown",
@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "tempfile",
  "tree-sitter",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-bash"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-blk"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-cpp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-daslang"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-dshl"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-go"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -927,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-jsts"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "serde_json",
@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-lua"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-php"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "serde_json",
@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-puppet"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-python"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-quirrel"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -984,7 +984,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-ruby"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-lang-rust"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-lang",
  "tree-sitter",
@@ -1002,7 +1002,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-languages"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta",
  "kartta-lang",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-mcp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta",
  "kartta-fs",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-node"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "kartta-ffi",
  "napi",
@@ -1051,7 +1051,7 @@ dependencies = [
 
 [[package]]
 name = "kartta-walk"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "libc",
  "rayon",

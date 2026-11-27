@@ -1,6 +1,6 @@
 {
 	"name": "@gaijin/kartta",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Node.js binding of the kartta code graph engine: file search, content search and graph queries",
 	"keywords": [
 		"call-graph",
@@ -42,12 +42,12 @@
 		"vite-plus": "1.5.0"
 	},
 	"optionalDependencies": {
-		"@gaijin/kartta-darwin-arm64": "0.0.0",
-		"@gaijin/kartta-linux-arm64-gnu": "0.0.0",
-		"@gaijin/kartta-linux-arm64-musl": "0.0.0",
-		"@gaijin/kartta-linux-x64-gnu": "0.0.0",
-		"@gaijin/kartta-linux-x64-musl": "0.0.0",
-		"@gaijin/kartta-win32-x64-msvc": "0.0.0"
+		"@gaijin/kartta-darwin-arm64": "0.1.0",
+		"@gaijin/kartta-linux-arm64-gnu": "0.1.0",
+		"@gaijin/kartta-linux-arm64-musl": "0.1.0",
+		"@gaijin/kartta-linux-x64-gnu": "0.1.0",
+		"@gaijin/kartta-linux-x64-musl": "0.1.0",
+		"@gaijin/kartta-win32-x64-msvc": "0.1.0"
 	},
 	"engines": {
 		"node": ">=24"

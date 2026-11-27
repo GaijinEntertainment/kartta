@@ -1,6 +1,6 @@
 {
 	"name": "@gaijin/kartta-linux-arm64-musl",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "The addon of the kartta package for Linux on arm64 with musl",
 	"license": "MIT",
 	"author": "Gaijin Entertainment",

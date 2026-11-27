@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const version = "0.0.0"
+const version = "0.1.0"
 
 // matchVersion answers nil when the library's version and the binding's share their major and minor versions, and
 // ErrABI naming both otherwise, a version with no patch field included.
