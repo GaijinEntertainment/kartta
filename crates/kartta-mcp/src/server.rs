@@ -1347,7 +1347,8 @@ impl Server {
                        find_callers; for whole-file impact, find_importers. Returns an <impact> envelope with one \
                        <symbol> record per definition overlapping the range, total= counting them, at most 'limit' \
                        (default 10) listed, those of widest reach in source order. Each holds its caller and callee \
-                       counts with sampled <ref/> lists, each ref with role=, any confidence mark, at= the line of the \
+                       counts with sampled <ref/> lists, test and generated callers and users after the others, \
+                       each ref with role=, any confidence mark, at= the line of the \
                        call or the use (in the caller's or the user's own file, and in this file for a callee), and \
                        through= as find_callers marks it; total= on <callers> and <callees> counts every one where a \
                        list shows at most 50, or fewer where a wide answer's size leaves less. ambiguous= counts the \
@@ -1406,7 +1407,8 @@ impl Server {
                        each <seed> with its loc, direct callers count, reach and reach_band, the reach's grade (low \
                        under 10, medium 10 to 49, high 50 to 199 or from 20 for an exported symbol, and critical from \
                        200 or from 50 for an interface), and its direct callers as <ref/> records with at= the line of \
-                       the call in the caller's own file and through= as find_callers marks it (at most 10, in \
+                       the call in the caller's own file and through= as find_callers marks it, test and generated \
+                       code last (at most 10, in \
                        <callers total=>), or past 30 callers their directories (in <caller_dirs total=>) - a field, a \
                        variable or a constant lists its users= in <users> and <user_dirs> instead; and a <hotspots> \
                        list of the symbols two or more changed symbols reach, with reached_by= how many, hops= how \

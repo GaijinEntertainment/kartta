@@ -49,9 +49,13 @@ impl File {
         self
     }
 
-    fn flagged_as_test(mut self) -> Self {
+    fn flagged_as_test(self) -> Self {
+        self.flagged(SymbolFlags::default().with_test(true))
+    }
+
+    fn flagged(mut self, flags: SymbolFlags) -> Self {
         if let Some(symbol) = self.extraction.symbols.last_mut() {
-            symbol.flags = SymbolFlags::default().with_test(true);
+            symbol.flags = flags;
         }
         self
     }
@@ -499,6 +503,77 @@ fn a_symbol_lists_its_direct_calls_up_to_the_call_limit_and_counts_them_all() {
     assert_eq!(whole.symbols[0].blast.band, ReachBand::High);
 }
 
+/// `target`, called from test code, generated code, an entry point and other code, in that path order.
+fn called_from_every_role() -> Graph {
+    let flags = SymbolFlags::default();
+    graph(vec![
+        File::new("lib/target.c").function("target", (1, 2)),
+        File::new("a/check.c")
+            .function("check", (1, 2))
+            .flagged_as_test()
+            .calls(0, "target", 1),
+        File::new("a/gen.c")
+            .function("gen", (1, 2))
+            .flagged(flags.with_generated(true))
+            .calls(0, "target", 1),
+        File::new("b/main.c")
+            .function("main", (1, 2))
+            .flagged(flags.with_entry(true))
+            .calls(0, "target", 1),
+        File::new("c/use.c")
+            .function("use", (1, 2))
+            .calls(0, "target", 1),
+    ])
+}
+
+#[test]
+fn a_symbol_lists_its_test_and_generated_callers_after_the_rest_up_to_the_call_limit() {
+    let graph = called_from_every_role();
+
+    let cut = graph
+        .analyze_segment(
+            "lib/target.c",
+            1..=2,
+            SegmentQuery::new(Limits::new(1)).with_call_limit(2),
+        )
+        .expect("held");
+    let whole = graph
+        .analyze_segment("lib/target.c", 1..=2, Limits::new(1))
+        .expect("held");
+
+    assert_eq!(listed(&cut.symbols[0].callers), [("main", 1), ("use", 1)]);
+    assert_eq!(cut.symbols[0].callers.total, 4);
+    assert_eq!(
+        listed(&whole.symbols[0].callers),
+        [("main", 1), ("use", 1), ("check", 1), ("gen", 1)]
+    );
+}
+
+#[test]
+fn a_constant_lists_its_test_users_after_the_rest() {
+    let graph = graph_reading_included_values(vec![
+        File::new("lib/limits.h").constant("LIMIT", 1),
+        File::new("a/check.c")
+            .includes("lib/limits.h")
+            .function("check", (1, 2))
+            .flagged_as_test()
+            .uses(0, "LIMIT", (2, Access::Read)),
+        File::new("b/use.c")
+            .includes("lib/limits.h")
+            .function("use", (1, 2))
+            .uses(0, "LIMIT", (2, Access::Read)),
+    ]);
+
+    let segment = graph
+        .analyze_segment("lib/limits.h", 1..=1, Limits::new(1))
+        .expect("held");
+
+    assert_eq!(
+        listed(&segment.symbols[0].users),
+        [("use", 2), ("check", 2)]
+    );
+}
+
 #[test]
 fn a_constant_lists_its_direct_users_up_to_the_call_limit() {
     let graph = limit_read_and_written();
@@ -668,17 +743,8 @@ fn a_seed_of_a_constant_counts_users_past_the_consumer_limit_by_directory() {
 }
 
 #[test]
-fn a_seed_lists_its_test_callers_after_the_rest() {
-    let graph = graph(vec![
-        File::new("lib/target.c").function("target", (1, 2)),
-        File::new("a/check.c")
-            .function("check", (1, 2))
-            .flagged_as_test()
-            .calls(0, "target", 1),
-        File::new("b/use.c")
-            .function("use", (1, 2))
-            .calls(0, "target", 1),
-    ]);
+fn a_seed_lists_its_test_and_generated_callers_after_the_rest() {
+    let graph = called_from_every_role();
 
     let change = graph.analyze_change(&[Region::new("lib/target.c", 1..=2)], Limits::new(1));
     let consumers: Vec<&str> = change.seeds[0]
@@ -687,7 +753,7 @@ fn a_seed_lists_its_test_callers_after_the_rest() {
         .map(|consumer| consumer.symbol.name)
         .collect();
 
-    assert_eq!(consumers, ["use", "check"]);
+    assert_eq!(consumers, ["main", "use", "check", "gen"]);
 }
 
 #[test]
