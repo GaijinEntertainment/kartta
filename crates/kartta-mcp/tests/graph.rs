@@ -435,7 +435,7 @@ fn file_outline_find_importers_and_find_implementations_answer_for_the_module() 
 }
 
 #[test]
-fn find_symbols_tops_up_with_fuzzy_hits_only_when_every_graph_underfills_the_limit() {
+fn find_symbols_answers_fuzzy_hits_only_when_no_keyword_matches_and_counts_them_apart() {
     let tree = go_module();
     std::fs::write(tree.path().join("x.py"), "def sxerxvice():\n    pass\n")
         .expect("the file is written");
@@ -451,12 +451,20 @@ fn find_symbols_tops_up_with_fuzzy_hits_only_when_every_graph_underfills_the_lim
             "</symbols>",
         ])
     );
-    let topped_up = client.answer("find_symbols", &json!({"query": "service", "limit": 5}));
+    let underfilled = client.answer("find_symbols", &json!({"query": "service", "limit": 5}));
     assert!(
-        topped_up
-            .lines()
-            .any(|line| line.contains(r#"name="sxerxvice""#) && line.contains(r#"fuzzy="true""#)),
-        "{topped_up}"
+        underfilled.starts_with(r#"<symbols of="service" total="3">"#)
+            && underfilled.matches("<hit ").count() == 3
+            && !underfilled.contains(r#"fuzzy="true""#),
+        "{underfilled}"
+    );
+    let fuzzy = client.answer("find_symbols", &json!({"query": "srvc", "limit": 1}));
+    assert!(
+        fuzzy.starts_with(r#"<symbols of="srvc" total="0" fuzzy_hits="3" fuzzy_hits_shown="1""#)
+            && fuzzy.matches("<hit ").count() == 1
+            && fuzzy.contains(r#"fuzzy="true""#)
+            && fuzzy.contains(LIMIT_CUT),
+        "{fuzzy}"
     );
 }
 
