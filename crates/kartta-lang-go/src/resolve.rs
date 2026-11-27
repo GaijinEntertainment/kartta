@@ -105,6 +105,7 @@ impl GoResolver {
             .filter(|module| module.replaced_in.is_none() || module.replaced_in.as_deref() == owner)
             .filter_map(|module| {
                 let suffix = match spec.strip_prefix(module.prefix.as_str())? {
+                    rest if module.prefix.is_empty() => rest,
                     "" => "",
                     rest => rest.strip_prefix('/')?,
                 };
@@ -242,7 +243,7 @@ fn read_go_mod(path_dir: &str, contents: &str, modules: &mut Vec<Module>) {
                 .trim();
             if !module.is_empty() {
                 modules.push(Module {
-                    prefix: module.to_owned(),
+                    prefix: import_prefix(module).to_owned(),
                     dir: module_dir.to_owned(),
                     replaced_in: None,
                 });
@@ -257,6 +258,13 @@ fn read_go_mod(path_dir: &str, contents: &str, modules: &mut Vec<Module>) {
             });
         }
     }
+}
+
+// constraint: the go command names the packages of the standard library's module `std` by their paths below its
+// directory, with no prefix (`cmd/go/internal/modload/init.go`, `pathPrefix`); it does so only for a `std` inside
+// GOROOT/src, which a repository root cannot tell, so every `std` takes it
+fn import_prefix(module: &str) -> &str {
+    if module == "std" { "" } else { module }
 }
 
 // constraint: only a replace onto a local directory changes where a package is; one onto another module path leaves
