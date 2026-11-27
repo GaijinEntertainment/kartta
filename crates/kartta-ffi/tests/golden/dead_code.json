@@ -14,6 +14,7 @@
             "unobservable": 0,
             "vendored": 0
           },
+          "exported": 0,
           "found": [
             {
               "definition": {

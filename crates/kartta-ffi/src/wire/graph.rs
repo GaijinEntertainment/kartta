@@ -802,6 +802,8 @@ struct DeadCodeDef<'g> {
     found: Vec<Dead<'g>>,
     total: usize,
     live: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exported: Option<usize>,
     #[serde(with = "ExcludedDef")]
     excluded: Excluded,
 }
