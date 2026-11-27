@@ -20,10 +20,11 @@ pub(super) struct Import {
     pub(super) module: Option<String>,
 }
 
-// constraint: a path call's site, the byte it starts at and the inline module around it, tells which `use` inside a
-// function body or an inline module is in scope there
+// constraint: a path call's site, or none for a path a value read is written through, the byte it starts at and the
+// inline module around it, tells which `use` inside a function body or an inline module is in scope there
 pub(super) struct WrittenPath {
-    call: usize,
+    pub(super) refused: bool,
+    call: Option<usize>,
     directive: usize,
     at: usize,
     module: Option<usize>,
@@ -151,22 +152,48 @@ impl Emitter<'_> {
     // constraint: a path call, the path of its receiver, or a macro invocation, the path of its macro, holds a place
     // for the resolver only where its path may start at another crate, at the caller's crate or module, or at a name a
     // `use` binds, a name that is neither a type, written capitalised, nor the standard library's crates
-    pub(super) fn record_written_path(&mut self, index: usize, mut written: String, at: usize) {
+    pub(super) fn record_written_path(&mut self, index: usize, written: String, at: usize) {
+        let line = self.raw.calls[index].line;
+        self.push_written_path(Some(index), written, (at, line));
+    }
+
+    // constraint: a value read through a path that may end at a module, not at a capitalised item, holds a place as
+    // a path call's receiver does, whose binding the read's last segment takes; a path from the root is left out, as
+    // a macro's arguments leave it out
+    pub(super) fn record_read_path(
+        &mut self,
+        written: &str,
+        (at, line): (usize, u32),
+    ) -> Option<usize> {
+        let held = !written.starts_with("::")
+            && !names_a_type(last(written))
+            && self.push_written_path(None, written.to_owned(), (at, line));
+        held.then(|| self.written_paths.len() - 1)
+    }
+
+    fn push_written_path(
+        &mut self,
+        call: Option<usize>,
+        mut written: String,
+        (at, line): (usize, u32),
+    ) -> bool {
         if written.starts_with("::") {
             written.drain(..2);
         }
-        if names_a_module(head(&written)) && !self.starts_inside_the_file(&written) {
+        let holds = names_a_module(head(&written)) && !self.starts_inside_the_file(&written);
+        if holds {
             self.written_paths.push(WrittenPath {
-                call: index,
+                refused: false,
+                call,
                 directive: self.raw.directives.len(),
                 at,
                 module: self.modules.last().map(|module| module.end),
             });
-            let line = self.raw.calls[index].line;
             self.raw
                 .directives
                 .push(RawDirective::new(USE_FORM, written, line));
         }
+        holds
     }
 
     // constraint: the resolver walks a path through `self::` or `super::` from the file's own module, so inside an
@@ -188,7 +215,11 @@ impl Emitter<'_> {
             return;
         }
         self.reach_own_names_through_their_module();
-        let mut kept = self.kept_paths();
+        let (mut kept, refused) = self.kept_paths();
+        for at in refused {
+            self.written_paths[at].refused = true;
+        }
+        self.scope_bare_reads();
         let mut index = 0;
         self.raw.directives.retain_mut(|directive| {
             let at = index;
@@ -263,7 +294,8 @@ impl Emitter<'_> {
         let calls = &self.raw.calls;
         let mut through: Vec<(usize, usize, usize)> = (self.written_paths.iter())
             .filter_map(|site| {
-                let call = &calls[site.call];
+                let index = site.call?;
+                let call = &calls[index];
                 let (module, name) = directives[site.directive].spec.rsplit_once("::")?;
                 (call.receiver.is_none()
                     && name == call.callee
@@ -271,7 +303,7 @@ impl Emitter<'_> {
                     && module
                         .split("::")
                         .all(|segment| matches!(segment, "crate" | "self" | "super")))
-                .then_some((site.call, site.directive, module.len()))
+                .then_some((index, site.directive, module.len()))
             })
             .collect();
         if through.is_empty() {
@@ -293,7 +325,7 @@ impl Emitter<'_> {
     // inside a function body or an inline module is in scope in its block alone, so where a name only such `use`s bind
     // is out of their scope, a path from it reads as written, and a bare call of it leaves the name no path, as two
     // paths do
-    fn kept_paths(&self) -> HashMap<usize, Option<String>> {
+    fn kept_paths(&self) -> (HashMap<usize, Option<String>>, Vec<usize>) {
         let directives = &self.raw.directives;
         let declared = self.declared_names();
         let (imported, at_file_level) = self.imported_names();
@@ -311,37 +343,57 @@ impl Emitter<'_> {
         let mut bound: HashMap<&str, Bound<Cow<'_, str>>> = (imported.iter())
             .map(|(&name, held)| (name, held.map(|(path, at)| (Cow::Borrowed(path), at))))
             .collect();
-        for site in &self.written_paths {
+        let reached = |site: &WrittenPath| {
             let written = directives[site.directive].spec.as_str();
-            let receiver = last(written);
-            let call = &self.raw.calls[site.call];
-            if call.receiver.as_deref().unwrap_or(&call.callee) != receiver {
-                continue;
-            }
             let (first, rest) = written.split_once("::").unwrap_or((written, ""));
             let head = if out_of_scope(first, site.at, site.module) {
                 None
             } else {
                 imported.get(first)
             };
-            let path = match head {
-                Some(Some((path, _))) if rest.is_empty() => Cow::Borrowed(*path),
-                Some(Some((path, _))) => Cow::Owned(format!("{path}::{rest}")),
-                Some(None) => continue,
+            match head {
+                Some(Some((path, _))) if rest.is_empty() => Some(Cow::Borrowed(*path)),
+                Some(Some((path, _))) => Some(Cow::Owned(format!("{path}::{rest}"))),
+                Some(None) => None,
                 None if site.module.is_none() && pulls_in(first) => {
-                    Cow::Owned(format!("self::{written}"))
+                    Some(Cow::Owned(format!("self::{written}")))
                 }
-                None if declared.contains_key(first) => continue,
-                None => Cow::Borrowed(written),
-            };
-            bind(&mut bound, receiver, path, site.directive);
+                None if declared.contains_key(first) => None,
+                None => Some(Cow::Borrowed(written)),
+            }
+        };
+        let calls = (self.written_paths.iter())
+            .filter_map(|site| Some((&self.raw.calls[site.call?], site)));
+        for (call, site) in calls {
+            let receiver = last(&directives[site.directive].spec);
+            if call.receiver.as_deref().unwrap_or(&call.callee) == receiver
+                && let Some(path) = reached(site)
+            {
+                bind(&mut bound, receiver, path, site.directive);
+            }
         }
+        let reads = (0..)
+            .zip(&self.written_paths)
+            .filter(|(_, site)| site.call.is_none());
+        let refused = bind_read_paths(&mut bound, reads, directives, reached);
         for (call, at, module) in self.bare_block_calls() {
             let callee = self.raw.calls[call].callee.as_str();
             if out_of_scope(callee, at, module) {
                 bound.insert(callee, None);
             }
         }
+        (self.kept_bindings(bound, &declared, pulls_in), refused)
+    }
+
+    // constraint: a bound name keeps its first directive where its path starts in the tree, a capitalised path only
+    // where the file calls the name bare, and a name the file declares keeps none but a module's
+    fn kept_bindings<'d>(
+        &'d self,
+        bound: HashMap<&'d str, Bound<Cow<'d, str>>>,
+        declared: &HashMap<&str, bool>,
+        pulls_in: impl Fn(&str) -> bool,
+    ) -> HashMap<usize, Option<String>> {
+        let directives = &self.raw.directives;
         let bare_calls = OnceCell::new();
         let called_bare = |name: &str| {
             bare_calls
@@ -353,8 +405,7 @@ impl Emitter<'_> {
                 })
                 .contains(name)
         };
-        bound
-            .into_iter()
+        (bound.into_iter())
             .filter_map(|(name, held)| {
                 let (path, at) = held?;
                 let keeps = names_a_module(head(&path))
@@ -373,7 +424,7 @@ impl Emitter<'_> {
     // constraint: a file's bindings hold one path per name, so a `use` inside a function body or an inline module binds
     // its names for the whole file too, and two paths of a name anywhere leave it none; the names a `use` outside every
     // body binds, in scope everywhere, are set apart
-    fn imported_names(&self) -> (HashMap<&str, Bound<&str>>, HashSet<&str>) {
+    pub(super) fn imported_names(&self) -> (HashMap<&str, Bound<&str>>, HashSet<&str>) {
         let mut imported = HashMap::new();
         let mut at_file_level = HashSet::new();
         for import in &self.imports {
@@ -470,6 +521,29 @@ impl Emitter<'_> {
 // constraint: the path a name is bound to and the first directive that binds it, or `None` for a name bound to two
 // paths
 type Bound<P> = Option<(P, usize)>;
+
+// constraint: a value read's path binds its last segment only where no `use` and no path call holds that name on
+// another path, so a read takes no binding a call relies on; each read whose path binds nothing is refused, by its
+// place among the written paths
+fn bind_read_paths<'d>(
+    bound: &mut HashMap<&'d str, Bound<Cow<'d, str>>>,
+    reads: impl Iterator<Item = (usize, &'d WrittenPath)>,
+    directives: &'d [RawDirective],
+    reached: impl Fn(&WrittenPath) -> Option<Cow<'d, str>>,
+) -> Vec<usize> {
+    let mut refused = Vec::new();
+    for (at, site) in reads {
+        let receiver = last(&directives[site.directive].spec);
+        match (reached(site), bound.get(receiver)) {
+            (Some(path), Some(Some((held, _)))) if *held == path => {
+                bind(bound, receiver, path, site.directive);
+            }
+            (Some(path), None) => bind(bound, receiver, path, site.directive),
+            _ => refused.push(at),
+        }
+    }
+    refused
+}
 
 fn bind<'a, P: PartialEq>(
     bound: &mut HashMap<&'a str, Bound<P>>,
