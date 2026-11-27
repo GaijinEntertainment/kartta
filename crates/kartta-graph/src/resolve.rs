@@ -2471,6 +2471,11 @@ impl<'g> Cascade<'g> {
                 .filter(|target| target.is_some() || !self.reads_modules())
             {
                 Some(target) => {
+                    // constraint: a qualifier bound to a module's file names what that module shows a call through it
+                    if let Some(module) = target.and_then(|target| self.graph.slot_of(target)) {
+                        return (self.module_export(&Call::bare(at, site.name), module))
+                            .ok_or(UseMiss::Elsewhere);
+                    }
                     let candidates = self.referenceable(site.name);
                     self.imported(&candidates, (file, target), Pick::PackageLevel)
                         .ok_or(UseMiss::Elsewhere)
@@ -2517,8 +2522,16 @@ impl<'g> Cascade<'g> {
                     .or_else(|| self.expanded_value((site, line), name))
             }),
             ValueUses::Included => self.included_value(site.file, name),
-            _ => bare(),
+            _ => bare().or_else(|| self.used_through_imports(site, name)),
         }
+    }
+
+    // constraint: a bare use names what a bare call of the name names through its file's imports of a module's file,
+    // a named import before a glob, below the file's own definitions, which shadow both
+    fn used_through_imports(&self, site: SymbolAt, name: Str) -> Option<Bound> {
+        let call = Call::bare(site, name);
+        self.imported_module_export(&call)
+            .or_else(|| self.glob_imported(&call))
     }
 
     fn implicit_value(&self, name: Str) -> Option<Bound> {

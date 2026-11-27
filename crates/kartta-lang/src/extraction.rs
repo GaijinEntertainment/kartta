@@ -320,7 +320,8 @@ impl UseRef {
 pub enum Receiver {
     /// Nothing: a bare name. Under [`OwnMembers::First`](crate::OwnMembers::First) it first binds the field of the
     /// enclosing member's class or of a base. Otherwise it binds as [`ValueUses`](crate::ValueUses) says: under
-    /// [`Declared`](crate::ValueUses::Declared), a symbol of the same file, the same package or a dot-imported package;
+    /// [`Declared`](crate::ValueUses::Declared), a symbol of the same file, the same package or a dot-imported package,
+    /// else the one an import of a module's file takes a bare call of the name to;
     /// under [`Imported`](crate::ValueUses::Imported), those, else an included file's export, a re-export, or an
     /// unexported namesake of one included file; under
     /// [`ImportedThenReached`](crate::ValueUses::ImportedThenReached), those, else a declaration of one file its
