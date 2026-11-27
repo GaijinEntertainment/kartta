@@ -27,6 +27,8 @@ pub struct Implementor<'g> {
 pub struct Implementations<'g> {
     /// The type the name selects.
     pub root: Definition<'g>,
+    /// The parents that type writes, as written, in the order it writes them.
+    pub root_parents: Vec<&'g str>,
     /// The other types [`Graph::definitions`] lists for the name, whose implementors these are not.
     pub passed_over: usize,
     /// The most implemented of those, the most direct implementors first, then in path order, at most the selector's
@@ -116,6 +118,12 @@ impl Graph {
 
         Some(Implementations {
             root: self.definition_at(root),
+            root_parents: self
+                .file(root.file)
+                .parents_of(root.index)
+                .iter()
+                .map(|parent| self.strings.resolve(parent.written))
+                .collect(),
             passed_over,
             candidates,
             found,
