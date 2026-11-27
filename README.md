@@ -1,10 +1,23 @@
-# kartta
+<h1 align="center">kartta</h1>
 
-kartta indexes a repository and answers structural questions about its code: where a symbol is defined, who calls it
-and what it calls, where it is used, what implements a type, which files include a file, and what an edit reaches,
-beside path and content search. One walk builds the file index and a code graph per language family, and every answer
-says how much a cap or a bound left out. It answers LLM agents first, through an MCP server, and serves Rust, Go, Node
-and C programs as a library.
+<p align="center"><b>The last code intelligence tool your agents will need.</b></p>
+
+Agents read text well and navigate code badly. Text is all they get: to learn who calls a function, an agent searches
+for its name, reads every file that matches, and tells the calls from the comments, the strings and the namesakes by
+itself. That is inefficient, to say the least: the agent pays with a context full of source for an answer a code graph
+holds as one edge. It is all the more so because nothing here is new, and the problem itself was solved long ago.
+
+kartta solves that once, for every language. One walk indexes a repository and builds a code graph for each supported
+language in it, so a repository of many languages answers through one set of tools: where a symbol is defined, who calls
+it and what it calls, where it is used, what implements a type, which files include a file, and what an edit reaches,
+beside path and content search.
+
+Languages plug in. A language is a crate that implements one trait: it reads a file's bytes and hands the graph the
+definitions, calls and imports it finds there. How it parses them is its own business. The languages kartta ships parse
+with tree-sitter grammars, and a language it does not ship is one more such crate, with any parser and whatever
+semantics its author brings ([`kartta-lang`](crates/kartta-lang/README.md)).
+
+kartta answers LLM agents first, through an MCP server, and serves Rust, Go, Node and C programs as a library.
 
 Its languages are Go, C and C++, TypeScript, TSX, JavaScript, Rust, Python, PHP, Ruby, Lua, Bash, Puppet, daslang,
 Quirrel, BLK and DSHL. TypeScript, TSX and JavaScript share one graph, every other language has its own, and no answer
