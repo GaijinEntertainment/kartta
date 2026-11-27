@@ -309,6 +309,40 @@ fn the_entries_beside_a_missed_name_rank_by_how_much_of_its_start_they_share() {
 }
 
 #[test]
+fn an_entry_one_edit_from_a_missed_name_comes_first_among_those_beside_it() {
+    let tree = tree(&[
+        ("src/lib.rs", "fn a() {}\n"),
+        ("src/main.rs", "fn b() {}\n"),
+        ("src/mains.rs", "fn c() {}\n"),
+        ("src/miasma.rs", "fn d() {}\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    for (file, near) in [
+        ("src/mian.rs", ["src/main.rs", "src/miasma.rs"].as_slice()),
+        ("src/ain.rs", ["src/main.rs"].as_slice()),
+        (
+            "src/mian.rs/x.rs",
+            ["src/main.rs", "src/miasma.rs"].as_slice(),
+        ),
+        (
+            "src/main.rs/x.rs",
+            ["src/main.rs", "src/mains.rs"].as_slice(),
+        ),
+    ] {
+        let missed = client.call("file_outline", &json!({ "file": file }));
+
+        assert!(missed.is_error, "{file}: {missed:?}");
+        assert_eq!(
+            missed.text.lines().skip(1).collect::<Vec<_>>(),
+            near,
+            "{file}"
+        );
+    }
+}
+
+#[test]
 fn a_miss_names_at_most_five_near_paths() {
     let tree = tree(&[
         ("a/x.rs", "fn a() {}\n"),
