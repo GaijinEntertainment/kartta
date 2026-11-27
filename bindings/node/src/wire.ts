@@ -1184,7 +1184,7 @@ export type GlobParams = {
 export type Glob = {
 	paths: string[];
 	truncated: boolean;
-	/** The matching paths `exclude` left out before the answer ended; absent when none. */
+	/** The matching paths `exclude` left out, past the limit too; absent when none. */
 	excluded?: number;
 	/** Present when the answer reads a stopped build's index. */
 	stopped_build?: StoppedBuild;
