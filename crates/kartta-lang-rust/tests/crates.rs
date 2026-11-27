@@ -289,6 +289,37 @@ fn a_path_that_ends_at_a_capitalised_item_is_kept_only_for_a_bare_call_of_its_na
 }
 
 #[test]
+fn a_value_read_through_a_path_keeps_the_path_of_its_last_segment_and_none_of_a_capitalised_one() {
+    let got = bound(
+        "mod walk;
+
+fn run() {
+    apply(walk::raw_walk);
+    apply(crate::sort::by_name);
+    Kind(1);
+             let a = other::Kind::A;
+}
+",
+    );
+
+    assert_eq!(
+        got,
+        [
+            path("walk", "self::walk", 4),
+            path("sort", "crate::sort", 5)
+        ]
+    );
+}
+
+#[test]
+fn a_value_read_through_a_path_a_path_call_binds_otherwise_keeps_no_path_and_no_use() {
+    let source = "fn run() {\n    crate::opaques::f();\n    apply(super::opaques::g);\n}\n";
+
+    assert_eq!(bound(source), [path("opaques", "crate::opaques", 2)]);
+    assert_eq!(Rust::new().extract(source.as_bytes()).uses, []);
+}
+
+#[test]
 fn a_kept_path_includes_no_file_its_name_spells() {
     let rust = Rust::new();
     let repository = MemoryRepository::new([("src/lib.rs", ""), ("src/walk", "")]);

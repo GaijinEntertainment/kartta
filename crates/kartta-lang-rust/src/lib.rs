@@ -94,8 +94,12 @@
 //! `Service::make` one of the member of `Service`. A name a pattern binds hides it from the end of what the binding
 //! reads on: a parameter in its function or closure, a match arm's pattern in the arm, a `for`'s in its body, an
 //! `if let`'s in the operands after it and its consequence, and a `let`'s to the end of its block. A bare read binds
-//! only an item its own file declares outside every owner and body, so the walk keeps one only where its own inline
-//! module declares the item, and a read through `Self` or a type only where the file declares a member of the name
+//! an item its own file declares outside every owner and body, else what a `use` or a glob of the file brings, as a
+//! bare call of the name does, so the walk keeps one only where its own inline module declares the item, a `use` the
+//! file keeps binds the name where the read is in the `use`'s scope or the file keeps a glob. A read through a path
+//! that ends at a module, `walk::raw_walk` or `crate::m::f`, reads through the path's last segment, kept with the path
+//! as a path call's receiver is, and binds what that module's file shows a call through it; it is kept only where the
+//! file keeps the path. A read through `Self` or a type is kept only where the file declares a member of the name
 //! under that type.
 //!
 //! # Resolution

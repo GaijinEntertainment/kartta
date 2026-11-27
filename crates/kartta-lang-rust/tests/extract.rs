@@ -2003,6 +2003,55 @@ fn uses(raw: &RawExtraction) -> Vec<(&str, &Receiver, SymbolId, u32)> {
 }
 
 #[test]
+fn a_read_through_a_module_s_path_reads_through_its_last_segment_unless_a_type_of_the_file_answers_it()
+ {
+    let raw = extract(
+        b"mod walk;
+struct raw_t;
+impl raw_t {
+    fn from(x: u8) -> u8 { x }
+}
+fn run(items: &[u8]) {
+    apply(walk::raw_walk);
+    items.map(raw_t::from);
+    items.map(self::raw_t::from);
+    items.map(crate::sort::by_name);
+    apply(std::mem::take);
+    apply(::rooted::f);
+}
+",
+    );
+
+    let run = id_of(&raw, "run");
+    assert_eq!(
+        uses(&raw),
+        [
+            ("raw_walk", &Receiver::Qualifier("walk".to_owned()), run, 7),
+            ("from", &Receiver::Path("raw_t".to_owned()), run, 8),
+            ("from", &Receiver::Path("raw_t".to_owned()), run, 9),
+            ("by_name", &Receiver::Qualifier("sort".to_owned()), run, 10),
+        ]
+    );
+}
+
+#[test]
+fn a_bare_read_binds_through_a_use_in_a_block_only_inside_that_block() {
+    let raw = extract(
+        b"fn sort(items: &mut [u8]) {
+    use crate::order::by_name;
+    items.sort_by(by_name);
+}
+fn other(items: &mut [u8]) {
+    items.sort_by(by_name);
+}
+",
+    );
+
+    let sort = id_of(&raw, "sort");
+    assert_eq!(uses(&raw), [("by_name", &Receiver::Bare, sort, 3)]);
+}
+
+#[test]
 fn an_item_taken_as_a_value_is_a_use_of_it() {
     let raw = extract(
         b"fn helper(x: u8) -> u8 { x }
