@@ -7095,6 +7095,85 @@ fn a_c_typedef_of_a_struct_to_its_own_name_answers_as_the_struct_alone() {
 }
 
 #[test]
+fn find_implementations_of_an_interface_a_type_implements_unnamed_says_that_type_is_not_listed() {
+    let answers = answers_over(
+        &[
+            ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+            (
+                "g/shape.go",
+                "package g\n\ntype Shape interface{ Area() float64 }\n\ntype Sq struct{}\n\n\
+                 func (Sq) Area() float64 { return 1 }\n\ntype Named interface{ Shape }\n\n\
+                 type Plain interface{ Other() }\n\ntype Base struct{}\n\ntype Boxed struct{ Base }\n",
+            ),
+            (
+                "t/shape.ts",
+                "export interface Shape { area(): number }\n\nexport interface Drawn { draw(): void }\n\n\
+                 export class Canvas { draw(): void {} }\n\nexport interface Pen { x: number }\n\n\
+                 export class Ink implements Pen { x = 1 }\n",
+            ),
+            (
+                "src/A.php",
+                "<?php\ninterface Runs {\n    public function boot();\n}\n\
+                 class Kernel implements Runs {\n    public function boot() {}\n}\n",
+            ),
+        ],
+        &[
+            ("find_implementations", json!({"name": "Shape"})),
+            ("find_implementations", json!({"name": "Plain"})),
+            ("find_implementations", json!({"name": "Drawn"})),
+            ("find_implementations", json!({"name": "Pen"})),
+            ("find_implementations", json!({"name": "Base"})),
+            ("find_implementations", json!({"name": "Runs"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<implementations of="Shape" total="1">"#,
+                concat!(
+                    "<note>a Go or TypeScript type that implements it by its members alone, without naming it, is not ",
+                    "listed</note>",
+                ),
+                r#"<type name="Named" qn="g.Named" lang="go" loc="g/shape.go:9"/>"#,
+                "</implementations>",
+            ]),
+            concat!(
+                r#"<implementations of="Plain" total="0">the symbol is indexed but no type names it as a parent - a "#,
+                "Go type that implements it by its members alone, without naming it, is not listed</implementations>",
+            )
+            .to_owned(),
+            concat!(
+                r#"<implementations of="Drawn" total="0">the symbol is indexed but no type names it as a parent - a "#,
+                "TypeScript type that implements it by its members alone, without naming it, is not listed",
+                "</implementations>",
+            )
+            .to_owned(),
+            lines(&[
+                r#"<implementations of="Pen" total="1">"#,
+                concat!(
+                    "<note>a TypeScript type that implements it by its members alone, without naming it, is not ",
+                    "listed</note>",
+                ),
+                r#"<type name="Ink" lang="jsts" loc="t/shape.ts:9"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<implementations of="Base" total="1">"#,
+                r#"<type name="Boxed" qn="g.Boxed" lang="go" loc="g/shape.go:15"/>"#,
+                "</implementations>",
+            ]),
+            lines(&[
+                r#"<implementations of="Runs" total="1">"#,
+                r#"<type name="Kernel" lang="php" loc="src/A.php:5-7"/>"#,
+                "</implementations>",
+            ]),
+        ]
+    );
+}
+
+#[test]
 fn implementations_of_a_cpp_enum_answer_that_nothing_implements_it() {
     let answers = answers_over(
         &[(
@@ -7280,6 +7359,10 @@ fn implementations_of_a_shared_name_list_the_other_type_and_a_path_prefix_picks_
         [
             lines(&[
                 r#"<implementations of="Base" total="2" passed_over="1">"#,
+                concat!(
+                    "<note>a Go type that implements it by its members alone, without naming it, is not ",
+                    "listed</note>",
+                ),
                 r#"<root name="Base" qn="alpha.Base" lang="go" loc="a/alpha/base.go:3"/>"#,
                 concat!(
                     r#"<candidate name="Base" qn="beta.Base" kind="interface" loc="b/beta/base.go:3" lang="go" "#,
@@ -7291,6 +7374,10 @@ fn implementations_of_a_shared_name_list_the_other_type_and_a_path_prefix_picks_
             ]),
             lines(&[
                 r#"<implementations of="Base" total="1">"#,
+                concat!(
+                    "<note>a Go type that implements it by its members alone, without naming it, is not ",
+                    "listed</note>",
+                ),
                 r#"<type name="Narrow" qn="beta.Narrow" lang="go" loc="b/beta/base.go:5"/>"#,
                 "</implementations>",
             ]),
@@ -7415,6 +7502,10 @@ fn a_name_that_picks_no_one_of_several_lists_them_and_implementations_name_the_t
             ]),
             lines(&[
                 r#"<implementations of="Base" total="1" passed_over="1">"#,
+                concat!(
+                    "<note>a Go type that implements it by its members alone, without naming it, is not ",
+                    "listed</note>",
+                ),
                 r#"<root name="Base" qn="alpha.Base" lang="go" loc="a/alpha/store.go:3"/>"#,
                 concat!(
                     r#"<candidate name="Base" qn="beta.Base" kind="interface" loc="b/beta/store.go:3" lang="go" "#,
