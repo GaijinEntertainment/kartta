@@ -357,29 +357,16 @@ fn outside_graph<'g>(
 impl Server {
     #[tool(
         annotations(idempotent_hint = true),
-        description = "Build the code index for a repository: walk the file tree and parse every recognized source \
-                       file into a per-language code graph of symbols (functions, types, methods...) with their \
-                       calls, uses and includes. Every other tool names the root it queries, and each but index_stats \
-                       errors until that root's index exists. A build at 2 threads takes about 0.4 s on 900 files \
-                       and about a minute on 170,000; a build still running after 30 s answers the \
-                       status=\"building\" envelope of index_stats instead and runs on - call index_stats until it \
-                       answers the index. The server holds the index of each root it builds, up to KARTTA_MAX_ROOTS \
-                       (4 by default): a new root past it drops a failed root, else the least recently asked root not \
-                       building, the launch root included, and the answer ends with a line naming the root dropped; \
-                       building a held root with other languages or index_ignored replaces its index (a build of the \
-                       same root, languages and index_ignored already under way is waited for, not \
-                       repeated, and the index they built is answered as held, refreshed first while index_stats \
-                       shows watch off). \
-                       Returns an <index> envelope, its languages= \
-                       naming the languages a 'languages' filter limited the build to (a symbol tool's answer for a \
-                       name that matches nothing repeats them as index_languages=), its gitignore= naming the \
-                       ignore files that applied as index_stats describes, its grep_index= present only when the \
-                       configured trigram index could not be kept, saying why (grep then opens every candidate, and a \
-                       new index_root tries again), with one <language/> record \
-                       per built graph (files, symbols, calls, uses and includes, plus 'files_without_symbols' when a \
-                       language's files did not all yield symbols and 'unheld' when some files it claims are binary or \
-                       unreadable), and an <errors> block listing what the walk could not read - those language names \
-                       are the valid values for the 'languages' filter of the symbol tools."
+        description = "Build the code index of a repository root: every file its ignore rules keep, for the file \
+                       tools, and a code graph per language of its symbols, calls, uses and includes. Call it when \
+                       index_stats shows no index of the root; every other tool errors on a root without one. A build \
+                       at 2 threads takes about a minute on 170,000 files; one still running after 30 s answers \
+                       status=\"building\" and runs on - call index_stats until it answers the index. The server holds \
+                       up to KARTTA_MAX_ROOTS roots (4 by default); a build past them drops a failed root, else the \
+                       root asked least recently that is not building, and names it. Building a held root with other \
+                       languages or index_ignored replaces its index, and a build of the same root, languages and \
+                       index_ignored already under way is waited for, not repeated. It answers the <index> envelope \
+                       index_stats describes."
     )]
     async fn index_root(
         &self,
@@ -442,34 +429,15 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Show what the index holds: repository root, total files, and per-language \
-                       file/symbol/call/use/include counts, plus 'files_without_symbols' on any language whose files \
-                       did not all yield symbols (an unsupported dialect or a failed parse) and 'unheld' on any whose \
-                       claimed files are binary or unreadable - each absent when it is zero. Use it to recall which \
-                       languages are present (the valid 'languages' values for the symbol tools), to gauge how much \
-                       code each language has, or to tell an empty answer from missing coverage. watch=\"following\" \
-                       means the index takes in each edit the operating system reports; watch=\"off: <reason>\" means \
-                       answers stay as the index last read the tree until refresh runs. gitignore=\"in-tree\" means \
-                       the .gitignore files inside the root applied, and no other ignore file did \
-                       ($GIT_DIR/info/exclude, a global excludes file); gitignore=\"ignored\" means none applied \
-                       (index_ignored). A root inside a repository whose top is above it reads gitignore=\"in-tree: \
-                       the root is inside the repository at <top>, whose .gitignore files above the root were not \
-                       read\": the index can hold files those hide. pruned_worktrees=N, absent when zero, counts the \
-                       linked worktrees of the root's repository inside the root, each listed as an empty directory: \
-                       nothing below one is indexed. While a build runs it answers status=\"building\" with the \
-                       seconds so far, and after a build that failed status=\"failed\" with its root and error; \
-                       otherwise the <index> envelope index_root produced. Without a root it answers \
-                       <roots total=\"N\"> around one such envelope per root the server holds, in the order it was \
-                       first asked to build them, a root that cannot answer as status=\"broken\" with why, and a hint \
-                       to call index_root when it holds none. \
-                       With coverage=true it adds one <coverage/> record per language, to tell \"no callers\" from a \
-                       language whose calls the graph binds poorly: sites, bound (split into certain / likely / \
-                       guess), edges (caller-callee pairs), and why the other sites bound no definition, each only \
-                       when it is not zero - external_import (an import of a module outside the repository), \
-                       not_exported, undefined (a builtin or code outside the graph), not_admitted, ambiguous (several \
-                       candidates, none nearer), past_bound (the graph stopped reading the receiver, at a cycle of \
-                       declarations or a chain too long to follow), and through_receiver (of the undefined and not \
-                       admitted, calls on a value of a type the graph does not define)."
+        description = "Show what the index of a root holds: its files, and per language the files, symbols, calls, \
+                       uses and includes, with files_without_symbols (an unsupported dialect or a failed parse) and \
+                       unheld (binary or unreadable files) where some yielded none. Use it to tell an empty answer \
+                       from missing coverage, and for the language names the languages parameters take. Without a root \
+                       it lists every root the server holds, built, building, failed or broken. watch=\"off: \
+                       <reason>\" means answers keep the tree as the index last read it until refresh runs; gitignore= \
+                       says which ignore rules applied. With coverage=true it adds per language how many call sites \
+                       bound a definition, how surely, and why the rest bound none, to tell \"no callers\" from a \
+                       language the graph binds poorly."
     )]
     async fn index_stats(
         &self,
@@ -504,20 +472,12 @@ impl Server {
 
     #[tool(
         annotations(idempotent_hint = true),
-        description = "Bring the index up to date after files changed on disk. While index_stats shows \
-                       watch=\"following\" the index does this by itself; call refresh when it shows watch off, or \
-                       after a change made where notifications do not reach, such as a network mount or a container \
-                       bind mount. Pass the repo-relative 'paths' that changed, with / between names, or omit them to \
-                       check the whole tree; a path that is absolute, starts with a drive such as C:, or holds a \
-                       backslash or a .. name is refused, and nothing is refreshed. Returns a <refresh> envelope: \
-                       walked= the parts walked again (\"tree\" for all), then each only when it is not zero - added \
-                       and removed files, extracted (files parsed again), resolved_again (other files whose calls or \
-                       includes bind anew), dropped (files no graph holds now), reconfigured (language families \
-                       resolved again because their go.mod or tsconfig.json changed what they resolve to, jsts for \
-                       TypeScript and JavaScript), and widened= (the paths named) with parts= (the parts \
-                       they came to) and limit= when those were more parts than it walks apart, so it walked the tree \
-                       - the paths inside a directory the index lacks, such as an ignored one, are one part; \
-                       elapsed_ms; and <errors> for what it could not read."
+        description = "Bring the index up to date after files changed on disk: call it when index_stats shows watch \
+                       off, or after a change where notifications do not reach, such as a network mount or a container \
+                       bind mount. While watch=\"following\" the index does this by itself. Pass the paths that \
+                       changed, or omit them to check the whole tree. The <refresh> envelope counts what it walked, \
+                       added, removed, parsed again and resolved again; widened= says the paths named came to more \
+                       parts than it walks apart, so it walked the tree."
     )]
     async fn refresh(&self, Parameters(p): Parameters<RefreshParams>) -> Result<String, String> {
         let paths = p.paths.unwrap_or_default();
@@ -535,18 +495,13 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Find files by name with a fuzzy match: pattern characters must appear in order but not \
-                       contiguously, and filename matches rank above directory matches (\"serv\" finds \
-                       pkg/service.go). Use it to locate a file when you know part of its name or path: a config file, \
-                       a module, a handler. Covers ALL indexed files (configs, docs, assets), not just source code; \
-                       optional include/exclude globs narrow the candidates first. To enumerate files by pattern alone \
-                       - every .ts file, everything under src/ - use glob_files instead. Returns matching \
-                       repo-relative paths, one per line, best first - exactly the path format the 'file' parameters \
-                       of other tools expect; a path holding a control character such as a line break, or opening with \
-                       a quote or a parenthesis, is written quoted with backslash escapes (\\n, \\t, \\\", \\\\), so \
-                       no path reads as a closing line in parentheses. A list max_results (200 when omitted) cut has a \
-                       (N of M matching paths, best first) line counting every match, and the default's cut ends with \
-                       a line naming max_results."
+        description = "Find files by a fuzzy match of their paths: the pattern's characters in order, gaps allowed, \
+                       file names ranked above directories (\"serv\" finds pkg/service.go). Use it to locate a file by \
+                       part of its name or path; it covers every indexed file, configs and docs included. To list \
+                       files by pattern, use glob_files. It answers repo-relative paths, best first, one a line, in \
+                       the form every file parameter takes, and a list max_results cut ends with a line counting every \
+                       match. A path holding a control character or opening with a quote or a parenthesis is written \
+                       quoted with backslash escapes: unquote it for a file parameter."
     )]
     async fn find_files(
         &self,
@@ -592,13 +547,11 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "List indexed files matching glob patterns - pure enumeration: every .go file, everything under \
-                       src/, the tree minus vendored code. Use it when the SET of files is the answer (inventory, \
-                       scoping a sweep); when you are hunting ONE file by name, use find_files. Returns matching \
-                       repo-relative paths, one per line, in sorted path order, quoted as find_files quotes them; a \
-                       list max_results (200 when omitted) cut has a (truncated: ...) line, an (excludes removed: N) \
-                       line counts the matches the excludes dropped before the list ended, and the default's cut ends \
-                       with a line naming max_results."
+        description = "List the indexed files that match glob patterns, in path order: every .go file, everything \
+                       under src/, the tree minus vendored code. Use it when the set of files is the answer; to find \
+                       one file by name, use find_files. It answers repo-relative paths, one a line, quoted as \
+                       find_files quotes them. A list max_results cut ends with a (truncated: ...) line that counts no \
+                       total: pass max_results 0 to list and count every match."
     )]
     async fn glob_files(
         &self,
@@ -634,26 +587,15 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Search file contents line by line with regular expressions - the evidence tool: pull the exact \
-                       lines that prove how code behaves, find every textual occurrence of an identifier, string, or \
-                       pattern. For symbol definitions use find_symbols, for call sites find_callers - grep finds \
-                       text, not structure. Several patterns search as one pass (a line matching any of them is \
-                       returned). Covers the indexed files; unscoped searches use the default exclusions documented by \
-                       'excludes', and a search scoped with non-empty 'includes' and omitted 'excludes' covers exactly \
-                       what it includes. Returns a <grep> envelope: one <file path=..> block per matched file with \
-                       'NUMBER:text' match lines (and 'NUMBER-text' context when context_lines is set), at most \
-                       max_results match lines (default 100) spent in file-path order. A line longer than 1024 bytes \
-                       is cut around its match and marked [... omitted N bytes]. Binary files and files over 4 MiB are \
-                       skipped and counted in binary= and oversized=; unreadable files are listed in <failures>, a \
-                       path: error line each, quoted as find_files quotes a path, and a (+N more) line past 5. \
-                       truncated=\"true\" means a match past the cap was seen, so more exist; unsearched= counts the \
-                       files the answer does not cover once that match was found or a cancel stopped the search, \
-                       excluded= the files the excludes dropped, ruled_out= the files the content index, built from \
-                       their content as index_root read it, shows hold no match, and symlinks= the links selected, \
-                       which are never read through. An answer with no truncated, unsearched= or <failures> holds \
-                       every match in the files it did not skip as binary or oversized. The answer reads each file as \
-                       it is now, but the set of files is the tree as the index last read it: a file added since is \
-                       missing until a refresh."
+        description = "Search file contents line by line with regular expressions: pull the exact lines that show how \
+                       code behaves, or find every textual occurrence of a name or a string. For definitions use \
+                       find_symbols, for call sites find_callers: grep finds text, not structure. An unscoped search \
+                       skips vendored and generated trees (see excludes). It answers one <file path=..> block per \
+                       matched file with NUMBER:text lines, at most max_results matches in path order; \
+                       truncated=\"true\" means more match, and unsearched= counts the files left unread then. Binary \
+                       files and files over 4 MiB are skipped and counted, and unreadable files are listed in \
+                       <failures>. Each file is read as it is now, but the set of files is the tree as the index last \
+                       read it: a file added since is missing until a refresh."
     )]
     async fn grep(
         &self,
@@ -711,22 +653,13 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "List a directory's entries from the index: subdirectories, files with their byte sizes \
-                       (size=\"unknown\" when the file could not be read - distinct from size=\"0\", an empty file; \
-                       directories and symlinks carry no size), and symlinks (marked explicitly, with their target). \
-                       Use it when the SET of entries under one directory is the answer - what a package contains, \
-                       whether a test or companion file exists beside a module. find_files hunts ONE file by name; \
-                       glob_files enumerates by pattern across the whole tree. path \".\" (or omitted) lists the \
-                       repository root; max_depth 1 (the default) shows immediate children only. Descent into vendored \
-                       and generated trees (vendor, node_modules, dist, build, __pycache__) is suppressed by default - \
-                       the directory entry itself still appears, and listing it by path shows its contents. Returns a \
-                       <dir> envelope with one <entry/> record per entry in name-sorted order, a directory immediately \
-                       preceding its children; a directory the listing did not enter (below max_depth or suppressed) \
-                       carries unlisted= with the count of entries beneath it. Capped at max_entries (default 1000); \
-                       total= on <dir> counts every entry the index holds under the path, and excluded= the entries \
-                       skip_dotfiles dropped. An empty directory is a successful empty answer, not an error. The \
-                       entries are the indexed universe - what the walk saw, not the live filesystem - while a file's \
-                       size is read from the filesystem when the file is first listed."
+        description = "List one directory's entries from the index: subdirectories, files with their byte sizes, and \
+                       symlinks with their targets. Use it when the entries of one directory are the answer: what a \
+                       package holds, whether a test sits beside a module. find_files finds one file by name; \
+                       glob_files lists by pattern across the tree. It lists the immediate children unless max_depth \
+                       asks for more, and does not descend into vendored and generated directories (see excludes); a \
+                       directory it did not enter carries unlisted=, the entries beneath it. The entries are what the \
+                       index's walk saw; a file's size is read from disk."
     )]
     async fn list_dir(&self, Parameters(p): Parameters<ListDirParams>) -> Result<String, String> {
         let names = p
@@ -772,17 +705,12 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Find symbol definitions by keyword search over the words of their names and file paths: where X \
-                       is defined, and the exact name other tools take. One ranked <hit/> per keyword match - name, qn \
-                       when it says more, owner, kind, lang, loc, sig; a hit named the query first, GENERATED or \
-                       vendored code last, role= test, entry or generated in that precedence. total= counts keyword \
-                       matches. Only when none match do fuzzy=true hits answer: names spelling the query's characters \
-                       in order, not matches as asked, counted by fuzzy_hits= and listed per fuzzy_hits_shown=. \
-                       unmatched= names query words no definition holds; then up to 5 <suggestion/> records, counted \
-                       by one_edit=, name definitions one edit from the whole query - a character swapped with the \
-                       next, dropped, or replaced or added by an ASCII letter, a digit, _ or one of the query - \
-                       counted, not listed again as hits. A hitless answer names searched languages with files that \
-                       yielded no symbols: missing coverage, not absence."
+        description = "Find where symbols are defined, by keywords matched against the words of their names and file \
+                       paths, and the exact name the other tools take. It answers ranked <hit/> records with name, qn, \
+                       owner, kind, lang, loc and sig, a hit named the query first and generated or vendored code \
+                       last. Only when no keyword matches does it answer fuzzy=true hits, names holding the query's \
+                       characters in order. A hitless answer names the query words no definition holds and the \
+                       searched languages whose files yielded no symbols: missing coverage, not absence."
     )]
     async fn find_symbols(
         &self,
@@ -881,21 +809,12 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Read the source of named definitions - functions, methods, types - several names in one call. \
-                       Answers \"show me X\" without a search followed by a file read of a guessed range. Returns a \
-                       <definitions> envelope with one <name of=.. total=..> per requested name, in request order; \
-                       each holds its <definition> records nearest first, carrying name, optional qn, optional owner, \
-                       kind, lang, loc, scope, and role=. scope is same-directory (beside 'from'), vendored, or other; \
-                       it ranks by location and does not resolve which definition a given call binds to. The body is \
-                       the file text from the doc block directly above the definition through its last line, each line \
-                       numbered, at most 500 lines with each line cut at 1024 bytes; a cut line ends with [... omitted \
-                       N bytes], and cut_lines= counts them. loc is the span the index last read and the body is read \
-                       at call time, so a file edited since answers its new text at the old span, and resized=true \
-                       marks a file whose size changed since. truncated=true marks a body cut before the span ends, or \
-                       missing because the file no longer reaches the span; a definition whose file could not be read \
-                       has no body, carries error= with the reason and its sig when one was captured. total on a \
-                       <name> counts every definition the name selects, and a name nothing defines answers total=0; past the \
-                       limit up to 5 <candidate/> records locate the next nearest, which path_prefix and line read."
+        description = "Read the source of named definitions - functions, methods, types - several names in one call: \
+                       \"show me X\" without a search and a read of a guessed range. Each <name> holds its definitions \
+                       nearest first, each body numbered from the doc comment above it to its last line, at most 500 \
+                       lines. The body is read at call time at the span the index last read, and resized=true marks a \
+                       file whose size changed since. A name nothing defines answers total=\"0\" with close \
+                       alternatives; past the limit, <candidate/> records locate the next nearest."
     )]
     async fn read_definitions(
         &self,
@@ -1007,22 +926,14 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "List the types that implement or extend a named interface, base class, or trait, transitively. \
-                       Use it when a contract changes and you need everything bound to it, or to find the real targets \
-                       behind a dynamically-dispatched call site. Returns an <implementations> envelope, one <type/> \
-                       record per implementor with its lang and loc, nearest first; depth=N marks one that implements \
-                       the type through N-1 others. total= counts every implementor found, at most 500 listed; \
-                       passed_over= counts the other types the name selects, and then a <root/> names the type \
-                       answered for and up to 5 <candidate/> records list the most implemented others. A type that \
-                       implements an interface without naming it, as Go's and TypeScript's structural typing and a \
-                       Python Protocol allow, is not found, and the answer for such an interface says so in its text. \
-                       A name no indexed type has, as a library's Display or io.Reader, asked without path_prefix or \
-                       line, lists under \
-                       outside_graph=true the types whose written parents end with it, one hop, and namesakes= counts \
-                       the other indexed types and namespaces of its last segment, which no listed parent reached. A \
-                       name several types end with lists them instead; a name held only as kinds no type implements, \
-                       such as a function, a variable or a Go defined type, counts them by kind and lists up to 5 of \
-                       those definitions."
+        description = "List the types that implement or extend a named interface, base class or trait, transitively, \
+                       nearest first, depth= marking one reached through others, at most 500 listed. Use it when a \
+                       contract changes and you need everything bound to it, or to find the real targets of a \
+                       dynamically dispatched call. A type that implements an interface without naming it, as Go's and \
+                       TypeScript's structural typing and a Python Protocol allow, is not found, and the answer says \
+                       so. A name no indexed type has, as a library's io.Reader, lists under outside_graph=true the \
+                       types whose written parents end with it, one hop. A name several types end with lists them \
+                       instead."
     )]
     async fn find_implementations(
         &self,
@@ -1086,16 +997,11 @@ impl Server {
     #[tool(
         annotations(read_only_hint = true),
         description = "Find every file that imports or includes a given file, directly or through a chain of imports \
-                       (followed up to 'hops', default 3) - the downstream files of a shared module, header, or \
-                       type-definition file. This is whole-file impact: for line-level impact use impact_of_edit, for \
-                       a single function use find_callers. Returns an <importers> envelope, total= counting every \
-                       downstream file, with one <file/> record per downstream file, nearest first and at most 'limit' \
-                       (default 200); hops=N marks one that reaches the file through N-1 others, and unexpanded= \
-                       counts the importers at the hops limit whose own importers were not followed, which a higher \
-                       hops reaches. A Go file counts every importer of its package. For a file a code graph holds, a \
-                       <note>, the whole text where no file imports it, says what the file's language counts as an \
-                       importer: a Rust file counts the mod declarations that load it, not the files that use its \
-                       items; for any other file the text says why no graph holds it."
+                       up to hops: the downstream files of a shared module, header or type-definition file. This is \
+                       whole-file impact: for lines use impact_of_edit, for one function find_callers. It answers \
+                       <file/> records nearest first. A Go file counts every importer of its package, and a Rust file \
+                       the mod declarations that load it, not the files that use its items: the answer's note says \
+                       what the file's language counts."
     )]
     async fn find_importers(
         &self,
@@ -1125,20 +1031,12 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "List the definitions of one known file in source order - \"where in this file is X?\" when the \
-                       file is known but the place in it is not. Returns an <outline> envelope, total= counting every \
-                       definition, with one <symbol/> record per definition, the first 'limit' (default 100) in source \
-                       order: name; qn, the qualified name, omitted when it equals name; owner, the declaring type or \
-                       namespace; in, on a definition without an owner inside another listed one - a local of a body, \
-                       a member of an inline type or object literal, an item of a module block - the qn of the \
-                       innermost one holding it, judged by lines, so one starting on its holder's first or last line, \
-                       as in minified code, carries it only as a field or method of a callable's signature; a \
-                       definition with neither starts outside every other listed one or on such a line; kind; \
-                       lines=\"start-end\" (the definition's full span, or the one line of a one-line definition, \
-                       nested definitions inside their enclosing one's span); and sig, the declaration, omitted when \
-                       none was captured. Read the one span you need instead of the whole file or a guessed window. A \
-                       file no code graph holds and a file with no recorded definition both report total=\"0\", told \
-                       apart by the note. For callers and reach of a range use impact_of_edit."
+        description = "List the definitions of one known file in source order: \"where in this file is X?\" when the \
+                       file is known and the place is not. Each <symbol/> carries its kind, lines= span, sig, owner, \
+                       and in= the qn of the listed definition holding it. Read the one span you need instead of the \
+                       whole file or a guessed window. A file no code graph holds and a file with no recorded \
+                       definition both answer total=\"0\", told apart by the note. For the callers and reach of a \
+                       range, use impact_of_edit."
     )]
     async fn file_outline(
         &self,
@@ -1157,25 +1055,14 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Find the shortest chain of calls from one symbol to another: from calls a symbol, which calls \
-                       another, until one calls to. Answers \"does this entry point reach that function, and how?\" in \
-                       one call, where following the calls by hand takes a read per hop. Returns a <call_path> \
-                       envelope of one <match lang=..> per language the pair resolves in: from and to with from_loc \
-                       and to_loc, hops= the chain's length, max_hops= the bound searched, and one <ref> per caller in \
-                       call order - the last one calls to - each with loc= the caller's span, at= the line in the \
-                       caller's own file where it calls the next symbol, role=, any confidence mark, and through= the \
-                       interface, trait or base-class method a hop's call binds where it reaches the next method only \
-                       through it, as find_callers marks it. When from and to resolve to one symbol, the match has \
-                       hops=0 and no ref. A match without a chain carries found=false and no hops=, and states that an \
-                       absent chain in the graph does not show one absent in the code; at_hops_bound= counts the \
-                       callers at the hops limit a longer chain could pass through, and below_confidence= the callers \
-                       the floor dropped; a match the floor left without a chain, in a search the node cap did not \
-                       stop, says how many bind below it, which min_confidence \"any\" follows. A search the node cap \
-                       (20000) stops carries turned_away=, the callers the cap turned away. passed_over_from= and \
-                       passed_over_to= count the other symbols each name selects, the most called listed as up to 5 \
-                       <candidate end=\"from\"|\"to\" callers=N/> records; only the picked pair is searched, which a \
-                       match without a chain then says. With no match, an end whose name selects no symbol lists what \
-                       it matches instead under <from> or <to>."
+        description = "Find the shortest chain of calls from one symbol to another: \"does this entry point reach that \
+                       function, and how?\" in one call, where following calls by hand takes a read per hop. It \
+                       answers per language a <match> with one <ref/> per caller in call order, the last one calling \
+                       to, and hops=0 when from and to are one symbol. A match without a chain carries found=false and \
+                       a note: no chain within hops, or the node cap stopped the search, and neither shows that the \
+                       code holds none; at_hops_bound= counts the callers a longer chain could pass through. Only the \
+                       picked pair is searched: passed_over_from= and passed_over_to= count the other symbols each \
+                       name selects."
     )]
     async fn find_call_path(
         &self,
@@ -1255,37 +1142,18 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "List every site where a symbol is used: its calls, its uses as a type, and every read and write \
-                       of a field, a constant or a variable. Answers \"where is this type, field, constant, or \
-                       function used?\" and \"who sets Config.Timeout?\" (access=\"write\") in one call, without a \
-                       text search that also matches strings, comments, and same-named symbols. Returns a <references> \
-                       envelope of one <match lang=..> per language the name resolves in: the symbol's loc and kind, \
-                       total= the sites it keeps, calls= types= reads= writes= updates= counting every site whatever \
-                       access keeps, and files= the files holding them. The sites come in <file path= total=N> \
-                       records, the most sites first: one <ref> per enclosing symbol and site kind in line order, with \
-                       the enclosing symbol's name, qn and lines=, role=, site= (call, type, read - a member taken \
-                       through a type, as EventType.Created, reads the type - write, or update for += and ++), at= the \
-                       lines of that file where it touches the symbol, and any confidence mark. A caller is one site, \
-                       at one of its calls; every other use is one site per line and kind. A match lists at most 100 \
-                       sites, then names 50 more files with their total= alone (files_shown= when it names fewer than \
-                       files=). file_scope=N counts the files whose top level names the symbol, each a <file_scope \
-                       path=../> record after the files, the first 50 (file_scope_shown= past that), a member's marked \
-                       guess; with no line kept, total= leaves them out, access does not filter them, and grep in the \
-                       file finds the line. sites_under lists only the sites and file_scope files under a path prefix, \
-                       the way past the files a match names; excluded=, files_excluded= and file_scope_excluded= count \
-                       what it left out. A match names its language where that language records none of its symbol's \
-                       uses, and no language records the reads of a body's local value, the uses as a value of a \
-                       body's local function, or the uses as a type or a value of a body's local type. A method's \
-                       calls through a value of its owner's type resolve only where the graph can name that type, so a \
-                       missing site does not show an unused symbol. ambiguous= counts the calls of its name that bound \
-                       no definition because several definitions may be meant, and the uses of a member's name on a \
-                       value of a type the graph could not follow: any may be this symbol, and none is listed. \
-                       below_confidence= counts the sites and file_scope files the floor dropped, and passed_over= the \
-                       other symbols the name selects, the most used listed as up to 5 <candidate sites=N/> records. A \
-                       match with no site and no file_scope record says what the graph does not record, or with \
-                       below_confidence= how many uses bind below the floor, which min_confidence \"any\" lists. A \
-                       name several symbols end with lists them instead, and a name held only as enum variants counts \
-                       them and lists up to 5."
+        description = "List every site where a symbol is used: its calls, its uses as a type, and each read and write \
+                       of a field, a constant or a variable. Answers \"where is this type, field, constant or function \
+                       used?\" and \"who sets Config.Timeout?\" (access=\"write\") in one call, without a text search \
+                       that also matches strings, comments and namesakes. It answers per language a <match> whose \
+                       sites come in <file> records, the most sites first, one <ref/> per enclosing symbol and site \
+                       kind with site= call, type, read, write or update. A match lists 100 sites and names 50 more \
+                       files by count; sites_under lists those under a path. file_scope= counts the files whose top \
+                       level names the symbol, listed with no line. A match names its language where that language \
+                       records none of its symbol's uses; no language records the reads of a body's local values, the \
+                       uses of its local types, or its local functions taken as values, and a call through a value \
+                       resolves only where the graph can name its type, so a missing site does not show an unused \
+                       symbol. A name several symbols end with lists them instead."
     )]
     async fn find_references(
         &self,
@@ -1338,28 +1206,14 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Assess the blast radius of editing a span of lines - \"what breaks if I touch these lines?\" \
-                       for a diff hunk under review or an edit you are about to make. For one named function use \
-                       find_callers; for whole-file impact, find_importers. Returns an <impact> envelope with one \
-                       <symbol> record per definition overlapping the range, total= counting them, at most 'limit' \
-                       (default 10) listed, those of widest reach in source order. Each holds its caller and callee \
-                       counts with sampled <ref/> lists, test and generated callers and users after the others, \
-                       each ref with role=, any confidence mark, at= the line of the \
-                       call or the use (in the caller's or the user's own file, and in this file for a callee), and \
-                       through= as find_callers marks it; total= on <callers> and <callees> counts every one where a \
-                       list shows at most 50, or fewer where a wide answer's size leaves less. ambiguous= counts the \
-                       calls of its name that bound no definition because several definitions may be meant, any of \
-                       which may call it and none of which callers= or the reach counts, and unresolved= the calls \
-                       into code the graph does not hold, each only when it is not zero. A field, a variable or a \
-                       constant carries users= and, in place of <callers>, a <users> list of the symbols that read, \
-                       write or call it where its language records those uses (find_references lists every site). The \
-                       reach counts the symbols across files that depend on it within 3 hops, a field's or a value's \
-                       users and their callers included, graded in reach_band: low under 10, medium 10 to 49, high 50 \
-                       to 199 or from 20 for an exported symbol, and critical from 200 or from 50 for an interface; \
-                       turned_away= when the 500-symbol cap stopped the walk. <includes> and <included-by> count every \
-                       file and list the first 'limit' in path order. A range covering only file-scope code (imports, \
-                       comments) reports zero symbols and still lists the file's includes and includers; zero symbols \
-                       means nothing is defined there, not that the edit is safe."
+        description = "Assess what editing a span of one file reaches: \"what breaks if I touch these lines?\" for a \
+                       diff hunk under review or an edit you are about to make. For one named function use \
+                       find_callers, for a whole file find_importers, for a diff of several hunks impact_of_change. It \
+                       answers one <symbol> per definition overlapping the span, widest reach first, each with its \
+                       direct callers and callees, or a field's or a value's users, and reach= the symbols across \
+                       files that depend on it within 3 hops, graded in reach_band from low to critical; then the \
+                       file's includes and includers. A span of file-scope code alone (imports, comments) answers zero \
+                       symbols: nothing is defined there, which does not make the edit safe."
     )]
     async fn impact_of_edit(
         &self,
@@ -1393,35 +1247,16 @@ impl Server {
     #[tool(
         annotations(read_only_hint = true),
         description = "Assess what a whole change reaches - a diff of several hunks across files and languages in one \
-                       call: the symbols it touches, how far a change to each spreads through its callers (and from a \
-                       field, a variable or a constant through the symbols that read or write it), and where those \
-                       spreads meet. Use it to review a diff or plan a multi-file edit; for one span of one file with \
-                       its callees and includes, use impact_of_edit. Pass the change as regions, as a unified diff, or \
-                       both. Returns a <change> envelope: changed_symbols and changed_files, the footprint (every \
-                       symbol the changed symbols' callers reach within 3 hops, each once) and footprint_files; a \
-                       <seeds> list of the changed symbols, widest reach first and test/entry/generated code last, \
-                       each <seed> with its loc, direct callers count, reach and reach_band, the reach's grade (low \
-                       under 10, medium 10 to 49, high 50 to 199 or from 20 for an exported symbol, and critical from \
-                       200 or from 50 for an interface), and its direct callers as <ref/> records with at= the line of \
-                       the call in the caller's own file and through= as find_callers marks it, test and generated \
-                       code last (at most 10, in \
-                       <callers total=>), or past 30 callers their directories (in <caller_dirs total=>) - a field, a \
-                       variable or a constant lists its users= in <users> and <user_dirs> instead; and a <hotspots> \
-                       list of the symbols two or more changed symbols reach, with reached_by= how many, hops= how \
-                       near, and changed=true on one the change touches itself. <seeds> and <hotspots> each list at \
-                       most 'limit' (default 20). A change that overlaps no symbol answers changed_symbols=0 with a \
-                       note. Each count of what was left out appears only when it is not zero: unheld_regions= the \
-                       regions in files no code graph holds, of them missing_regions= in a path the index does not \
-                       hold, symlink_regions= in a symlink, special_regions= in a socket, a fifo or a device node, and \
-                       unclaimed_regions= in a held file no language claims or declines, with a <declined language= \
-                       regions=> per language that leaves such files out of its graph and an <unbuilt language= \
-                       regions=> per language index_root's 'languages' left out; regions_outside_symbols= those \
-                       overlapping no symbol; stopped_walks= the changed symbols whose walk the 500-symbol cap stopped \
-                       (turned_away= on the seed); and on a seed unexpanded= the callers whose own callers its walk \
-                       did not follow, and ambiguous= the calls of its name that bound no definition because several \
-                       definitions may be meant, none of which its callers or its reach count. Callers through dynamic \
-                       dispatch, function values and code outside the repository are not seen, so a small footprint is \
-                       not proof the change is safe."
+                       call: the symbols it touches, how far each spreads through its callers, or a field's or a \
+                       value's users, and where those spreads meet. Use it to review a diff or plan a multi-file edit; \
+                       for one span with its callees and includes, use impact_of_edit. Pass the change as regions, as \
+                       a unified diff, or both. It answers the footprint, every symbol the changed symbols' callers \
+                       reach within 3 hops; <seeds>, the changed symbols widest reach first, each with its reach_band \
+                       from low to critical and its direct callers; and <hotspots>, the symbols two or more changed \
+                       symbols reach. A change that overlaps no symbol answers changed_symbols=0 with a note, and \
+                       regions in files no graph holds are counted by why. Callers through dynamic dispatch, function \
+                       values and code outside the repository are not seen, so a small footprint is no proof the \
+                       change is safe."
     )]
     async fn impact_of_change(
         &self,
@@ -1454,22 +1289,14 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Find definitions nothing in the repository calls or uses - clean-up candidates. Judges \
-                       functions, methods and macros by calls, and Go types, fields, variables and constants by uses, \
-                       in every indexed language unless 'languages' narrows it. Scope it with path_prefix: unscoped, a \
-                       large tree takes seconds. Returns <unused>: total= the unused found, at most 'limit' (default \
-                       50) listed; exported= those their language exports (its public API), when not zero; live= those \
-                       judged and found used. <unjudged/> counts what was not judged, each when not zero: test, \
-                       generated, entry (main, registered handlers, constructors, operators), vendored, unobservable \
-                       (locals; fields, values and types outside Go), uncertain (a call or use of its name bound \
-                       nothing certain), dispatched (an interface, trait or parent can route a call to it), reflected \
-                       (reflection reads it by name, as encoding/json a Go field its tag names). Then a <symbol/> per \
-                       definition in path order: name, qn, kind, lang, loc, exported=true, and \
-                       name_used_elsewhere=true when calls or uses of its name bind elsewhere. Quirrel's graph records \
-                       no export: it marks and counts none, and a <note> says so where it lists one. A listing is a \
-                       candidate, not a proof: calls through function values or callbacks, callers outside the \
-                       repository (services, scripts, a runtime calling by name) and dynamic dispatch are unseen - \
-                       grep the name and check how it is registered before deleting it."
+        description = "Find definitions nothing in the repository calls or uses - clean-up candidates. It judges \
+                       functions, methods and macros by calls, and Go types, fields, variables and constants by uses. \
+                       Scope it with path_prefix: unscoped, a large tree takes seconds. It answers a <symbol/> per \
+                       definition in path order, exported=true on one its language exports as public API, and counts \
+                       in <unjudged/> what it did not judge and why. A listing is a candidate, not a proof: calls \
+                       through function values or callbacks, callers outside the repository (services, scripts, a \
+                       runtime calling by name) and dynamic dispatch are unseen - grep the name and check how it is \
+                       registered before deleting it."
     )]
     async fn find_unused(
         &self,
@@ -1496,30 +1323,14 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Trace who calls a symbol, hop by hop back from the named function or method. Answers \"what is \
-                       affected if I change this function?\"; for a field's or a variable's reads and writes use \
-                       find_references. Returns a <callers> envelope of one <match lang=..> per language the name \
-                       resolves in: the symbol's loc, total= its callers within the hops limit, consumers=, tests=, \
-                       entries= and generated= how many of them carry each role, each only when it is not zero, and \
-                       flat <ref hops=N/> records, nearest first and within a hop consumer and entry code ahead of \
-                       test and generated code, at most 'limit' (default 100), each with the caller's loc, at= the \
-                       line of its call in the caller's own file, role= and any confidence mark. A caller whose call \
-                       binds a same-named method of an interface, a trait or a base class of the method's owner \
-                       carries through= that method's qualified name, so the call may run another implementation. \
-                       file_scope=N counts the files whose top level calls or uses the symbol, each a <file_scope \
-                       path=../> record after the refs, the first 50 by path (file_scope_shown= past that), with no \
-                       line, not walked past, and not kept by 'role'. A call from the symbol's own body is one \
-                       <self_call at=../> record, a line of the match's file, ahead of the refs whatever 'role' keeps; \
-                       total= leaves it out. A <match> counts what the walk left out, each only when it is not zero: \
-                       passed_over= the other symbols the name selects (the most called listed as up to 5 <candidate \
-                       callers=N/> records), unexpanded= the callers whose own callers were not followed, at the hops \
-                       limit or the node cap, ambiguous= the calls of its name that bound no definition because \
-                       several definitions may be meant, any of which may call it, below_confidence= the callers and \
-                       files the floor dropped, and turned_away= the callers the node cap (500) turned away. A match \
-                       with no callers and no file_scope records says why in a note: entry point, dead code, or \
-                       dynamic dispatch for a callable, find_references for a field, grep for an enum variant, and \
-                       with below_confidence= how many bind below the floor, which min_confidence \"any\" lists. Calls \
-                       through an interface may be missed - check find_implementations of the interface too."
+        description = "Trace who calls a function or method, hop by hop back from it: \"what is affected if I change \
+                       this function?\" For a field's or a variable's reads and writes use find_references. It answers \
+                       per language a <match> with its callers as <ref/> records nearest first, consumer and entry \
+                       code ahead of test and generated code within a hop, and counts them by role. file_scope= counts \
+                       the files whose top level calls or uses the symbol, listed with no line. A match with no \
+                       callers says why: entry point, dead code, or dynamic dispatch for a callable, find_references \
+                       for a field, grep for an enum variant. Calls through an interface may be missed - check \
+                       find_implementations of the interface too."
     )]
     async fn find_callers(
         &self,
@@ -1564,24 +1375,13 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Trace what a symbol calls: walks the call graph forward from the named function or method, the \
-                       forward half of find_callers. Answers \"what does X depend on, what runs when it runs?\" \
-                       without reading its body and every body it calls. Returns a <callees> envelope of one <match \
-                       lang=..> per language the name resolves in: the symbol's loc, total= its callees within the \
-                       hops limit, and flat <ref hops=N/> records nearest first, each with the callee's loc, role=, \
-                       any confidence mark, and on a direct callee at= the line of the call in the match's file. A \
-                       call from the symbol's own body is one <self_call at=../> record, a line of the match's file, \
-                       ahead of the refs; total= leaves it out. A <match> counts what the walk left out, each only \
-                       when it is not zero: unresolved= the calls in the bodies walked that bound no definition the \
-                       graph holds (a library, a builtin, or a name the resolver could not tell apart - read the body \
-                       for those), passed_over= the other symbols the name selects (the most called listed as up to 5 \
-                       <candidate callers=N/> records), unexpanded= the callees whose own callees were not followed, \
-                       at the hops limit or the node cap, below_confidence= the callees the floor dropped, and \
-                       turned_away= the callees the node cap (500) turned away. A match without callees says that no \
-                       other call in its body binds a definition the graph holds, or with below_confidence= how many \
-                       bind below the floor, which min_confidence \"any\" lists. A call through a function value, an \
-                       interface or a virtual method binds only where the graph can name its target, so a callee \
-                       missing here can still run."
+        description = "Trace what a function or method calls, forward from it - the forward half of find_callers: \
+                       \"what does X depend on, what runs when it runs?\" without reading every body it calls. It \
+                       answers per language a <match> with its callees as <ref/> records nearest first. unresolved= \
+                       counts the calls in the bodies walked that bound no definition the graph holds - a library, a \
+                       builtin, or a name it could not tell apart: read the body for those. A call through a function \
+                       value, an interface or a virtual method binds only where the graph can name its target, so a \
+                       callee missing here can still run."
     )]
     async fn find_callees(
         &self,
@@ -1651,6 +1451,15 @@ impl ServerHandler for Server {
              through the module layout) or \"guess\" (bound by the name alone) marks a weakly bound call or use, and \
              an unmarked one is certain. A name no definition carries answers up to 5 close alternatives (did you \
              mean): those named one edit from it, which one_edit= counts, or else the best search hits. \
+             at= is the line of a call or a use, in the file of the symbol that calls or uses. through= names the \
+             interface, trait or base-class method a call binds through, so another implementation may run. \
+             passed_over= counts the other symbols a name selects, the first 5 listed as <candidate/> records: pass \
+             one's file as path_prefix and its line as line, or find_call_path's from_ and to_ forms, to pick it. Each \
+             of these counts appears only when it is not zero: unexpanded= the records at the hops limit whose own \
+             callers, callees or importers were not followed, turned_away= what a node cap turned away, \
+             below_confidence= what min_confidence dropped, ambiguous= the calls or uses of the name that bound no \
+             definition because several may be meant, excluded= what a filter of the call (excludes, skip_dotfiles, \
+             sites_under) left out, and unresolved= the calls into code the graph does not hold. \
              Intent map: locate a file by name -> find_files; list files matching a glob -> glob_files; see what one \
              directory contains -> list_dir; find lines of text by regex / quote the exact code -> grep; where is X \
              defined -> find_symbols; where in this known file is X -> file_outline; read the source of X, Y, Z -> \

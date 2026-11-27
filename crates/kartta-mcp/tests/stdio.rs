@@ -139,13 +139,16 @@ fn the_server_lists_its_tools() {
     );
 }
 
-/// The most characters a tool description holds: Claude Code cuts an upfront tool description at 4,096.
-const DESCRIPTION_CHARACTERS: usize = 4096;
+/// The most characters a tool description holds: what the tool answers, when to call it or a neighbor, and the limits
+/// that change that choice.
+const DESCRIPTION_CHARACTERS: usize = 1200;
 /// The most bytes one tool's `tools/list` entry takes, as compact JSON.
-const TOOL_BYTES: usize = 7 * 1024;
+const TOOL_BYTES: usize = 4 * 1024;
 /// The most bytes the whole `tools/list` result takes, as compact JSON: a client without tool search pays it in every
 /// session.
-const LIST_BYTES: usize = 70 * 1024;
+const LIST_BYTES: usize = 42 * 1024;
+/// The most characters the instructions hold: Claude Code cuts a server's instructions past 4,096.
+const INSTRUCTIONS_CHARACTERS: usize = 4096;
 
 #[test]
 fn the_tool_list_stays_within_its_budget() {
@@ -175,6 +178,11 @@ fn the_tool_list_stays_within_its_budget() {
 
     assert!(over.is_empty(), "past a tool's budget: {over:?}");
     assert!(bytes <= LIST_BYTES, "tools/list takes {bytes} bytes");
+    assert!(
+        client.instructions.chars().count() <= INSTRUCTIONS_CHARACTERS,
+        "the instructions take {} characters",
+        client.instructions.chars().count()
+    );
 }
 
 #[test]
@@ -205,6 +213,15 @@ fn the_instructions_state_the_vocabulary_every_answer_shares() {
         "role=",
         "confidence=",
         "one_edit=",
+        "at=",
+        "through=",
+        "passed_over=",
+        "unexpanded=",
+        "turned_away=",
+        "below_confidence=",
+        "ambiguous=",
+        "excluded=",
+        "unresolved=",
     ]
     .into_iter()
     .filter(|word| !client.instructions.contains(word))
@@ -1108,19 +1125,6 @@ fn an_index_inside_a_repository_names_the_top_whose_rules_it_did_not_read_unless
             root.display().to_string()
         ),
         "the rules of the top do not apply, so vendor/ is indexed"
-    );
-    let listed = client.request("tools/list", &json!({}));
-    let description = listed["tools"]
-        .as_array()
-        .expect("a tool list")
-        .iter()
-        .find(|tool| tool["name"] == "index_stats")
-        .and_then(|tool| tool["description"].as_str())
-        .expect("index_stats is described");
-    let quoted = gitignore.replace(&top.display().to_string(), "<top>");
-    assert!(
-        description.contains(&format!("gitignore={quoted:?}")),
-        "the description quotes the answer: {description}"
     );
     assert_eq!(
         client.answer("index_root", &json!({"root": root, "index_ignored": true})),
