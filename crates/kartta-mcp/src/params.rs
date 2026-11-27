@@ -175,9 +175,9 @@ pub(crate) struct FindCallersParams {
     /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
     /// TypeScript, "Service::greet" in Rust or C++) the callable it names, and a bare name ("New") the unique match. A
     /// name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names that
-    /// reading. Where several share the name - a bare name, or overloads of one qualified name - the most-called is
-    /// picked: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line as line to pick
-    /// another. A blank name is a tool error.
+    /// reading. Where several share the name, the pick prefers an exact qualified-name match, then a callable, then the
+    /// most-called, then path order: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line
+    /// as line to pick another. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. It is how to reach one of
@@ -226,9 +226,9 @@ pub(crate) struct FindCalleesParams {
     /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
     /// TypeScript, "Service::greet" in Rust or C++) the callable it names, and a bare name ("New") the unique match. A
     /// name that selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names that
-    /// reading. Where several share the name - a bare name, or overloads of one qualified name - the most-called is
-    /// picked: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line as line to pick
-    /// another. A blank name is a tool error.
+    /// reading. Where several share the name, the pick prefers an exact qualified-name match, then a callable, then the
+    /// most-called, then path order: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line
+    /// as line to pick another. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file. Omitted picks from every file.
@@ -438,9 +438,9 @@ pub(crate) struct FindCallPathParams {
     /// picks the symbol of that name; a name qualified by its owner with its language's separator ("Service.Greet" in
     /// Go, Python or TypeScript, "Service::greet" in Rust or C++) picks the callable it names; a bare name picks the
     /// unique match. A name that selects nothing as written is read with each "." as "::", or each "::" as ".", and
-    /// from_read_as= names that reading. Where several share the name, as a bare name or overloads of one qualified
-    /// name, the most-called is picked: pass a <candidate end="from"/>'s file as from_path_prefix and its line as
-    /// from_line to pick another. A blank name is a tool error.
+    /// from_read_as= names that reading. Where several share the name, the pick prefers an exact qualified-name
+    /// match, then a callable, then the most-called, then path order: pass a <candidate end="from"/>'s file as
+    /// from_path_prefix and its line as from_line to pick another. A blank name is a tool error.
     pub(crate) from: String,
     /// Repo-relative path prefix with forward slashes: from is picked only among the symbols in files whose path
     /// starts with it. Omitted picks from every file.
@@ -489,9 +489,9 @@ pub(crate) struct FindReferencesParams {
     /// that name, a name qualified by its owner with its language's separator ("Service.Greet" in Go, Python or
     /// TypeScript, "Service::greet" in Rust or C++) the symbol it names, and a bare name the unique match. A name that
     /// selects nothing as written is read with each "." as "::", or each "::" as ".", and read_as= names that reading.
-    /// Where several share the name - a bare name, or overloads of one qualified name - the one with the most recorded
-    /// sites is picked: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line as line to
-    /// pick another. A blank name is a tool error.
+    /// Where several share the name, the pick prefers an exact qualified-name match, then the most recorded sites, then
+    /// path order: check the match's loc, and pass a <candidate/>'s file as path_prefix and its line as line to pick
+    /// another. A blank name is a tool error.
     pub(crate) name: String,
     /// Repo-relative path prefix with forward slashes: only the symbols in files whose path starts with it are picked
     /// from, e.g. a <candidate/>'s file, or "vendor/" for the vendored copy of a package. Omitted picks from every
