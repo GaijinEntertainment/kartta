@@ -4328,6 +4328,54 @@ fn a_bare_name_several_free_functions_share_selects_the_one_with_the_most_caller
 }
 
 #[test]
+fn a_bare_name_selects_the_function_it_names_whole_before_a_member_it_ends_with_however_called() {
+    let graph = graph(&[
+        file(
+            "a.go",
+            vec![function("parse", 1), function("once", 5)],
+            vec![call(1, "parse", 6)],
+        ),
+        file(
+            "b.go",
+            vec![
+                member("Reader", "parse", SymbolKind::Method, 1),
+                function("first", 5),
+                function("second", 9),
+            ],
+            vec![
+                member_call(1, "Reader", "parse", 6),
+                member_call(2, "Reader", "parse", 10),
+            ],
+        ),
+    ]);
+
+    let walk = graph
+        .callers("parse", Limits::new(1))
+        .expect("parse is defined");
+    let outward = graph
+        .callees("parse", Limits::new(1))
+        .expect("parse is defined");
+    let references = graph
+        .references("parse", SiteQuery::new(usize::MAX))
+        .expect("parse is defined");
+    let path = graph
+        .call_path("once", "parse", Limits::new(1))
+        .expect("both ends are defined");
+
+    let picked = [
+        walk.root.file,
+        outward.root.file,
+        references.symbol.file,
+        path.to.file,
+    ];
+    assert_eq!(picked, ["a.go"; 4]);
+    assert_eq!(reached(&walk), ["a.go:5@80"]);
+    assert_eq!(candidate_files(&walk.candidates), [("b.go", 2)]);
+    assert_eq!(candidate_files(&references.candidates), [("b.go", 2)]);
+    assert_eq!(candidate_files(&path.candidates.1), [("b.go", 2)]);
+}
+
+#[test]
 fn free_functions_with_as_many_callers_select_the_first_in_path_order_however_the_files_arrived() {
     let defining = |path: &str| {
         file(
