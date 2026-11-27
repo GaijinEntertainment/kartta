@@ -7174,6 +7174,71 @@ fn find_implementations_of_an_interface_a_type_implements_unnamed_says_that_type
 }
 
 #[test]
+fn find_implementations_of_a_python_protocol_says_a_class_implementing_it_unnamed_is_not_listed() {
+    let answers = answers_over(
+        &[(
+            "p/shape.py",
+            "import asyncio, typing, typing_extensions\nfrom typing import Protocol\n\n\
+             class Shape(Protocol):\n    def area(self) -> float: ...\n\n\
+             class Sq:\n    def area(self) -> float:\n        return 1.0\n\nclass Named(Shape):\n    pass\n\n\
+             class Drawn(typing.Protocol):\n    def draw(self) -> None: ...\n\nclass Base:\n    pass\n\n\
+             class Child(Base):\n    pass\n\nclass Echo(asyncio.Protocol):\n    pass\n\n\
+             class Sized(typing_extensions.Protocol):\n    def size(self) -> int: ...\n",
+        )],
+        &[
+            ("find_implementations", json!({"name": "Shape"})),
+            ("find_implementations", json!({"name": "Drawn"})),
+            ("find_implementations", json!({"name": "Named"})),
+            ("find_implementations", json!({"name": "Base"})),
+            ("find_implementations", json!({"name": "Echo"})),
+            ("find_implementations", json!({"name": "Sized"})),
+        ],
+    );
+
+    assert_eq!(
+        answers,
+        [
+            lines(&[
+                r#"<implementations of="Shape" total="1">"#,
+                concat!(
+                    "<note>a Python type that implements it by its members alone, without naming it, is not ",
+                    "listed</note>",
+                ),
+                r#"<type name="Named" qn="p.shape.Named" lang="python" loc="p/shape.py:11-12"/>"#,
+                "</implementations>",
+            ]),
+            concat!(
+                r#"<implementations of="Drawn" total="0">the symbol is indexed but no type names it as a parent - a "#,
+                "Python type that implements it by its members alone, without naming it, is not listed",
+                "</implementations>",
+            )
+            .to_owned(),
+            concat!(
+                r#"<implementations of="Named" total="0">the symbol is indexed but nothing implements or "#,
+                "extends it</implementations>",
+            )
+            .to_owned(),
+            lines(&[
+                r#"<implementations of="Base" total="1">"#,
+                r#"<type name="Child" qn="p.shape.Child" lang="python" loc="p/shape.py:20-21"/>"#,
+                "</implementations>",
+            ]),
+            concat!(
+                r#"<implementations of="Echo" total="0">the symbol is indexed but nothing implements or "#,
+                "extends it</implementations>",
+            )
+            .to_owned(),
+            concat!(
+                r#"<implementations of="Sized" total="0">the symbol is indexed but no type names it as a parent - a "#,
+                "Python type that implements it by its members alone, without naming it, is not listed",
+                "</implementations>",
+            )
+            .to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn implementations_of_a_cpp_enum_answer_that_nothing_implements_it() {
     let answers = answers_over(
         &[(
