@@ -1454,24 +1454,22 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Find definitions nothing in the repository calls or uses - candidates for deletion in a \
-                       clean-up. Judges only what the graph can see used: functions, methods and macros through their \
-                       calls, and Go types, fields, variables and constants through their uses. Judges every indexed \
-                       language unless narrowed with 'languages'; path_prefix narrows it to a subtree, and on a large \
-                       repository an unscoped call takes seconds, so scope it to the code you are cleaning. Returns an \
-                       <unused> envelope: total= the unused definitions found, at most 'limit' (default 50) listed, \
-                       live= the definitions judged and found used, then an <unjudged/> record counting what was not \
-                       judged, each only when it is not zero - test, generated, entry (main, registered handlers, \
-                       constructors, operators), vendored, unobservable (locals, and fields, values and types outside \
-                       Go), uncertain (a call or a use of the name bound nothing certain, so it may reach this one), \
-                       dispatched (a method an interface, a trait or a parent can route a call to), and reflected (no \
-                       use reaches it, and reflection reads it by name, as encoding/json does a Go field its struct \
-                       tag names). Then one <symbol/> record per unused definition in path order: name, qn, kind, \
-                       lang, loc, and name_used_elsewhere=true when calls or uses spell its name but bind to other \
-                       definitions. A definition listed is a candidate, not a proof: a call through a function value \
-                       or a callback, a caller outside the repository (another service, a script, reflection, a \
-                       runtime calling by name) and dynamic dispatch are unseen - grep its name across the tree and \
-                       check how it is registered or exported before deleting it."
+        description = "Find definitions nothing in the repository calls or uses - clean-up candidates. Judges \
+                       functions, methods and macros by calls, and Go types, fields, variables and constants by uses, \
+                       in every indexed language unless 'languages' narrows it. Scope it with path_prefix: unscoped, a \
+                       large tree takes seconds. Returns <unused>: total= the unused found, at most 'limit' (default \
+                       50) listed; exported= those their language exports (its public API), when not zero; live= those \
+                       judged and found used. <unjudged/> counts what was not judged, each when not zero: test, \
+                       generated, entry (main, registered handlers, constructors, operators), vendored, unobservable \
+                       (locals; fields, values and types outside Go), uncertain (a call or use of its name bound \
+                       nothing certain), dispatched (an interface, trait or parent can route a call to it), reflected \
+                       (reflection reads it by name, as encoding/json a Go field its tag names). Then a <symbol/> per \
+                       definition in path order: name, qn, kind, lang, loc, exported=true, and \
+                       name_used_elsewhere=true when calls or uses of its name bind elsewhere. Quirrel's graph records \
+                       no export: it marks and counts none, and a <note> says so where it lists one. A listing is a \
+                       candidate, not a proof: calls through function values or callbacks, callers outside the \
+                       repository (services, scripts, a runtime calling by name) and dynamic dispatch are unseen - \
+                       grep the name and check how it is registered before deleting it."
     )]
     async fn find_unused(
         &self,
