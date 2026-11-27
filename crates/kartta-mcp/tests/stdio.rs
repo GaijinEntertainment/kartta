@@ -1563,6 +1563,49 @@ fn indexing_another_root_leaves_the_first_served() {
 }
 
 #[test]
+fn an_index_root_past_the_bound_names_the_root_it_dropped() {
+    let launched = go_module();
+    let others =
+        [(); 4].map(|()| common::tree(&[("lib/only.go", "package lib\n\nfunc Only() {}\n")]));
+    let mut client = Client::unwatched(&[launched.path()]);
+    client.wait_for_index();
+    for tree in &others[..3] {
+        client.index(tree.path());
+    }
+    assert!(
+        client
+            .call_as_sent("index_stats", &json!({}))
+            .text
+            .starts_with("<roots total=\"4\">"),
+        "the launch root and three others fill the bound of 4"
+    );
+
+    let answer = client.index(others[3].path());
+
+    let shown = launched.path().display().to_string();
+    assert!(
+        rooted(&answer, others[3].path()).starts_with("<index root=\"<root>\" files=\"1\""),
+        "{answer}"
+    );
+    assert!(
+        answer.ends_with(&format!(
+            "\nthis index_root dropped {shown:?} to stay within KARTTA_MAX_ROOTS=4 roots, the root a call named least \
+             recently - call index_root with root {shown:?} to build it again"
+        )),
+        "{answer}"
+    );
+    let dropped = client.call("index_stats", &json!({"root": launched.path()}));
+    assert!(
+        dropped.is_error
+            && dropped
+                .text
+                .starts_with(&format!("this server has not indexed {shown:?}")),
+        "{}",
+        dropped.text
+    );
+}
+
+#[test]
 fn calls_side_by_side_each_answer_from_the_root_they_name() {
     let trees = [("First", go_module()), ("Second", go_module())];
     let mut client = Client::unwatched(&[]);

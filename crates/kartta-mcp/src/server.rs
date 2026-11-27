@@ -188,7 +188,7 @@ impl Server {
         let started = self.roots.start(request, self.config.build_options(false));
         async move {
             let mut outcome = match started {
-                Ok(outcome) => outcome,
+                Ok(started) => started.outcome,
                 Err(error) => return Some(error),
             };
             outcome.wait_for(Option::is_some).await.map_or_else(
@@ -365,8 +365,9 @@ impl Server {
                        status=\"building\" envelope of index_stats instead and runs on - call index_stats until it \
                        answers the index. The server holds the index of each root it builds, up to KARTTA_MAX_ROOTS \
                        (4 by default): a new root past it drops a failed root, else the least recently asked root not \
-                       building, and building a held root with other languages or index_ignored replaces its index (a \
-                       build of the same root, languages and index_ignored already under way is waited for, not \
+                       building, the launch root included, and the answer ends with a line naming the root dropped; \
+                       building a held root with other languages or index_ignored replaces its index (a build of the \
+                       same root, languages and index_ignored already under way is waited for, not \
                        repeated, and the index they built is answered as held, refreshed first while index_stats \
                        shows watch off). \
                        Returns an <index> envelope, its languages= \
@@ -407,26 +408,36 @@ impl Server {
             languages: CATALOG.to_build(p.languages.as_deref()),
             index_ignored,
         };
-        let mut outcome = self
+        let started = self
             .roots
             .start(request.clone(), self.config.build_options(index_ignored))?;
-        let waited = tokio::time::timeout(self.index_wait, outcome.wait_for(Option::is_some))
-            .await
-            .map(|built| built.map(|built| built.clone()));
-        let built = if let Ok(built) = waited {
-            built
-        } else {
-            if let Some(building) = self.roots.building(&request) {
-                return Ok(render::unready(&building));
-            }
-            outcome
-                .wait_for(Option::is_some)
+        let mut outcome = started.outcome;
+        let answer = async {
+            let waited = tokio::time::timeout(self.index_wait, outcome.wait_for(Option::is_some))
                 .await
-                .map(|built| built.clone())
+                .map(|built| built.map(|built| built.clone()));
+            let built = if let Ok(built) = waited {
+                built
+            } else {
+                if let Some(building) = self.roots.building(&request) {
+                    return Ok(render::unready(&building));
+                }
+                outcome
+                    .wait_for(Option::is_some)
+                    .await
+                    .map(|built| built.clone())
+            }
+            .map_err(|_| "the build stopped before it answered".to_owned())?;
+            let served = built.ok_or_else(|| "the build answered nothing".to_owned())??;
+            answer_from(served, |indexed| Ok(render::index(indexed, &[]))).await
         }
-        .map_err(|_| "the build stopped before it answered".to_owned())?;
-        let served = built.ok_or_else(|| "the build answered nothing".to_owned())??;
-        answer_from(served, |indexed| Ok(render::index(indexed, &[]))).await
+        .await;
+        let Some(dropped) = started.dropped else {
+            return answer;
+        };
+        answer
+            .map(|answer| format!("{answer}\n{dropped}"))
+            .map_err(|error| format!("{error}\n{dropped}"))
     }
 
     #[tool(
@@ -1819,6 +1830,13 @@ mod tests {
         }
     }
 
+    /// Returns once `roots` builds `request`.
+    async fn building(roots: &Roots, request: &Request) {
+        while roots.building(request).is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     #[tokio::test]
     async fn an_index_root_whose_build_outlasts_the_wait_answers_building_and_the_build_runs_on() {
         let first = tempfile::tempdir().unwrap();
@@ -1855,12 +1873,78 @@ mod tests {
             answer.starts_with("<index root=") && answer.contains(" status=\"building\" "),
             "{answer}"
         );
+        let launched = first.path().display().to_string();
+        assert!(
+            answer.ends_with(&format!(
+                "\nthis index_root dropped {launched:?} to stay within KARTTA_MAX_ROOTS=1 roots, the root a call \
+                 named least recently - call index_root with root {launched:?} to build it again"
+            )),
+            "{answer}"
+        );
         let ran_on =
             tokio::time::timeout(Duration::from_secs(10), indexed(&server.roots, &root)).await;
         assert!(ran_on.is_ok(), "the build stopped short of its index");
         assert_eq!(
             server.roots.current(&root).unwrap().read().unwrap().root,
             root
+        );
+    }
+
+    #[tokio::test]
+    async fn an_index_root_whose_build_is_replaced_names_the_root_it_dropped_beside_the_error() {
+        let (first, second) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let server = Server::with_config(Config {
+            watch: false,
+            max_roots: NonZeroUsize::MIN,
+            ..Config::default()
+        });
+        assert_eq!(server.index_at_launch(first.path().to_owned()).await, None);
+        let held = server
+            .roots
+            .current(&first.path().display().to_string())
+            .unwrap();
+        let go = vec!["go".to_owned()];
+        let params = |languages: Option<&[String]>| IndexRootParams {
+            root: second.path().display().to_string(),
+            languages: languages.map(<[String]>::to_vec),
+            index_ignored: None,
+        };
+        let request = |languages: Option<&[String]>| Request {
+            root: second.path().to_owned(),
+            languages: CATALOG.to_build(languages),
+            index_ignored: false,
+        };
+
+        let (replaced, replacing, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                server.index_root(Parameters(params(None))),
+                async {
+                    building(&server.roots, &request(None)).await;
+                    server.index_root(Parameters(params(Some(&go)))).await
+                },
+                async {
+                    building(&server.roots, &request(Some(&go))).await;
+                    drop(held);
+                }
+            )
+        })
+        .await
+        .expect("an index_root never answered");
+
+        let launched = first.path().display().to_string();
+        assert_eq!(
+            replaced,
+            Err(format!(
+                "a later index_root replaced this build before it finished\nthis index_root dropped {launched:?} to \
+                 stay within KARTTA_MAX_ROOTS=1 roots, the root a call named least recently - call index_root with \
+                 root {launched:?} to build it again"
+            ))
+        );
+        assert!(
+            replacing
+                .as_ref()
+                .is_ok_and(|answer| !answer.contains("dropped")),
+            "the replacing call dropped no root: {replacing:?}"
         );
     }
 
