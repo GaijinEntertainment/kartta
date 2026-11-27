@@ -426,9 +426,9 @@ impl Graph {
     }
 
     /// The sites that call or use the symbol `name` selects that `query` keeps, or `None` when it selects none. A name
-    /// selects among every symbol a use can name, a value and a field included where calls target neither, and a bare
-    /// name shared by several of them selects the one with the most sites; a path prefix and a line narrow them
-    /// as [`Graph::callers`] describes.
+    /// selects among every symbol a use can name, a value and a field included where calls target neither, in the
+    /// tiers [`Graph::callers`] describes, and of several in one tier the one with the most sites; a path prefix and a
+    /// line narrow them as [`Graph::callers`] describes.
     ///
     /// The uses are those the language records. A member taken on a value binds through the type the language spells
     /// for the value, else the one field of the name in the use's own file, and where the language says so, in the
