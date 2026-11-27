@@ -5423,28 +5423,28 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
         ],
         [
             lines(&[
-                r#"<unused total="2" live="2">"#,
+                r#"<unused total="2" exported="1" live="2">"#,
                 r#"<unjudged test="1" entry="1"/>"#,
                 r#"<symbol name="unused" qn="main.unused" kind="function" lang="go" loc="main.go:10"/>"#,
                 concat!(
                     r#"<symbol name="Helper" qn="pkg.Helper" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
-                    r#"name_used_elsewhere="true"/>"#,
+                    r#"exported="true" name_used_elsewhere="true"/>"#,
                 ),
                 "</unused>",
             ]),
             lines(&[
-                r#"<unused total="2" shown="1" truncated="true" live="2">"#,
+                r#"<unused total="2" shown="1" truncated="true" exported="1" live="2">"#,
                 r#"<unjudged test="1" entry="1"/>"#,
                 r#"<symbol name="unused" qn="main.unused" kind="function" lang="go" loc="main.go:10"/>"#,
                 LIMIT_CUT,
                 "</unused>",
             ]),
             lines(&[
-                r#"<unused path_prefix="pkg/" total="1" live="0">"#,
+                r#"<unused path_prefix="pkg/" total="1" exported="1" live="0">"#,
                 r#"<unjudged test="1"/>"#,
                 concat!(
                     r#"<symbol name="Helper" qn="pkg.Helper" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
-                    r#"name_used_elsewhere="true"/>"#,
+                    r#"exported="true" name_used_elsewhere="true"/>"#,
                 ),
                 "</unused>",
             ]),
@@ -5464,6 +5464,68 @@ fn find_unused_lists_what_nothing_reaches_and_counts_what_it_did_not_judge() {
                 "searches no graph; omit languages to search every indexed language</unused>",
             )
             .to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn find_unused_marks_what_a_language_exports_and_counts_it_past_the_limit() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/app\n\ngo 1.22\n"),
+        (
+            "pkg/pkg.go",
+            "package pkg\n\nfunc Exported() {}\n\nfunc internal() {}\n\nfunc Tail() {}\n",
+        ),
+        ("ui/hud.nut", "function hud() {}\n"),
+    ]);
+    let mut client = Client::start(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        [
+            client.answer("find_unused", &json!({})),
+            client.answer("find_unused", &json!({"languages": ["go"], "limit": 1})),
+            client.answer("find_unused", &json!({"path_prefix": "pkg/"})),
+        ],
+        [
+            lines(&[
+                r#"<unused total="4" exported="2" live="0">"#,
+                "<note>the quirrel graph records no export, so exported= counts none of its definitions and marks \
+                 none</note>",
+                concat!(
+                    r#"<symbol name="Exported" qn="pkg.Exported" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
+                    r#"exported="true"/>"#,
+                ),
+                r#"<symbol name="internal" qn="pkg.internal" kind="function" lang="go" loc="pkg/pkg.go:5"/>"#,
+                concat!(
+                    r#"<symbol name="Tail" qn="pkg.Tail" kind="function" lang="go" loc="pkg/pkg.go:7" "#,
+                    r#"exported="true"/>"#,
+                ),
+                r#"<symbol name="hud" kind="function" lang="quirrel" loc="ui/hud.nut:1"/>"#,
+                "</unused>",
+            ]),
+            lines(&[
+                r#"<unused languages="go" total="3" shown="1" truncated="true" exported="2" live="0">"#,
+                concat!(
+                    r#"<symbol name="Exported" qn="pkg.Exported" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
+                    r#"exported="true"/>"#,
+                ),
+                LIMIT_CUT,
+                "</unused>",
+            ]),
+            lines(&[
+                r#"<unused path_prefix="pkg/" total="3" exported="2" live="0">"#,
+                concat!(
+                    r#"<symbol name="Exported" qn="pkg.Exported" kind="function" lang="go" loc="pkg/pkg.go:3" "#,
+                    r#"exported="true"/>"#,
+                ),
+                r#"<symbol name="internal" qn="pkg.internal" kind="function" lang="go" loc="pkg/pkg.go:5"/>"#,
+                concat!(
+                    r#"<symbol name="Tail" qn="pkg.Tail" kind="function" lang="go" loc="pkg/pkg.go:7" "#,
+                    r#"exported="true"/>"#,
+                ),
+                "</unused>",
+            ]),
         ]
     );
 }
@@ -5508,10 +5570,16 @@ fn find_unused_judges_go_fields_by_their_uses_and_counts_those_a_struct_tag_hand
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused total="2" live="2">"#,
+            r#"<unused total="2" exported="2" live="2">"#,
             r#"<unjudged entry="1" reflected="1"/>"#,
-            r#"<symbol name="Skipped" qn="main.Seed.Skipped" kind="field" lang="go" loc="main.go:6"/>"#,
-            r#"<symbol name="Spare" qn="main.Seed.Spare" kind="field" lang="go" loc="main.go:7"/>"#,
+            concat!(
+                r#"<symbol name="Skipped" qn="main.Seed.Skipped" kind="field" lang="go" loc="main.go:6" "#,
+                r#"exported="true"/>"#,
+            ),
+            concat!(
+                r#"<symbol name="Spare" qn="main.Seed.Spare" kind="field" lang="go" loc="main.go:7" "#,
+                r#"exported="true"/>"#,
+            ),
             "</unused>",
         ])
     );
@@ -5534,9 +5602,12 @@ fn find_unused_counts_a_go_field_that_only_a_decoder_writes_as_reflected() {
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused total="1" live="2">"#,
+            r#"<unused total="1" exported="1" live="2">"#,
             r#"<unjudged unobservable="1" reflected="1"/>"#,
-            r#"<symbol name="Parse" qn="live.Parse" kind="function" lang="go" loc="live/live.go:10-14"/>"#,
+            concat!(
+                r#"<symbol name="Parse" qn="live.Parse" kind="function" lang="go" loc="live/live.go:10-14" "#,
+                r#"exported="true"/>"#,
+            ),
             "</unused>",
         ])
     );
@@ -5567,12 +5638,12 @@ fn find_unused_lists_a_go_field_a_marshal_call_meets_only_through_a_func_type() 
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused total="5" live="4">"#,
+            r#"<unused total="5" exported="3" live="4">"#,
             r#"<unjudged reflected="1"/>"#,
-            r#"<symbol name="Name" qn="b.S.Name" kind="field" lang="go" loc="b/a.go:6"/>"#,
+            r#"<symbol name="Name" qn="b.S.Name" kind="field" lang="go" loc="b/a.go:6" exported="true"/>"#,
             r#"<symbol name="run" qn="b.run" kind="function" lang="go" loc="b/a.go:11"/>"#,
-            r#"<symbol name="Tag" qn="b.C.Tag" kind="field" lang="go" loc="b/c.go:4"/>"#,
-            r#"<symbol name="K" qn="b.K" kind="defined-type" lang="go" loc="b/c.go:7"/>"#,
+            r#"<symbol name="Tag" qn="b.C.Tag" kind="field" lang="go" loc="b/c.go:4" exported="true"/>"#,
+            r#"<symbol name="K" qn="b.K" kind="defined-type" lang="go" loc="b/c.go:7" exported="true"/>"#,
             r#"<symbol name="show" qn="b.show" kind="function" lang="go" loc="b/d.go:9"/>"#,
             "</unused>",
         ])
@@ -5604,12 +5675,12 @@ fn find_unused_lists_a_go_field_a_marshal_call_meets_only_through_a_channel() {
     assert_eq!(
         client.answer("find_unused", &json!({})),
         lines(&[
-            r#"<unused total="5" live="3">"#,
+            r#"<unused total="5" exported="3" live="3">"#,
             r#"<unjudged reflected="1"/>"#,
-            r#"<symbol name="Name" qn="b.S.Name" kind="field" lang="go" loc="b/a.go:6"/>"#,
+            r#"<symbol name="Name" qn="b.S.Name" kind="field" lang="go" loc="b/a.go:6" exported="true"/>"#,
             r#"<symbol name="run" qn="b.run" kind="function" lang="go" loc="b/a.go:9"/>"#,
-            r#"<symbol name="Tag" qn="b.C.Tag" kind="field" lang="go" loc="b/c.go:4"/>"#,
-            r#"<symbol name="Keep" qn="b.Keep" kind="variable" lang="go" loc="b/c.go:7"/>"#,
+            r#"<symbol name="Tag" qn="b.C.Tag" kind="field" lang="go" loc="b/c.go:4" exported="true"/>"#,
+            r#"<symbol name="Keep" qn="b.Keep" kind="variable" lang="go" loc="b/c.go:7" exported="true"/>"#,
             r#"<symbol name="show" qn="b.show" kind="function" lang="go" loc="b/d.go:9"/>"#,
             "</unused>",
         ])

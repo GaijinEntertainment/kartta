@@ -16,11 +16,17 @@ pub(crate) struct UnusedAsk<'a> {
 pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> String {
     let total: usize = judged.iter().map(|(_, dead)| dead.total).sum();
     let live: usize = judged.iter().map(|(_, dead)| dead.live).sum();
-    let mut found: Vec<(&str, &Dead<'_>)> = judged
+    let exported: usize = judged.iter().filter_map(|(_, dead)| dead.exported).sum();
+    let mut found: Vec<(&str, bool, &Dead<'_>)> = judged
         .iter()
-        .flat_map(|(family, dead)| dead.found.iter().map(move |found| (*family, found)))
+        .flat_map(|(family, dead)| {
+            let recorded = dead.exported.is_some();
+            dead.found
+                .iter()
+                .map(move |found| (*family, recorded, found))
+        })
         .collect();
-    found.sort_by_key(|(_, dead)| (dead.definition.file, dead.definition.line));
+    found.sort_by_key(|(_, _, dead)| (dead.definition.file, dead.definition.line));
     found.truncate(ask.limit);
 
     let truncated = total > found.len();
@@ -30,13 +36,19 @@ pub(crate) fn unused(ask: &UnusedAsk<'_>, judged: &[(&str, DeadCode<'_>)]) -> St
         .attr("total", total)
         .optional("shown", truncated.then_some(found.len()))
         .flag("truncated", truncated)
+        .count("exported", exported)
         .attr("live", live);
     let excluded = excluded(judged.iter().map(|(_, dead)| &dead.excluded));
     if !found.is_empty() {
         return element.children(
             excluded
                 .into_iter()
-                .chain(found.iter().map(|&(family, dead)| symbol(family, dead)))
+                .chain(unrecorded(judged))
+                .chain(
+                    found
+                        .iter()
+                        .map(|&(family, recorded, dead)| symbol(family, dead, recorded)),
+                )
                 .chain(truncated.then(|| LIMIT_CUT.to_owned())),
         );
     }
@@ -82,13 +94,31 @@ fn excluded<'e>(each: impl Iterator<Item = &'e Excluded>) -> Option<String> {
     })
 }
 
-/// One dead definition, marked when calls or uses spell its name and bind elsewhere.
-fn symbol(family: &str, dead: &Dead<'_>) -> String {
+/// The note that names the families whose dead definitions `exported=` cannot count, because their graph records no
+/// export, or `None` when every family that found one records it.
+fn unrecorded(judged: &[(&str, DeadCode<'_>)]) -> Option<String> {
+    let families: Vec<&str> = judged
+        .iter()
+        .filter(|(_, dead)| dead.total != 0 && dead.exported.is_none())
+        .map(|&(family, _)| family)
+        .collect();
+    (!families.is_empty()).then(|| {
+        format!(
+            "<note>the {} graph records no export, so exported= counts none of its definitions and marks none</note>",
+            families.join(", ")
+        )
+    })
+}
+
+/// One dead definition, marked when its language exports it, where its graph records that, and when calls or uses
+/// spell its name and bind elsewhere.
+fn symbol(family: &str, dead: &Dead<'_>, exports_recorded: bool) -> String {
     let definition = &dead.definition;
     named("symbol", definition)
         .attr("kind", kind(definition.kind))
         .attr("lang", family)
         .attr("loc", span(definition))
+        .flag("exported", exports_recorded && definition.exported)
         .flag("name_used_elsewhere", dead.spelled)
         .close()
 }
