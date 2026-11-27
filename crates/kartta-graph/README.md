@@ -168,5 +168,3 @@ file holds goes stale when another file changes.
   make, and the sites that bound nothing by reason — an import of code outside the repository, an import that exports
   no callable of the name, a name no definition has, definitions the call cannot bind, and a choice nothing settles —
   listing the first of them in path order up to a limit and counting the rest. It resolves every site, in parallel.
-
-Status: the API is new and is not published yet.

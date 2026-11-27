@@ -52,5 +52,3 @@ the header, while `Banner::marks` reads one comment on its own.
 The `tree-sitter` feature adds `kartta_lang::tree`: a parse on the parser each thread keeps per grammar, a pre-order
 walk, the text and signature helpers a language extracting through tree-sitter needs, and the fingerprint of such a
 language from its `SOURCE_ID` and its grammar. The contract itself names no parser.
-
-Status: the API is new and is not published yet.

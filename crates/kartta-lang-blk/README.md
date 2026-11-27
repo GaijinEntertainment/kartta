@@ -25,5 +25,3 @@ path and a mount's name keep letter case.
 
 The fingerprint covers the crate's version and source and the grammar's version, node types and table sizes, so a cache
 keeps the extractions of each build of this crate apart.
-
-Status: the API is new and is not published yet.

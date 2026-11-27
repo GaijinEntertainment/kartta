@@ -60,5 +60,3 @@ keeps the extractions of each build of this crate apart.
 ## Licence
 
 The crate is MIT. The `tree-sitter-daslang` grammar it links is BSD-3-Clause.
-
-Status: the API is new and is not published yet.

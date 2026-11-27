@@ -57,5 +57,3 @@ call. Only an unreadable root and a subtree that may lead outside it are fatal.
 `listed_stats` lists each directory with its regular files' lengths and inode change times where the platform's listing
 carries them — macOS, through `getattrlistbulk` — so a policy that compares files with what it saw before pays no stat
 per file. Such a listing costs more than one without them, so a walk lists them only when asked.
-
-Status: the API is being ported into this repository and is not published yet.

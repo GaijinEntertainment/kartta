@@ -50,5 +50,3 @@ the same way.
 Every language is a value without state, so the set and a selection allocate only the vector that holds them. Every
 grammar is compiled into a consumer of this crate whatever it selects; one that wants fewer grammars in its build
 depends on the language crates it wants instead.
-
-Status: the API is new and is not published yet.

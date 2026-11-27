@@ -10,8 +10,6 @@ Its languages are Go, C and C++, TypeScript, TSX, JavaScript, Rust, Python, PHP,
 Quirrel, BLK and DSHL. TypeScript, TSX and JavaScript share one graph, every other language has its own, and no answer
 follows a call from one graph into another, such as a call through FFI.
 
-> **0.1.0 is not released yet.** Nothing is published on any channel, so none of the install lines below works today.
-
 ## Install
 
 The MCP server builds from its crate, and Claude Code adds it for every project of the user:
@@ -59,7 +57,7 @@ npm install @gaijin/kartta
 
 ## Status
 
-0.1.0 will be the first release: one cut of every artifact at one version. Nothing freezes at it, so a later release
+0.1.0 is the first release: one cut of every artifact at one version. Nothing freezes at it, so a later release
 may change the MCP server's tools, the C ABI and every crate's API. Each release's notes are on its GitHub release.
 
 ## Documentation
