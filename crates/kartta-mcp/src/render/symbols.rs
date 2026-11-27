@@ -19,8 +19,12 @@ use crate::state::GraphRow;
 pub(crate) struct Found<'g> {
     /// The best hits, best first, at most the limit.
     pub(crate) hits: Vec<(&'g str, Hit<'g>)>,
-    /// The definitions that matched before the limit, the fill-up's included.
+    /// The definitions that matched before the limit.
     pub(crate) matched: usize,
+    /// Whether the hits are the fill-up's, which answers only a query no keyword matches.
+    pub(crate) fuzzy: bool,
+    /// The matched definitions left out of the hits because a suggestion lists them.
+    pub(crate) suggested: usize,
     /// The query's words no searched graph holds.
     pub(crate) unmatched: Vec<String>,
     /// The query's distinct words past the eight the search looks for.
@@ -34,21 +38,29 @@ pub(crate) struct Found<'g> {
 }
 
 /// The `find_symbols` answer: the definitions named one edit from the query as `<suggestion/>` records, ranked
-/// `<hit/>` records, and, when there is no hit, the searched languages whose files yielded no symbol at all and the
-/// languages a filtered build holds.
+/// `<hit/>` records, keyword matches or else fuzzy ones counted apart, and, when there is no hit, the searched
+/// languages whose files yielded no symbol at all and the languages a filtered build holds.
 pub(crate) fn hits(
     query: &str,
     languages: Option<&str>,
     found: &Found<'_>,
     coverage: &[&GraphRow],
 ) -> String {
-    let truncated = found.matched > found.hits.len();
+    let cut = found.matched > found.hits.len() + found.suggested;
+    let (total, fuzzy) = if found.fuzzy {
+        (0, found.matched)
+    } else {
+        (found.matched, 0)
+    };
+    let shown = cut.then_some(found.hits.len());
     let element = Element::new("symbols")
         .attr("of", query)
         .optional("languages", languages)
-        .attr("total", found.matched)
-        .optional("shown", truncated.then_some(found.hits.len()))
-        .flag("truncated", truncated)
+        .attr("total", total)
+        .optional("shown", shown.filter(|_| !found.fuzzy))
+        .flag("truncated", cut && !found.fuzzy)
+        .count("fuzzy_hits", fuzzy)
+        .optional("fuzzy_hits_shown", shown.filter(|_| found.fuzzy))
         .optional(
             "unmatched",
             (!found.unmatched.is_empty()).then(|| found.unmatched.join(", ")),
@@ -62,7 +74,7 @@ pub(crate) fn hits(
         .one_edit
         .iter()
         .flat_map(|near| one_edit(near, languages));
-    if found.hits.is_empty() {
+    if found.hits.is_empty() && found.suggested == 0 {
         let element = element.optional("index_languages", found.built);
         let text = no_hits(languages, coverage);
         if found.one_edit.is_none() {
@@ -85,7 +97,7 @@ pub(crate) fn hits(
     element.children(
         suggested
             .chain(hits)
-            .chain(truncated.then(|| LIMIT_CUT.to_owned())),
+            .chain(cut.then(|| LIMIT_CUT.to_owned())),
     )
 }
 

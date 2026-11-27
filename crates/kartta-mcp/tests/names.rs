@@ -413,6 +413,52 @@ fn a_name_one_character_from_a_definition_suggests_that_definition_first() {
 }
 
 #[test]
+fn find_symbols_lists_a_suggested_definition_once_and_counts_it_among_its_matches() {
+    let (_tree, mut client) = misspellable();
+
+    assert_eq!(
+        client.answer("find_symbols", &json!({"query": "hndle"})),
+        [
+            r#"<symbols of="hndle" total="0" fuzzy_hits="2" unmatched="hndle" one_edit="1">"#,
+            r#"<suggestion name="handle" qn="walk.handle" kind="function" lang="go" loc="walk.go:3"/>"#,
+            concat!(
+                r##"<hit name="#handle" qn="Kartta.#handle" owner="Kartta" fuzzy="true" kind="field" "##,
+                r#"lang="jsts" loc="src/kartta.ts:2"/>"#
+            ),
+            "</symbols>",
+        ]
+        .join("\n")
+    );
+}
+
+#[test]
+fn find_symbols_counts_a_suggested_definition_but_shows_only_the_hits_a_limit_left() {
+    let tree = tree(&[
+        ("go.mod", "module example.com/walk\n\ngo 1.22\n"),
+        (
+            "walk.go",
+            "package walk\n\nfunc handle() {}\n\nfunc handler() {}\n\nfunc handled() {}\n",
+        ),
+    ]);
+    let mut client = Client::unwatched(&[]);
+    client.index(tree.path());
+
+    assert_eq!(
+        client.answer("find_symbols", &json!({"query": "hndle", "limit": 1})),
+        [
+            concat!(
+                r#"<symbols of="hndle" total="0" fuzzy_hits="3" fuzzy_hits_shown="0" unmatched="hndle" "#,
+                r#"one_edit="1">"#
+            ),
+            r#"<suggestion name="handle" qn="walk.handle" kind="function" lang="go" loc="walk.go:3"/>"#,
+            "the limit cut this list - a higher limit lists the rest",
+            "</symbols>",
+        ]
+        .join("\n")
+    );
+}
+
+#[test]
 fn a_call_path_whose_ends_select_in_different_graphs_names_each_ones_languages() {
     let (_tree, mut client) = indexed();
 

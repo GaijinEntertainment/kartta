@@ -772,25 +772,17 @@ impl Server {
 
     #[tool(
         annotations(read_only_hint = true),
-        description = "Find where symbols - functions, methods, types, constants, variables - are defined, by keyword \
-                       search over the words of symbol names and of their files' paths. The starting point for \"where \
-                       is X defined?\" and for pinning a symbol's exact name before find_callers / \
-                       find_implementations. Returns a <symbols> envelope, one ranked <hit/> record per match: name, \
-                       optional qn (the qualified name, when it says more), optional owner (the declaring type or \
-                       namespace), kind, lang, loc, and a one-line sig. A hit whose name is the query outranks every \
-                       other. To read a definition's source, pass its name to read_definitions. When keyword matches \
-                       underfill the limit, fuzzy name matches top the answer up - those records carry fuzzy=true and \
-                       are not matches for the query as requested. total= on <symbols> counts every match, and a limit \
-                       that cuts the answer leaves a last line after the hits - a higher limit or a narrower query \
-                       shows more; unmatched= names the query's words no definition holds, and then up to 5 \
-                       <suggestion/> records before the hits list the definitions named one edit from the whole query \
-                       - a character swapped with the next, dropped, or replaced or added by an ASCII letter, a digit, \
-                       _ or a character of the query - which one_edit= counts; ask an unmatched word alone for those \
-                       of that word. role= on a hit takes test, entry and generated in that precedence. Symbols in \
-                       GENERATED or vendored code rank below hand-written ones. An answer with NO hits says so, and \
-                       names any searched language holding files that yielded no symbols (an unsupported dialect or a \
-                       failed parse) - read that as missing coverage rather than as the symbol not existing, and call \
-                       index_stats for the per-language counts."
+        description = "Find symbol definitions by keyword search over the words of their names and file paths: where X \
+                       is defined, and the exact name other tools take. One ranked <hit/> per keyword match - name, qn \
+                       when it says more, owner, kind, lang, loc, sig; a hit named the query first, GENERATED or \
+                       vendored code last, role= test, entry or generated in that precedence. total= counts keyword \
+                       matches. Only when none match do fuzzy=true hits answer: names spelling the query's characters \
+                       in order, not matches as asked, counted by fuzzy_hits= and listed per fuzzy_hits_shown=. \
+                       unmatched= names query words no definition holds; then up to 5 <suggestion/> records, counted \
+                       by one_edit=, name definitions one edit from the whole query - a character swapped with the \
+                       next, dropped, or replaced or added by an ASCII letter, a digit, _ or one of the query - \
+                       counted, not listed again as hits. A hitless answer names searched languages with files that \
+                       yielded no symbols: missing coverage, not absence."
     )]
     async fn find_symbols(
         &self,
@@ -810,13 +802,12 @@ impl Server {
                 .map(|&(family, graph)| (family, graph.search(&p.query, limit)))
                 .collect();
             let keyword: usize = searches.iter().map(|(_, search)| search.total).sum();
-            let fill_up = keyword < limit;
-            let matched = if fill_up {
-                keyword
-                    + searches
-                        .iter()
-                        .map(|(_, search)| search.fuzzy_total.unwrap_or(0))
-                        .sum::<usize>()
+            let fuzzy = keyword == 0;
+            let matched = if fuzzy {
+                searches
+                    .iter()
+                    .map(|(_, search)| search.fuzzy_total.unwrap_or(0))
+                    .sum()
             } else {
                 keyword
             };
@@ -845,19 +836,20 @@ impl Server {
                 kartta::unmatched(searched.iter().copied(), query, |_| true, SUGGESTIONS)
                     .filter(|near| near.kind == UnmatchedKind::OneEdit)
             };
+            let suggested = one_edit
+                .as_ref()
+                .map_or(&[][..], |near| near.listed.as_slice());
             let mut hits: Vec<(&str, Hit<'_>)> = searches
                 .into_iter()
                 .flat_map(|(family, search)| search.hits.into_iter().map(move |hit| (family, hit)))
-                .filter(|(_, hit)| fill_up || !hit.fuzzy)
+                .filter(|(_, hit)| hit.fuzzy == fuzzy)
                 .collect();
-            hits.sort_by(|left, right| {
-                left.1
-                    .fuzzy
-                    .cmp(&right.1.fuzzy)
-                    .then_with(|| right.1.score.total_cmp(&left.1.score))
-            });
+            let listed = hits.len();
+            hits.retain(|&(family, hit)| !suggested.contains(&(family, hit.definition)));
+            let repeated = listed - hits.len();
+            hits.sort_by(|left, right| right.1.score.total_cmp(&left.1.score));
             hits.truncate(limit);
-            let rows = if hits.is_empty() {
+            let rows = if hits.is_empty() && repeated == 0 {
                 indexed.graphs()
             } else {
                 Vec::new()
@@ -870,6 +862,8 @@ impl Server {
             let found = Found {
                 hits,
                 matched,
+                fuzzy,
+                suggested: repeated,
                 unmatched,
                 dropped_words,
                 one_edit,

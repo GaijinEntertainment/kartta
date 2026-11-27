@@ -415,8 +415,8 @@ pub(crate) struct FindSymbolsParams {
     #[schemars(description = ROOT)]
     pub(crate) root: String,
     /// Keyword(s) matched against the words of symbol names and of their files' paths, e.g. "BuildConfig" or "parse
-    /// config"; camelCase and snake_case split into words. A bare identifier works best; partial names match. A blank
-    /// query is a tool error.
+    /// config"; camelCase and snake_case split into words. Whole words match; a part of a word matches only as a fuzzy
+    /// hit, when no keyword does. A blank query is a tool error.
     pub(crate) query: String,
     /// Language filter, lowercase names as index_stats reports them, e.g. ["go"]. A language of a family filters as the
     /// whole family, as typescript, tsx and javascript each select the jsts graph, and the answer's languages= names
