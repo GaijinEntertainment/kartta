@@ -22,4 +22,4 @@ of a type and what a change to a range of a file's lines reaches, and searches d
 and paths; the engine answers what a change to regions across families reaches, how many files each language claimed,
 how many of them the walk read, the cache held and the graph holds, how every call site of each family binds,
 resolved on the index's threads, and the text of definitions with the doc comments above them, read from their files
-when asked. The first release with a public surface will be `0.1.0`.
+when asked.

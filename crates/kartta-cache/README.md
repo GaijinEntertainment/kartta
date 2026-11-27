@@ -44,5 +44,3 @@ age, and what is past its time to live but still in place.
 `design-docs/adr/2.1-shared-cache-store.md` records the store's rules and why the
 alternatives were rejected, and `design-docs/adr/2.4-cache-pack-merge.md` the merge's;
 PRs #26 to #28 and #81 hold what was measured.
-
-Status: the API is new and is not published yet.

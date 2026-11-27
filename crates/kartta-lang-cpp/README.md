@@ -68,5 +68,3 @@ the grammar gap left open, and why the extensions claimed are the ones they are;
 the repairs the first tree's errors call for, and ADRs 3.70 and 3.72 to 3.76 the rules the walk keeps over the parse;
 the issues they cite lead to the PRs that measured what each recovers;
 `design-docs/adr/3.31-cpp-numeric-tables.md` records the tables.
-
-Status: the API is new and is not published yet.

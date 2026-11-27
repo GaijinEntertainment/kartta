@@ -32,5 +32,3 @@ in any case, is test code; a `*.gen.lua` or `*_pb.lua` file, or one whose leadin
 
 The fingerprint covers the crate's version and source and the grammar's version, node types and table sizes, so a cache
 keeps the extractions of each build of this crate apart.
-
-Status: the API is new and is not published yet.

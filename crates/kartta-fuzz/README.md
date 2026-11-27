@@ -102,5 +102,3 @@ survivors are aligned, so the queries span selectivity: from one character nearl
 alignment dominates, through a two-term query, to one nothing matches, which times the prefilter alone. It is also
 the profiling target: `cargo bench --bench rank -- --profile-time 10` under a sampling profiler reports where the time
 goes.
-
-Status: the API is not published yet.

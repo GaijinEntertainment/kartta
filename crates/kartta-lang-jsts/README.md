@@ -63,5 +63,3 @@ package's code, so a member call through it, `<Dialog.Footer>` with `Dialog` fro
 `path.extname()` with `path` from `node:path`, and a call of the name itself, `useState()` with `useState` from
 `react`, bind no definition of the repository outside the caller's file; a specifier that starts with `.`, `/` or `#`
 names a file of the repository whether it resolves or not.
-
-Status: the API is new and is not published yet.
