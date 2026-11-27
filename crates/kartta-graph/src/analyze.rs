@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 
 use foldhash::fast::FixedState;
 use hashbrown::HashSet;
-use kartta_lang::SymbolKind;
+use kartta_lang::{SymbolFlags, SymbolKind};
 
 use crate::calls::{Calls, Edge, Limits, Reached, WalkState};
 use crate::graph::{Definition, Graph, narrow};
@@ -129,8 +129,8 @@ pub struct Blast {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct DirectCalls<'g> {
-    /// At most the query's [`call_limit`](SegmentQuery::call_limit) of them, in path order, each with its most
-    /// confident call or use.
+    /// At most the query's [`call_limit`](SegmentQuery::call_limit) of them, each with its most confident call or
+    /// use, in path order; callers and users in test and generated code come after the others.
     pub listed: Vec<Reached<'g>>,
     /// Every one that passes the confidence floor, before the list was cut.
     pub total: usize,
@@ -306,8 +306,10 @@ impl<'g> Analysis<'g> {
     ) -> SegmentSymbol<'g> {
         let root = self.calls.canonical(at);
         let floor = self.limits.min_confidence;
-        let callers = DirectCalls::of(self.graph, &self.calls.callers_of(root), floor, call_limit);
-        let users = DirectCalls::of(self.graph, &self.calls.user_edges(root), floor, call_limit);
+        let callers =
+            DirectCalls::dependents(self.graph, &self.calls.callers_of(root), floor, call_limit);
+        let users =
+            DirectCalls::dependents(self.graph, &self.calls.user_edges(root), floor, call_limit);
         let unresolved_before = self.calls.unresolved();
         let outgoing = self.calls.callees_of(root);
         let unresolved = self.calls.unresolved() - unresolved_before;
@@ -358,15 +360,36 @@ impl<'g> Analysis<'g> {
     }
 }
 
+/// Whether a caller or a user is listed after the others: test and generated code.
+pub(crate) const fn listed_last(flags: SymbolFlags) -> bool {
+    flags.is_test() || flags.is_generated()
+}
+
 impl<'g> DirectCalls<'g> {
     fn of(graph: &'g Graph, edges: &[Edge], floor: u8, limit: usize) -> Self {
-        let mut passing = edges.iter().filter(|edge| edge.confidence >= floor);
-        let listed: Vec<Reached<'g>> = passing
-            .by_ref()
-            .take(limit)
-            .map(|edge| edge.reached(graph, 1))
-            .collect();
-        let total = listed.len() + passing.count();
+        let passing = edges.iter().filter(|edge| edge.confidence >= floor);
+        Self::listing(graph, edges, floor, passing.take(limit))
+    }
+
+    /// The callers or users of `edges`, those in test and generated code after the others.
+    fn dependents(graph: &'g Graph, edges: &[Edge], floor: u8, limit: usize) -> Self {
+        let passing = |last: bool| {
+            edges.iter().filter(move |edge| {
+                edge.confidence >= floor && listed_last(graph.flags(edge.far)) == last
+            })
+        };
+        let listed = passing(false).chain(passing(true)).take(limit);
+        Self::listing(graph, edges, floor, listed)
+    }
+
+    fn listing<'e>(
+        graph: &'g Graph,
+        edges: &[Edge],
+        floor: u8,
+        listed: impl Iterator<Item = &'e Edge>,
+    ) -> Self {
+        let listed: Vec<Reached<'g>> = listed.map(|edge| edge.reached(graph, 1)).collect();
+        let total = edges.iter().filter(|edge| edge.confidence >= floor).count();
         Self {
             listed,
             total,

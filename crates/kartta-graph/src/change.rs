@@ -4,7 +4,7 @@ use std::ops::RangeInclusive;
 use foldhash::fast::FixedState;
 use hashbrown::{HashMap, HashSet};
 
-use crate::analyze::{Analysis, ReachBand};
+use crate::analyze::{Analysis, ReachBand, listed_last};
 use crate::calls::{Calls, Edge, Limits, Reached, WalkState};
 use crate::graph::{Definition, Graph, is_data_kind, keep_first};
 use crate::stored::SymbolAt;
@@ -129,7 +129,7 @@ pub struct Seed<'g> {
     /// may call it, and neither `caller_count` nor `reach` counts them.
     pub ambiguous: usize,
     /// Its direct users for a field, a variable or a constant, and its direct callers for any other kind, in path
-    /// order and those outside test, generated and entry code first, when the query's
+    /// order and those outside test and generated code first, when the query's
     /// [`consumer_limit`](ChangeQuery::consumer_limit) or fewer of them pass the floor; empty otherwise.
     pub consumers: Vec<Reached<'g>>,
     /// The directories of the files that hold those direct users or callers, the most first, when more than the
@@ -360,7 +360,7 @@ fn consumers<'g>(graph: &'g Graph, direct: &[Edge], floor: u8) -> Vec<Reached<'g
         .iter()
         .filter(|edge| edge.confidence >= floor)
         .map(|edge| edge.reached(graph, 1))
-        .partition(|reached| !is_reach_artifact(&reached.symbol));
+        .partition(|reached| !listed_last(reached.symbol.flags));
     consumers.extend(artifacts);
     consumers
 }
