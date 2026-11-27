@@ -53,7 +53,7 @@ type GlobParams struct {
 type Glob struct {
 	Paths     []string `json:"paths"`
 	Truncated bool     `json:"truncated"`
-	// Excluded counts the matching paths Exclude left out before the answer ended.
+	// Excluded counts the matching paths Exclude left out, past the limit too.
 	Excluded int `json:"excluded,omitempty"`
 	// StoppedBuild is nil unless the answer reads a stopped build's index.
 	StoppedBuild *StoppedBuild `json:"stopped_build,omitempty"`

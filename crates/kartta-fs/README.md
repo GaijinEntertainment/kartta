@@ -135,7 +135,8 @@ the filesystem does with case, a different question from what a search should do
 A ranking answers how many paths matched beside the ones it returns, so ten paths read as ten of however many matched.
 A limit keeps the best of every match it scores, so the count is a tally of that work. An empty query is not counted:
 it matches every path in index order, so under a limit it stops there without reading the rest, and without one it
-returns every match.
+returns every match. A glob counts its matches as well: under a limit it reads on past the last path it returns and
+matches the filter against every path left, on the index's threads.
 
 `glob` and `fuzzy` take an exclusion beside the `Filter` that selects, as a listing and a content search do: a matched
 directory is removed with everything beneath it before a limit sees it, so a capped answer stays exact. A ranking skips

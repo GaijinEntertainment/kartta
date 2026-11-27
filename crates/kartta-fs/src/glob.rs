@@ -3,8 +3,10 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 
 use kartta_walk::EntryKind;
+use rayon::prelude::*;
 
 use crate::filter::Filter;
+use crate::fuzzy::RANK_CHUNK_LEN;
 use crate::index::{Candidate, Index, Paths, Selection};
 
 /// What a glob search leaves out, and how many paths it returns.
@@ -51,7 +53,7 @@ impl<'a> GlobOptions<'a> {
     }
 }
 
-/// What [`Index::glob`] selected, and whether the limit turned another path away.
+/// What [`Index::glob`] selected, how many paths it matched in all, and whether the limit turned one away.
 ///
 /// The answer borrows the index that gave it, because it names entries by position, and a position names an entry
 /// only in that index as it was when it answered. So it cannot outlive the index:
@@ -73,7 +75,7 @@ impl<'a> GlobOptions<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Capped<'a> {
     items: Vec<usize>,
-    truncated: bool,
+    matched: usize,
     excluded: usize,
     index: PhantomData<&'a Index>,
 }
@@ -87,19 +89,28 @@ impl Capped<'_> {
 
     /// Whether the limit turned a path away, so more match than the answer shows.
     ///
-    /// Settled by an actual rejection rather than inferred from a count, so an answer holding exactly the limit
-    /// reports `false`. Inferring would get this wrong in the one case where a caller most needs it right.
+    /// Settled by [`matched`](Self::matched), never by the answer holding as many paths as the limit, so an answer
+    /// holding exactly the limit reports `false`.
     #[must_use]
     pub const fn truncated(&self) -> bool {
-        self.truncated
+        self.matched > self.items.len()
+    }
+
+    /// How many paths the filter selects outside [`GlobOptions::exclude`], those the limit turned away included.
+    ///
+    /// The search reads on past the limit to count them, matching the filter against every path left on the index's
+    /// threads.
+    #[must_use]
+    pub const fn matched(&self) -> usize {
+        self.matched
     }
 
     /// How many non-directory paths the filter selects that [`GlobOptions::exclude`] removed, those beneath a removed
     /// directory included. A removed directory is no match of its own, so it never counts.
     ///
-    /// Counted up to where the answer ended, so an answer the limit cut short says nothing about exclusions past the
-    /// cut. Counting beneath a removed directory matches the filter against each path there: that one match is what an
-    /// exclusion does not save a glob, where a ranking, which counts nothing, skips the directory's subtree unmatched.
+    /// Counted over the whole index, past the limit included, as [`matched`](Self::matched) is. Counting beneath a
+    /// removed directory matches the filter against each path there: that one match is what an exclusion does not save
+    /// a glob, where a ranking, which counts nothing, skips the directory's subtree unmatched.
     #[must_use]
     pub const fn excluded(&self) -> usize {
         self.excluded
@@ -114,10 +125,10 @@ impl Index {
     /// is [`Index::entries`]' own depth-first one and [`GlobOptions::limit`] takes the first paths in it rather than
     /// the best. [`Filter`] carries the dialect the patterns are written in.
     ///
-    /// Because nothing ranks, [`Capped::truncated`] is what tells a caller whether the limit turned a path away. A
-    /// ranked search needs no such flag — its order already says the rest scored lower — but ten paths in index order
-    /// look identical to the first ten of two hundred. It costs one extra match: the search pulls one path past the
-    /// limit and reports whether it was there.
+    /// Because nothing ranks, [`Capped::truncated`] and [`Capped::matched`] are what tell a caller whether the limit
+    /// turned a path away and how many. A ranked search's order already says the rest scored lower, but ten paths in
+    /// index order look identical to the first ten of two hundred. The count costs a match of every path past the
+    /// limit, run on the index's threads, as many as [`Index::threads`] reports.
     ///
     /// [`GlobOptions::exclude`] removes paths before the limit sees them, so the limit is spent on what the exclusion
     /// leaves and [`Capped::truncated`] stays exact; [`Capped::excluded`] counts what it removed.
@@ -150,14 +161,24 @@ impl Index {
     /// let capped = index.glob(&filter, &GlobOptions::default().limit(1));
     /// assert_eq!(paths.get(capped.items()[0]), "Cargo.toml");
     /// assert!(capped.truncated(), "a second path matched and was turned away");
+    /// assert_eq!(capped.matched(), 2);
     /// # Ok(())
     /// # }
     /// ```
     #[must_use]
     pub fn glob(&self, filter: &Filter, options: &GlobOptions<'_>) -> Capped<'_> {
+        self.glob_in_chunks(filter, options, RANK_CHUNK_LEN)
+    }
+
+    fn glob_in_chunks(
+        &self,
+        filter: &Filter,
+        options: &GlobOptions<'_>,
+        chunk_len: usize,
+    ) -> Capped<'_> {
         let limit = options.limit.map_or(usize::MAX, NonZeroUsize::get);
         let mut items = Vec::new();
-        let mut truncated = false;
+        let mut turned_away = None;
         let mut excluded = 0;
         let mut beneath_paths = self.paths();
         let selection = Selection {
@@ -167,35 +188,140 @@ impl Index {
 
         self.candidates(0..self.len(), selection, |candidate| {
             match candidate {
-                Candidate::Selected(..) if items.len() == limit => {
-                    truncated = true;
+                Candidate::Selected(at, _) if items.len() == limit => {
+                    turned_away = Some(at);
                     return false;
                 }
                 Candidate::Selected(at, _) => items.push(at),
                 Candidate::Excluded => excluded += 1,
                 Candidate::ExcludedBeneath(beneath) => {
-                    excluded += self.selected_in(beneath, filter, &mut beneath_paths);
+                    excluded += self.selected_in(beneath, selection.filter, &mut beneath_paths);
                 }
             }
             true
         });
 
+        let (matched_past, excluded_past) = turned_away.map_or((0, 0), |at| {
+            self.tally(at..self.len(), selection, chunk_len)
+        });
         Capped {
+            matched: items.len() + matched_past,
             items,
-            truncated,
-            excluded,
+            excluded: excluded + excluded_past,
             index: PhantomData,
         }
+    }
+
+    /// How many paths in `positions` `selection` selects, and how many its exclusion removed, counted in runs of
+    /// `chunk_len` entries on the index's threads.
+    fn tally(
+        &self,
+        positions: Range<usize>,
+        selection: Selection<'_>,
+        chunk_len: usize,
+    ) -> (usize, usize) {
+        self.on_threads(|| {
+            positions
+                .clone()
+                .into_par_iter()
+                .step_by(chunk_len)
+                .map(|start| self.tally_run(start..positions.end.min(start + chunk_len), selection))
+                .reduce(
+                    || (0, 0),
+                    |(left_matched, left_excluded), (right_matched, right_excluded)| {
+                        (left_matched + right_matched, left_excluded + right_excluded)
+                    },
+                )
+        })
+    }
+
+    fn tally_run(&self, run: Range<usize>, selection: Selection<'_>) -> (usize, usize) {
+        let mut paths = self.paths();
+        let (mut matched, mut excluded) = (0, 0);
+        self.candidates(run, selection, |candidate| {
+            match candidate {
+                Candidate::Selected(..) => matched += 1,
+                Candidate::Excluded => excluded += 1,
+                Candidate::ExcludedBeneath(beneath) => {
+                    excluded += self.selected_in(beneath, selection.filter, &mut paths);
+                }
+            }
+            true
+        });
+        (matched, excluded)
     }
 
     fn selected_in(
         &self,
         positions: Range<usize>,
-        filter: &Filter,
+        filter: Option<&Filter>,
         paths: &mut Paths<'_>,
     ) -> usize {
         positions
-            .filter(|&at| self.kind_at(at) != EntryKind::Dir && filter.matches(paths.get(at)))
+            .filter(|&at| {
+                self.kind_at(at) != EntryKind::Dir
+                    && filter.is_none_or(|filter| filter.matches(paths.get(at)))
+            })
             .count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BuildOptions;
+
+    #[test]
+    fn chunks_counted_apart_count_as_one_chunk_does() {
+        // constraint: the count past the limit splits into chunks only past RANK_CHUNK_LEN entries, a tree too large
+        // to build here, so the chunks are made small instead
+        let dir = tempfile::tempdir().expect("create temp dir");
+        for path in [
+            "a.rs",
+            "b/c.rs",
+            "b/d.md",
+            "e.rs",
+            "vendor/deep/f.rs",
+            "vendor/g.rs",
+            "z.rs",
+        ] {
+            let full = dir.path().join(path);
+            std::fs::create_dir_all(full.parent().expect("a parent")).expect("create directory");
+            std::fs::write(full, "x").expect("write file");
+        }
+        let index = Index::build(dir.path(), &BuildOptions::default())
+            .expect("build")
+            .index;
+        let sources = Filter::new(["*.rs"]).expect("compile");
+        let vendor = Filter::new(["vendor"]).expect("compile");
+
+        for limit in [0, 1, 3, 4] {
+            let options = GlobOptions::default().exclude(&vendor).limit(limit);
+            let whole = index.glob_in_chunks(&sources, &options, index.len());
+            for chunk_len in 1..index.len() {
+                assert_eq!(
+                    index.glob_in_chunks(&sources, &options, chunk_len),
+                    whole,
+                    "limit {limit}, chunks of {chunk_len}"
+                );
+            }
+        }
+
+        let cut = index.glob_in_chunks(
+            &sources,
+            &GlobOptions::default().exclude(&vendor).limit(1),
+            1,
+        );
+        assert_eq!(
+            cut.matched(),
+            4,
+            "a.rs, b/c.rs, e.rs and z.rs, a chunk starting inside vendor counting nothing there"
+        );
+        assert_eq!(
+            cut.excluded(),
+            2,
+            "vendor/deep/f.rs and vendor/g.rs, past the cut, each counted once whichever chunk it falls in"
+        );
+        assert!(cut.truncated());
     }
 }

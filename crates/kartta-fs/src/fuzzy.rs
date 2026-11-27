@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use crate::filter::Filter;
 use crate::index::{Candidate, Index, Selection};
 
-const RANK_CHUNK_LEN: usize = 16 * 1024;
+pub(crate) const RANK_CHUNK_LEN: usize = 16 * 1024;
 
 /// One ranked entry and the score its path earned.
 ///

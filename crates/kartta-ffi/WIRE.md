@@ -1066,7 +1066,7 @@ Each definition counts once, under the first reason that holds for it.
 
 - `paths` (array of string, always): The matching paths in index order.
 - `truncated` (boolean, always): The limit left paths out.
-- `excluded` (integer, optional): The matching paths `exclude` left out before the answer ended. Absent when none.
+- `excluded` (integer, optional): The matching paths `exclude` left out, past the limit too. Absent when none.
 - `stopped_build` ([`StoppedView`](#stoppedview), optional): The answer reads a stopped build's index. Absent after a
   build that finished.
 

@@ -777,6 +777,38 @@ fn glob_honours_a_limit_by_taking_the_first_paths_in_index_order() {
 }
 
 #[test]
+fn a_cut_glob_counts_every_match_and_exclusion_past_its_limit() {
+    let dir = tree(&[
+        ("a.rs", ""),
+        ("b.rs", ""),
+        ("c/x.rs", ""),
+        ("d.md", ""),
+        ("e/skipped.rs", ""),
+        ("f.rs", ""),
+    ]);
+    let index = default_index(dir.path());
+    let sources = filter(&["*.rs"]);
+    let skipped = filter(&["e"]);
+
+    let cut = index.glob(&sources, &GlobOptions::default().exclude(&skipped).limit(1));
+
+    assert_eq!(paths_at(&index, cut.items().iter().copied()), ["a.rs"]);
+    assert_eq!(
+        cut.matched(),
+        4,
+        "a.rs, b.rs, c/x.rs and f.rs, read past the cut"
+    );
+    assert!(cut.truncated());
+    assert_eq!(cut.excluded(), 1, "e/skipped.rs, past the cut");
+    let whole = index.glob(&sources, &GlobOptions::default().exclude(&skipped));
+    assert_eq!(
+        (cut.matched(), cut.excluded()),
+        (whole.matched(), whole.excluded()),
+        "the same counts as a glob the limit does not cut"
+    );
+}
+
+#[test]
 fn glob_answers_nothing_when_no_pattern_selects_anything() {
     let dir = tree(&[("src/main.rs", "")]);
     let index = default_index(dir.path());
@@ -867,9 +899,14 @@ fn a_glob_limit_stays_exact_under_an_exclusion() {
     assert_eq!(paths_at(&index, cut.items().iter().copied()), ["b.rs"]);
     assert!(cut.truncated(), "c.rs matched and was turned away");
     assert_eq!(
+        cut.matched(),
+        2,
+        "b.rs and c.rs, never a path the exclusion removed"
+    );
+    assert_eq!(
         cut.excluded(),
-        1,
-        "the answer ended at c.rs, so d/skipped.rs past the cut is not counted"
+        2,
+        "a/skipped.rs before the cut and d/skipped.rs past it"
     );
 }
 
