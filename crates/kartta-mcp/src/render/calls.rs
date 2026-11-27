@@ -5,8 +5,8 @@ use std::ops::Range;
 
 use kartta::{
     CallPath, Candidate, Conventions, Definition, DirectCalls, EngineChange, FileScope, Hotspot,
-    Reached, Reference, References, Seed, Segment, SegmentSymbol, Selector, SelfCall, SymbolKind,
-    TypeUses, Walk,
+    Reached, Reference, References, Seed, Segment, SegmentSymbol, Selector, SelfCall, SymbolFlags,
+    SymbolKind, TypeUses, Walk,
 };
 
 use super::{
@@ -1012,7 +1012,7 @@ fn listed_of(tag: &'static str, shown: usize, total: usize) -> Element {
         .flag("truncated", cut)
 }
 
-/// Each caller role, and the `<match>` attribute that counts it when `find_callers` keeps one role.
+/// Each caller role, and the `<match>` attribute of `find_callers` that counts it.
 const ROLE_COUNTS: [(&str, &str); 4] = [
     ("consumer", "consumers"),
     ("test", "tests"),
@@ -1067,21 +1067,31 @@ pub(crate) fn callers(
     )
 }
 
-/// One graph's walk: the symbol, how many callers it reached and how widely that ranks, what the walk left out, and a
-/// flat `<ref>` per caller, nearest first, at most `listed` of those `role` keeps.
+/// Whether a caller is listed after the consumer and entry callers of its hop: test and generated code.
+const fn listed_last(flags: SymbolFlags) -> bool {
+    flags.is_test() || flags.is_generated()
+}
+
+/// One graph's walk: the symbol, how many callers it reached by role, what the walk left out, and a flat `<ref>` per
+/// caller, nearest first and within a hop the consumer and entry code ahead of the test and generated code, at most
+/// `listed` of those `role` keeps.
 fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usize) -> String {
     let root = &walk.root;
     let reached = walk.reached.len();
-    let keeps = |caller: &&Reached<'_>| {
-        ask.role
-            .is_none_or(|role| edge_role(caller.symbol.flags) == role)
-    };
-    let kept = walk.reached.iter().filter(keeps).count();
-    let shown = kept.min(listed);
+    let mut kept: Vec<&Reached<'_>> = walk
+        .reached
+        .iter()
+        .filter(|caller| {
+            ask.role
+                .is_none_or(|role| edge_role(caller.symbol.flags) == role)
+        })
+        .collect();
+    kept.sort_by_key(|caller| (caller.depth, listed_last(caller.symbol.flags)));
+    let shown = kept.len().min(listed);
     let element = match_of(family, root)
         .attr("total", reached)
         .optional("shown", (reached > shown).then_some(shown))
-        .flag("truncated", kept > listed)
+        .flag("truncated", kept.len() > listed)
         .count("turned_away", walk.turned_away)
         .count("unexpanded", walk.unexpanded)
         .count("ambiguous", walk.ambiguous)
@@ -1092,17 +1102,15 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
     } else {
         element.count("file_scope", walk.file_scope.len())
     };
-    if ask.role.is_some() {
-        let mut callers = [0_usize; ROLE_COUNTS.len()];
-        for caller in &walk.reached {
-            let role = edge_role(caller.symbol.flags);
-            if let Some(at) = ROLE_COUNTS.iter().position(|(counted, _)| *counted == role) {
-                callers[at] += 1;
-            }
+    let mut callers = [0_usize; ROLE_COUNTS.len()];
+    for caller in &walk.reached {
+        let role = edge_role(caller.symbol.flags);
+        if let Some(at) = ROLE_COUNTS.iter().position(|(counted, _)| *counted == role) {
+            callers[at] += 1;
         }
-        for ((_, attribute), callers) in ROLE_COUNTS.iter().zip(callers) {
-            element = element.attr(attribute, callers);
-        }
+    }
+    for ((_, attribute), callers) in ROLE_COUNTS.iter().zip(callers) {
+        element = element.count(attribute, callers);
     }
     let passed_over = candidates(&walk.candidates, "callers", walk.passed_over, family);
     let itself = walk.self_call.map(self_call);
@@ -1119,18 +1127,13 @@ fn caller_match(ask: &CallersAsk<'_>, family: &str, walk: &Walk<'_>, listed: usi
             itself.into_iter().chain(passed_over).collect(),
         );
     }
-    let refs = walk
-        .reached
-        .iter()
-        .filter(keeps)
-        .take(listed)
-        .map(|caller| {
-            edge("ref", caller)
-                .attr("hops", caller.depth)
-                .attr("at", caller.line)
-                .close()
-        });
-    let cut = (kept > listed).then(|| LIMIT_CUT.to_owned());
+    let refs = kept.iter().take(listed).map(|caller| {
+        edge("ref", caller)
+            .attr("hops", caller.depth)
+            .attr("at", caller.line)
+            .close()
+    });
+    let cut = (kept.len() > listed).then(|| LIMIT_CUT.to_owned());
     let file_scope = ask
         .role
         .is_none()

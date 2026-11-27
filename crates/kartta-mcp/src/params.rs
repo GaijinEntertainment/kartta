@@ -207,9 +207,8 @@ pub(crate) struct FindCallersParams {
     #[serde(default)]
     pub(crate) min_confidence: Option<ConfidenceFloor>,
     /// Keep only the callers of this role: "consumer", "test", "entry", or "generated" - the role= value a <ref/>
-    /// carries. Each <match> then counts its callers per role (consumers, tests, entries, generated), and total still
-    /// counts every caller. The walk is the same with or without it, so a caller of another role still leads to the
-    /// callers beyond it. Omitted or null keeps every caller.
+    /// carries. total and the counts per role still count every caller. The walk is the same with or without it, so
+    /// a caller of another role still leads to the callers beyond it. Omitted or null keeps every caller.
     #[serde(default)]
     pub(crate) role: Option<CallerRole>,
     /// Positive cap on the <ref/> records a match lists, nearest first, after 'role' keeps its callers. Omitted or null

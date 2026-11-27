@@ -1485,7 +1485,8 @@ fn find_callers_walks_callers_with_the_line_of_each_call() {
     assert_eq!(
         client.answer("find_callers", &json!({"name": "Greet"})),
         "<callers of=\"Greet\" total=\"1\">\n\
-         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" total=\"2\">\n\
+         <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" total=\"2\" \
+         consumers=\"1\" entries=\"1\">\n\
          <ref name=\"run\" qn=\"main.run\" loc=\"cmd/app/main.go:10-12\" role=\"consumer\" hops=\"1\" \
          at=\"11\"/>\n\
          <ref name=\"main\" qn=\"main.main\" loc=\"cmd/app/main.go:5-8\" role=\"entry\" hops=\"2\" \
@@ -1500,7 +1501,7 @@ fn find_callers_walks_callers_with_the_line_of_each_call() {
         ),
         "<callers of=\"Greet\" role=\"entry\" total=\"1\">\n\
          <match lang=\"go\" of=\"Greet\" qn=\"pkg.Service.Greet\" loc=\"pkg/service.go:12-14\" total=\"1\" shown=\"0\" \
-         unexpanded=\"1\" consumers=\"1\" tests=\"0\" entries=\"0\" generated=\"0\"/>\n\
+         unexpanded=\"1\" consumers=\"1\"/>\n\
          </callers>"
     );
 }
