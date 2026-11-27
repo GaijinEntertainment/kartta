@@ -108,7 +108,7 @@ pub use kartta_graph::{
     Implementations, Implementor, Limits, Miss, Misses, Nearness, OutsideImplementations,
     ReachBand, Reached, Reference, References, Region, Resolution, Search, Seed, Segment,
     SegmentQuery, SegmentSymbol, Selector, SelfCall, SiteCounts, SiteQuery, Stats, Unbound, Walk,
-    confidence, is_parent, is_referent,
+    confidence, each_one_edit, is_parent, is_referent,
 };
 pub use kartta_lang::{
     Access, BlockComment, Conventions, DocComments, Extraction, Language, RawExtraction,

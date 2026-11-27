@@ -4,9 +4,8 @@ use hashbrown::HashSet;
 use crate::graph::{Definition, Graph, tails};
 use crate::stored::SymbolAt;
 
-/// The most characters a name [`Graph::definitions_one_edit_from`] looks up the names one edit from holds: past it, a
-/// lookup's cost, in the square of the length, buys nothing, the longest qualified name of 2.3 million definitions on
-/// the trees measured being 189 characters.
+/// The most characters a name [`each_one_edit`] edits holds: past it, a lookup's cost, in the square of the length,
+/// buys nothing, the longest qualified name of 2.3 million definitions on the trees measured being 189 characters.
 const LONGEST: usize = 256;
 
 impl Graph {
@@ -42,9 +41,6 @@ impl Graph {
     /// ```
     #[must_use]
     pub fn definitions_one_edit_from(&self, name: &str) -> Vec<Definition<'_>> {
-        if name.chars().nth(LONGEST).is_some() {
-            return Vec::new();
-        }
         let last = tails(name).next();
         let mut segment: Option<Segment<'_>> = None;
         let mut found: HashSet<SymbolAt, FixedState> = HashSet::default();
@@ -128,10 +124,24 @@ impl<'g> Segment<'g> {
     }
 }
 
-/// Calls `each` once with every string one edit from `name`, as [`Graph::definitions_one_edit_from`] edits one, but the
-/// empty one: a character dropped from a run of it, or added beside its like, is dropped or added at the run's end
-/// alone.
-fn each_one_edit(name: &str, mut each: impl FnMut(&str)) {
+/// Calls `each` once with every string one edit from `name`, as [`Graph::definitions_one_edit_from`] edits a name.
+///
+/// An edit swaps a character with the next, drops one, or replaces or adds one, a replacing or added character being an
+/// ASCII letter, a digit, `_` or one `name` holds. A character dropped from a run of it, or added beside its like, is
+/// dropped or added at the run's end alone, so no string comes twice, and none is `name` itself or the empty one. A
+/// `name` of more than 256 characters gets no call.
+///
+/// # Examples
+///
+/// ```
+/// let mut edited = Vec::new();
+/// kartta_graph::each_one_edit("mian.rs", |near| edited.push(near.to_owned()));
+/// assert!(edited.iter().any(|near| near == "main.rs"));
+/// ```
+pub fn each_one_edit(name: &str, mut each: impl FnMut(&str)) {
+    if name.chars().nth(LONGEST).is_some() {
+        return;
+    }
     let chars: Vec<char> = name.chars().collect();
     let mut added: Vec<char> = ('a'..='z')
         .chain('A'..='Z')
